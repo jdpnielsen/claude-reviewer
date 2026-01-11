@@ -164,21 +164,19 @@ input, select, textarea {
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 1.5rem;
-  max-height: calc(100vh - 180px);
+  height: calc(100vh - 180px);
+  overflow: hidden;
 }
 
 .pr-sidebar {
-  position: sticky;
-  top: 0;
-  height: fit-content;
-  max-height: calc(100vh - 180px);
+  height: 100%;
   overflow-y: auto;
   min-width: 250px;
 }
 
 .pr-main {
+  height: 100%;
   overflow-y: auto;
-  max-height: calc(100vh - 180px);
   scroll-behavior: smooth;
 }
 
