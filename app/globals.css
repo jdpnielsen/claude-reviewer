@@ -178,6 +178,7 @@ input, select, textarea {
   height: 100%;
   overflow-y: auto;
   scroll-behavior: smooth;
+  background: #0d1117;
 }
 
 .sidebar-section {
@@ -197,7 +198,42 @@ input, select, textarea {
 .file-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-align: left;
+  width: 100%;
+}
+
+.folder-item:hover {
+  color: #c9d1d9;
+}
+
+.folder-item .folder-icon {
+  transition: transform 0.15s ease;
+}
+
+.folder-item.collapsed .folder-icon {
+  transform: rotate(-90deg);
+}
+
+.folder-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.folder-children.collapsed {
+  display: none;
 }
 
 .file-item {

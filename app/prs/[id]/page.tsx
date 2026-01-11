@@ -24,6 +24,8 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Folder,
+  FolderOpen,
 } from 'lucide-react';
 
 // Map file extensions to Prism language identifiers
@@ -111,6 +113,44 @@ interface PRData {
   comments: CommentWithReplies[];
 }
 
+// Folder tree structure for sidebar
+interface FolderNode {
+  name: string;
+  path: string;
+  files: FileInfo[];
+  children: Map<string, FolderNode>;
+}
+
+function buildFolderTree(files: FileInfo[]): FolderNode {
+  const root: FolderNode = { name: '', path: '', files: [], children: new Map() };
+
+  for (const file of files) {
+    const parts = file.path.split('/');
+    let current = root;
+
+    // Navigate/create folder structure
+    for (let i = 0; i < parts.length - 1; i++) {
+      const folderName = parts[i];
+      const folderPath = parts.slice(0, i + 1).join('/');
+
+      if (!current.children.has(folderName)) {
+        current.children.set(folderName, {
+          name: folderName,
+          path: folderPath,
+          files: [],
+          children: new Map()
+        });
+      }
+      current = current.children.get(folderName)!;
+    }
+
+    // Add file to current folder
+    current.files.push(file);
+  }
+
+  return root;
+}
+
 // GitHub-style status colors
 const statusConfig = {
   pending: { icon: Clock, color: '#d29922', label: 'Pending Review' },
@@ -175,6 +215,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   // Track which files show all lines (for large diffs)
   const [showAllLines, setShowAllLines] = useState<Set<string>>(new Set());
   const MAX_LINES_DEFAULT = 300; // Limit lines for performance
+  // Track collapsed folders in sidebar
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
   const fetchContext = async (filePath: string, startLine: number, endLine: number, key: string) => {
     if (loadingContext.has(key)) return;
@@ -660,26 +702,76 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           <div className="sidebar-section">
             <h3>Files Changed ({files.length})</h3>
             <div className="file-list">
-              {files.map((file) => (
-                <button
-                  key={file.path}
-                  className={`file-item ${expandedFiles.has(file.path) ? 'active' : ''}`}
-                  onClick={(e) => {
-                    e.preventDefault(); // Prevent default anchor behavior
-                    if (!expandedFiles.has(file.path)) {
-                      toggleFile(file.path);
+              {(() => {
+                const tree = buildFolderTree(files);
+                const toggleFolder = (path: string) => {
+                  setCollapsedFolders(prev => {
+                    const next = new Set(prev);
+                    if (next.has(path)) {
+                      next.delete(path);
+                    } else {
+                      next.add(path);
                     }
-                    scrollToDiff(file.path);
-                  }}
-                >
-                  <File size={14} />
-                  <span className="file-name">{file.path.split('/').pop()}</span>
-                  <span className="file-stats">
-                    <span className="additions">+{file.additions}</span>
-                    <span className="deletions">-{file.deletions}</span>
-                  </span>
-                </button>
-              ))}
+                    return next;
+                  });
+                };
+
+                const renderNode = (node: FolderNode, depth: number = 0): React.ReactNode[] => {
+                  const items: React.ReactNode[] = [];
+                  const indent = depth * 12;
+
+                  // Render child folders first
+                  const sortedFolders = Array.from(node.children.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                  for (const [, childNode] of sortedFolders) {
+                    const isCollapsed = collapsedFolders.has(childNode.path);
+                    items.push(
+                      <button
+                        key={`folder-${childNode.path}`}
+                        className={`folder-item ${isCollapsed ? 'collapsed' : ''}`}
+                        onClick={() => toggleFolder(childNode.path)}
+                        style={{ paddingLeft: `${indent + 8}px` }}
+                      >
+                        <ChevronDown size={12} className="folder-icon" />
+                        {isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
+                        <span>{childNode.name}</span>
+                      </button>
+                    );
+                    if (!isCollapsed) {
+                      items.push(...renderNode(childNode, depth + 1));
+                    }
+                  }
+
+                  // Render files
+                  const sortedFiles = [...node.files].sort((a, b) => a.path.localeCompare(b.path));
+                  for (const file of sortedFiles) {
+                    items.push(
+                      <button
+                        key={file.path}
+                        className={`file-item ${expandedFiles.has(file.path) ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (!expandedFiles.has(file.path)) {
+                            toggleFile(file.path);
+                          }
+                          scrollToDiff(file.path);
+                        }}
+                        style={{ paddingLeft: `${indent + 8}px` }}
+                      >
+                        <File size={14} />
+                        <span className="file-name">{file.path.split('/').pop()}</span>
+                        <span className="file-stats">
+                          <span className="additions">+{file.additions}</span>
+                          <span className="deletions">-{file.deletions}</span>
+                        </span>
+                      </button>
+                    );
+                  }
+
+                  return items;
+                };
+
+                return renderNode(tree);
+              })()}
             </div>
           </div>
 
