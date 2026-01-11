@@ -172,6 +172,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   // Track expanded context: key is "filePath:hunkIndex:direction", value is array of lines
   const [expandedContext, setExpandedContext] = useState<Map<string, string[]>>(new Map());
   const [loadingContext, setLoadingContext] = useState<Set<string>>(new Set());
+  // Track which files show all lines (for large diffs)
+  const [showAllLines, setShowAllLines] = useState<Set<string>>(new Set());
+  const MAX_LINES_DEFAULT = 300; // Limit lines for performance
 
   const fetchContext = async (filePath: string, startLine: number, endLine: number, key: string) => {
     if (loadingContext.has(key)) return;
@@ -280,8 +283,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       if (!res.ok) throw new Error('PR not found');
       const prData = await res.json();
       setData(prData);
-      // Expand all files by default
-      setExpandedFiles(new Set(prData.files.map((f: FileInfo) => f.path)));
+      // For large PRs (>10 files), only expand first 3 files for performance
+      // For smaller PRs, expand all
+      const files = prData.files as FileInfo[];
+      if (files.length > 10) {
+        setExpandedFiles(new Set(files.slice(0, 3).map(f => f.path)));
+      } else {
+        setExpandedFiles(new Set(files.map(f => f.path)));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error loading PR');
     } finally {
@@ -310,8 +319,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
   const scrollToDiff = (path: string) => {
     const element = document.getElementById(`file-${path.replace(/[^a-zA-Z0-9]/g, '-')}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const mainContainer = document.querySelector('.pr-main');
+    if (element && mainContainer) {
+      // Scroll within the main container, not the whole page
+      const containerRect = mainContainer.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const scrollTop = mainContainer.scrollTop + (elementRect.top - containerRect.top) - 20;
+      mainContainer.scrollTo({ top: scrollTop, behavior: 'smooth' });
     }
   };
 
@@ -583,46 +597,44 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         <div className="pr-title-row">
           <GitPullRequest size={24} className="pr-icon" />
           <h1>{pr.title}</h1>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
             <button
               onClick={expandAll}
               title="Expand All"
               style={{
-                width: '28px',
-                height: '14px',
+                padding: '0.25rem 0.5rem',
                 background: '#21262d',
                 color: '#58a6ff',
+                fontSize: '0.75rem',
                 border: '1px solid #30363d',
-                borderRadius: '14px 14px 0 0',
+                borderRadius: '4px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                outline: 'none'
+                gap: '0.25rem'
               }}
             >
-              <ChevronUp size={12} />
+              <Maximize2 size={12} />
+              Expand All
             </button>
             <button
               onClick={collapseAll}
               title="Collapse All"
               style={{
-                width: '28px',
-                height: '14px',
+                padding: '0.25rem 0.5rem',
                 background: '#21262d',
                 color: '#8b949e',
+                fontSize: '0.75rem',
                 border: '1px solid #30363d',
-                borderRadius: '0 0 14px 14px',
+                borderRadius: '4px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                outline: 'none'
+                gap: '0.25rem'
               }}
             >
-              <ChevronDown size={12} />
+              <Minimize2 size={12} />
+              Collapse All
             </button>
           </div>
           <span className="status-badge" style={{ backgroundColor: config.color }}>
@@ -781,7 +793,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                         }
                       });
 
-                      return diffLines.map((line, idx) => {
+                      // Limit lines for large diffs unless "show all" is enabled
+                      const isLargeDiff = diffLines.length > MAX_LINES_DEFAULT;
+                      const shouldLimit = isLargeDiff && !showAllLines.has(file.path);
+                      const linesToRender = shouldLimit ? diffLines.slice(0, MAX_LINES_DEFAULT) : diffLines;
+
+                      return (
+                        <>
+                          {linesToRender.map((line, idx) => {
                         // Parse hunk header for line numbers
                         if (line.startsWith('@@')) {
                           hunkIndex++;
@@ -1029,7 +1048,34 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                             )}
                           </div>
                         );
-                      });
+                      })}
+                          {shouldLimit && (
+                            <div
+                              style={{
+                                padding: '1rem',
+                                textAlign: 'center',
+                                background: '#161b22',
+                                borderTop: '1px solid #30363d'
+                              }}
+                            >
+                              <button
+                                onClick={() => setShowAllLines(prev => new Set(prev).add(file.path))}
+                                style={{
+                                  padding: '0.5rem 1rem',
+                                  background: '#21262d',
+                                  color: '#58a6ff',
+                                  border: '1px solid #30363d',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.875rem'
+                                }}
+                              >
+                                Show all {diffLines.length} lines ({diffLines.length - MAX_LINES_DEFAULT} more)
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
                     })()}
                   </div>
                 )}
