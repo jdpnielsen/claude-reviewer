@@ -1,3 +1,4 @@
+// Claude CLI integration for AI-powered code review operations
 import { spawn } from 'child_process';
 
 async function runClaude(prompt: string): Promise<string> {

@@ -26,6 +26,8 @@ import {
   MoreHorizontal,
   Folder,
   FolderOpen,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 
 // Map file extensions to Prism language identifiers
@@ -208,6 +210,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [replyContent, setReplyContent] = useState('');
   const [reviewSummary, setReviewSummary] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [requestingAI, setRequestingAI] = useState(false);
   const [previewMode, setPreviewMode] = useState<Set<string>>(new Set());
   // Track expanded context: key is "filePath:hunkIndex:direction", value is array of lines
   const [expandedContext, setExpandedContext] = useState<Map<string, string[]>>(new Map());
@@ -316,6 +319,25 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
   useEffect(() => {
     fetchPR();
+
+    // Poll for comment updates every 5 seconds
+    const interval = setInterval(() => {
+      // Only fetch comments, not the full PR data (to preserve UI state)
+      fetch(`/api/prs/${id}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(prData => {
+          if (prData) {
+            setData(prev => prev ? {
+              ...prev,
+              comments: prData.comments,
+              pr: { ...prev.pr, status: prData.pr.status }
+            } : prData);
+          }
+        })
+        .catch(() => {}); // Silently ignore polling errors
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [id]);
 
   const fetchPR = async () => {
@@ -583,6 +605,27 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
+  const requestAIReview = async () => {
+    setRequestingAI(true);
+    try {
+      const res = await fetch(`/api/prs/${id}/ai-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        alert(`AI Review failed: ${result.error}`);
+      } else {
+        // Refresh to show new comments
+        fetchPR();
+      }
+    } catch (e) {
+      alert('Error requesting AI review');
+    } finally {
+      setRequestingAI(false);
+    }
+  };
+
 
   // Parse diff into file chunks
   const parseFileDiff = (diff: string, filePath: string): string[] => {
@@ -677,6 +720,27 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
             >
               <Minimize2 size={12} />
               Collapse All
+            </button>
+            <button
+              onClick={requestAIReview}
+              disabled={requestingAI}
+              title="Request AI Review (with full codebase context)"
+              style={{
+                padding: '0.25rem 0.75rem',
+                background: requestingAI ? '#21262d' : '#238636',
+                color: '#ffffff',
+                fontSize: '0.75rem',
+                border: '1px solid #238636',
+                borderRadius: '4px',
+                cursor: requestingAI ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                opacity: requestingAI ? 0.7 : 1
+              }}
+            >
+              {requestingAI ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {requestingAI ? 'Reviewing...' : 'AI Review'}
             </button>
           </div>
           <span className="status-badge" style={{ backgroundColor: config.color }}>
