@@ -76,3 +76,41 @@ class CommentReply:
     author: str
     content: str
     created_at: Optional[datetime] = None
+
+
+class RepoConversationStatus(str, Enum):
+    ACTIVE = "active"
+    ORPHANED = "orphaned"
+    RESOLVED = "resolved"
+
+
+@dataclass
+class RepoConversation:
+    """A conversation thread attached to a specific line in a file."""
+
+    id: int
+    uuid: str
+    repo_path: str
+    file_path: str
+    line_number: int
+    anchor_content: Optional[str] = None
+    anchor_context_before: Optional[str] = None
+    anchor_context_after: Optional[str] = None
+    anchor_commit: Optional[str] = None
+    status: RepoConversationStatus = RepoConversationStatus.ACTIVE
+    file_exists: bool = True
+    current_line_number: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+@dataclass
+class RepoConversationMessage:
+    """A message within a repo conversation thread."""
+
+    id: int
+    uuid: str
+    conversation_id: int
+    author: str
+    content: str
+    created_at: Optional[datetime] = None

@@ -9,7 +9,22 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .models import Comment, CommentReply, PRStatus, PullRequest, ReviewAction
+from .models import (
+    Comment,
+    CommentReply,
+    PRStatus,
+    PullRequest,
+    RepoConversation,
+    RepoConversationMessage,
+    RepoConversationStatus,
+    ReviewAction,
+)
+
+# Re-export for CLI
+__all__ = [
+    "get_unanswered_pr_comments",
+    "get_unanswered_conversations",
+]
 
 if TYPE_CHECKING:
     pass
@@ -92,6 +107,41 @@ CREATE TABLE IF NOT EXISTS comment_replies (
 );
 
 CREATE INDEX IF NOT EXISTS idx_replies_comment ON comment_replies(comment_id);
+
+-- Repo-level conversations (independent of PRs)
+CREATE TABLE IF NOT EXISTS repo_conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    repo_path TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    line_number INTEGER NOT NULL,
+    anchor_content TEXT,
+    anchor_context_before TEXT,
+    anchor_context_after TEXT,
+    anchor_commit TEXT,
+    status TEXT DEFAULT 'active',
+    file_exists BOOLEAN DEFAULT TRUE,
+    current_line_number INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_conv_uuid ON repo_conversations(uuid);
+CREATE INDEX IF NOT EXISTS idx_repo_conv_repo ON repo_conversations(repo_path);
+CREATE INDEX IF NOT EXISTS idx_repo_conv_file ON repo_conversations(repo_path, file_path);
+CREATE INDEX IF NOT EXISTS idx_repo_conv_status ON repo_conversations(status);
+
+-- Repo conversation messages
+CREATE TABLE IF NOT EXISTS repo_conversation_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    conversation_id INTEGER NOT NULL REFERENCES repo_conversations(id) ON DELETE CASCADE,
+    author TEXT NOT NULL DEFAULT 'user',
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_conv_msg_conv ON repo_conversation_messages(conversation_id);
 """
 
 
@@ -594,3 +644,278 @@ def get_comments_with_replies(
         replies = get_replies(comment.uuid)
         result.append((comment, replies))
     return result
+
+
+# =============================================================================
+# Repo Conversation Operations
+# =============================================================================
+
+
+def _row_to_repo_conversation(row: sqlite3.Row) -> RepoConversation:
+    """Convert a database row to a RepoConversation object."""
+    return RepoConversation(
+        id=row["id"],
+        uuid=row["uuid"],
+        repo_path=row["repo_path"],
+        file_path=row["file_path"],
+        line_number=row["line_number"],
+        anchor_content=row["anchor_content"],
+        anchor_context_before=row["anchor_context_before"],
+        anchor_context_after=row["anchor_context_after"],
+        anchor_commit=row["anchor_commit"],
+        status=RepoConversationStatus(row["status"]),
+        file_exists=bool(row["file_exists"]),
+        current_line_number=row["current_line_number"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _row_to_repo_message(row: sqlite3.Row) -> RepoConversationMessage:
+    """Convert a database row to a RepoConversationMessage object."""
+    return RepoConversationMessage(
+        id=row["id"],
+        uuid=row["uuid"],
+        conversation_id=row["conversation_id"],
+        author=row["author"],
+        content=row["content"],
+        created_at=row["created_at"],
+    )
+
+
+def create_repo_conversation(
+    repo_path: str,
+    file_path: str,
+    line_number: int,
+    content: str,
+    author: str = "user",
+    anchor_content: str | None = None,
+    anchor_context_before: str | None = None,
+    anchor_context_after: str | None = None,
+    anchor_commit: str | None = None,
+) -> str:
+    """Create a new repo conversation with initial message and return its UUID."""
+    conv_uuid = generate_uuid()
+    msg_uuid = generate_uuid()
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO repo_conversations
+            (uuid, repo_path, file_path, line_number, anchor_content,
+             anchor_context_before, anchor_context_after, anchor_commit, current_line_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conv_uuid,
+                repo_path,
+                file_path,
+                line_number,
+                anchor_content,
+                anchor_context_before,
+                anchor_context_after,
+                anchor_commit,
+                line_number,
+            ),
+        )
+        conv_id = cursor.lastrowid
+
+        # Add initial message
+        conn.execute(
+            """
+            INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+            VALUES (?, ?, ?, ?)
+            """,
+            (msg_uuid, conv_id, author, content),
+        )
+
+    return conv_uuid
+
+
+def get_repo_conversation(conv_uuid: str) -> RepoConversation | None:
+    """Get a repo conversation by its UUID."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM repo_conversations WHERE uuid = ?",
+            (conv_uuid,),
+        ).fetchone()
+
+        if row:
+            return _row_to_repo_conversation(row)
+    return None
+
+
+def list_repo_conversations(
+    repo_path: str,
+    file_path: str | None = None,
+    status: RepoConversationStatus | None = None,
+) -> list[RepoConversation]:
+    """List repo conversations with optional filters."""
+    query = "SELECT * FROM repo_conversations WHERE repo_path = ?"
+    params: list[Any] = [repo_path]
+
+    if file_path:
+        query += " AND file_path = ?"
+        params.append(file_path)
+
+    if status:
+        query += " AND status = ?"
+        params.append(status.value)
+
+    query += " ORDER BY file_path, line_number"
+
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+        return [_row_to_repo_conversation(row) for row in rows]
+
+
+def update_repo_conversation_status(
+    conv_uuid: str,
+    status: RepoConversationStatus,
+) -> bool:
+    """Update a repo conversation's status."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE repo_conversations
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE uuid = ?
+            """,
+            (status.value, conv_uuid),
+        )
+        return bool(cursor.rowcount > 0)
+
+
+def update_repo_conversation_anchor(
+    conv_uuid: str,
+    current_line_number: int | None,
+    file_exists: bool = True,
+) -> bool:
+    """Update a repo conversation's current line number and file existence."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE repo_conversations
+            SET current_line_number = ?, file_exists = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE uuid = ?
+            """,
+            (current_line_number, file_exists, conv_uuid),
+        )
+        return bool(cursor.rowcount > 0)
+
+
+def delete_repo_conversation(conv_uuid: str) -> bool:
+    """Delete a repo conversation and all its messages."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM repo_conversations WHERE uuid = ?",
+            (conv_uuid,),
+        )
+        return bool(cursor.rowcount > 0)
+
+
+def add_repo_conversation_message(
+    conv_uuid: str,
+    content: str,
+    author: str = "user",
+) -> str:
+    """Add a message to a repo conversation and return its UUID."""
+    msg_uuid = generate_uuid()
+
+    with get_connection() as conn:
+        conv = conn.execute(
+            "SELECT id FROM repo_conversations WHERE uuid = ?",
+            (conv_uuid,),
+        ).fetchone()
+
+        if not conv:
+            raise ValueError(f"Conversation {conv_uuid} not found")
+
+        conn.execute(
+            """
+            INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+            VALUES (?, ?, ?, ?)
+            """,
+            (msg_uuid, conv["id"], author, content),
+        )
+
+        # Update conversation timestamp
+        conn.execute(
+            "UPDATE repo_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (conv["id"],),
+        )
+
+    return msg_uuid
+
+
+def get_repo_conversation_messages(conv_uuid: str) -> list[RepoConversationMessage]:
+    """Get all messages for a repo conversation."""
+    with get_connection() as conn:
+        conv = conn.execute(
+            "SELECT id FROM repo_conversations WHERE uuid = ?",
+            (conv_uuid,),
+        ).fetchone()
+
+        if not conv:
+            return []
+
+        rows = conn.execute(
+            """
+            SELECT * FROM repo_conversation_messages
+            WHERE conversation_id = ? ORDER BY created_at
+            """,
+            (conv["id"],),
+        ).fetchall()
+
+        return [_row_to_repo_message(row) for row in rows]
+
+
+def get_repo_conversation_with_messages(
+    conv_uuid: str,
+) -> tuple[RepoConversation, list[RepoConversationMessage]] | None:
+    """Get a repo conversation with all its messages."""
+    conv = get_repo_conversation(conv_uuid)
+    if not conv:
+        return None
+    messages = get_repo_conversation_messages(conv_uuid)
+    return (conv, messages)
+
+
+def get_unanswered_conversations(
+    repo_path: str,
+) -> list[tuple[RepoConversation, list[RepoConversationMessage]]]:
+    """Get active conversations where the last message is not from Claude."""
+    conversations = list_repo_conversations(repo_path, status=RepoConversationStatus.ACTIVE)
+    unanswered = []
+
+    for conv in conversations:
+        messages = get_repo_conversation_messages(conv.uuid)
+        if messages and messages[-1].author != "claude":
+            unanswered.append((conv, messages))
+
+    return unanswered
+
+
+def get_unanswered_pr_comments(
+    repo_path: str | None = None,
+) -> list[tuple[PullRequest, Comment, list[CommentReply]]]:
+    """Get PR comments where the last reply is not from Claude (or no replies yet).
+
+    Returns tuples of (PR, Comment, Replies) for comments needing a response.
+    Watches ALL PRs including merged ones (users may still leave comments).
+    """
+    unanswered = []
+
+    # Get all PRs (including merged - users may still comment)
+    prs = list_prs(repo_path=repo_path)
+
+    for pr in prs:
+        comments_with_replies = get_comments_with_replies(pr.uuid)
+        for comment, replies in comments_with_replies:
+            # Comment needs response if:
+            # 1. No replies at all, OR
+            # 2. Last reply is not from Claude
+            if not replies or replies[-1].author != "claude":
+                unanswered.append((pr, comment, replies))
+
+    return unanswered

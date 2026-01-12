@@ -218,3 +218,37 @@ class GitOps:
             }
             for c in commits
         ]
+
+    def commit_all(self, message: str) -> GitResult:
+        """Stage all changes and commit them.
+
+        Args:
+            message: Commit message
+
+        Returns:
+            GitResult with success status and the commit SHA on success
+        """
+        try:
+            # Stage all changes (including untracked)
+            self.repo.git.add("-A")
+
+            # Check if there's anything to commit
+            if not self.repo.is_dirty(index=True):
+                return {
+                    "success": False,
+                    "message": "Nothing to commit",
+                }
+
+            # Commit
+            self.repo.git.commit("-m", message)
+            commit_sha = str(self.repo.head.commit.hexsha)[:7]
+
+            return {
+                "success": True,
+                "message": f"Committed changes ({commit_sha})",
+            }
+        except GitCommandError as e:
+            return {
+                "success": False,
+                "message": str(e),
+            }

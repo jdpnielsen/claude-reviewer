@@ -18,7 +18,14 @@ from rich.table import Table
 
 from . import database as db
 from .git_ops import GitOps
-from .models import PRStatus
+from .models import (
+    Comment,
+    CommentReply,
+    PRStatus,
+    PullRequest,
+    RepoConversation,
+    RepoConversationMessage,
+)
 
 console = Console()
 
@@ -982,6 +989,377 @@ def watch(pr_id: str, until: str, interval: int, timeout: int) -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopped watching[/yellow]")
         sys.exit(0)
+
+
+def get_file_context(repo_path: str, file_path: str, line_number: int, context_lines: int = 10) -> str:
+    """Get file content around a specific line."""
+    full_path = Path(repo_path) / file_path
+    if not full_path.exists():
+        return f"[File {file_path} not found]"
+
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        start = max(0, line_number - context_lines - 1)
+        end = min(len(lines), line_number + context_lines)
+
+        context_lines_list = []
+        for i in range(start, end):
+            prefix = ">>> " if i == line_number - 1 else "    "
+            context_lines_list.append(f"{prefix}{i + 1:4d} | {lines[i].rstrip()}")
+
+        return "\n".join(context_lines_list)
+    except Exception as e:
+        return f"[Error reading file: {e}]"
+
+
+def call_claude(prompt: str, allow_edits: bool = False) -> str:
+    """Call Claude CLI with a prompt and return the response.
+
+    Args:
+        prompt: The prompt to send to Claude
+        allow_edits: If True, allows Claude to edit files without permission prompts
+    """
+    try:
+        cmd = ["claude", "-p"]
+        if allow_edits:
+            cmd.insert(1, "--dangerously-skip-permissions")
+
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=300 if allow_edits else 120,
+        )
+        if result.returncode != 0:
+            return f"[Error calling Claude: {result.stderr}]"
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "[Error: Claude response timed out]"
+    except FileNotFoundError:
+        return "[Error: Claude CLI not found. Make sure 'claude' is installed and in PATH]"
+    except Exception as e:
+        return f"[Error calling Claude: {e}]"
+
+
+@main.command("watch-all")
+@click.option("--repo", "-r", default=".", help="Path to git repository")
+@click.option("--interval", "-i", default=3, help="Polling interval in seconds (default: 3)")
+@click.option("--once", is_flag=True, help="Run once and exit (don't poll)")
+@click.option("--fix", is_flag=True, help="Allow Claude to edit files to fix issues (uses --dangerously-skip-permissions)")
+def watch_all(repo: str, interval: int, once: bool, fix: bool) -> None:
+    """Watch for ALL unanswered comments and conversations, respond with Claude.
+
+    This unified watch command monitors:
+    - PR inline comments (on any PR in the repo)
+    - Browse/Explore conversations (repo-level discussions)
+
+    Enables an async workflow where you can leave comments anywhere in the UI
+    and Claude will respond to them.
+
+    Use --fix to allow Claude to actually edit files to address feedback.
+    """
+    from rich.live import Live
+    from rich.spinner import Spinner
+    from rich.text import Text
+
+    # Normalize path
+    repo_path = str(Path(repo).resolve())
+    repo_path_slash = repo_path + "/" if not repo_path.endswith("/") else repo_path
+
+    console.print(f"[bold]Watching ALL conversations in {repo_path}[/bold]")
+    console.print("[dim]Monitoring: PR comments + Browse conversations[/dim]")
+    if fix:
+        console.print("[yellow]Fix mode enabled: Claude can edit files[/yellow]")
+    if not once:
+        console.print(f"[dim]Polling every {interval}s... (Ctrl+C to stop)[/dim]\n")
+
+    def make_spinner_text(pr_count: int, conv_count: int, elapsed: int) -> Text:
+        text = Text()
+        text.append("👀 Watching... ", style="cyan")
+        text.append(f"(PRs: {pr_count}, Convos: {conv_count}) ", style="green")
+        text.append(f"{elapsed}s", style="dim")
+        return text
+
+    pr_responded = 0
+    conv_responded = 0
+    start_time = time.time()
+
+    def get_unanswered_browse() -> list[tuple[RepoConversation, list[RepoConversationMessage]]]:
+        """Get unanswered browse conversations, trying both path formats."""
+        unanswered = db.get_unanswered_conversations(repo_path)
+        if not unanswered:
+            unanswered = db.get_unanswered_conversations(repo_path_slash)
+        return unanswered
+
+    def get_unanswered_prs() -> list[tuple[PullRequest, Comment, list[CommentReply]]]:
+        """Get unanswered PR comments."""
+        return db.get_unanswered_pr_comments(repo_path)
+
+    try:
+        if once:
+            # Run once without spinner
+            browse_unanswered = get_unanswered_browse()
+            pr_unanswered = get_unanswered_prs()
+
+            total = len(browse_unanswered) + len(pr_unanswered)
+            if total == 0:
+                console.print("[dim]No unanswered comments or conversations found[/dim]")
+                return
+
+            console.print(f"[bold]Found {len(pr_unanswered)} PR comment(s), {len(browse_unanswered)} conversation(s)[/bold]\n")
+
+            # Handle PR comments
+            for pr, comment, replies in pr_unanswered:
+                respond_to_pr_comment(repo_path, pr, comment, replies, allow_edits=fix)
+                pr_responded += 1
+
+            # Handle browse conversations
+            for conv, messages in browse_unanswered:
+                respond_to_conversation(repo_path, conv, messages, allow_edits=fix)
+                conv_responded += 1
+
+            console.print(f"\n[green]✓ Responded to {pr_responded} PR comment(s), {conv_responded} conversation(s)[/green]")
+        else:
+            with Live(Spinner("dots", text=make_spinner_text(0, 0, 0)), refresh_per_second=4) as live:
+                while True:
+                    elapsed = int(time.time() - start_time)
+                    live.update(Spinner("dots", text=make_spinner_text(pr_responded, conv_responded, elapsed)))
+
+                    # Check PR comments
+                    pr_unanswered = get_unanswered_prs()
+                    for pr, comment, replies in pr_unanswered:
+                        live.stop()
+                        respond_to_pr_comment(repo_path, pr, comment, replies, allow_edits=fix)
+                        pr_responded += 1
+                        live.start()
+
+                    # Check browse conversations
+                    browse_unanswered = get_unanswered_browse()
+                    for conv, messages in browse_unanswered:
+                        live.stop()
+                        respond_to_conversation(repo_path, conv, messages, allow_edits=fix)
+                        conv_responded += 1
+                        live.start()
+
+                    time.sleep(interval)
+
+    except KeyboardInterrupt:
+        console.print(f"\n[yellow]Stopped. Responded to {pr_responded} PR comment(s), {conv_responded} conversation(s)[/yellow]")
+        sys.exit(0)
+
+
+# Keep old command as alias for backwards compatibility
+@main.command("watch-conversations")
+@click.option("--repo", "-r", default=".", help="Path to git repository")
+@click.option("--interval", "-i", default=5, help="Polling interval in seconds (default: 5)")
+@click.option("--once", is_flag=True, help="Run once and exit (don't poll)")
+@click.option("--fix", is_flag=True, help="Allow Claude to edit files to fix issues")
+@click.pass_context
+def watch_conversations(ctx: click.Context, repo: str, interval: int, once: bool, fix: bool) -> None:
+    """[Deprecated] Use 'watch-all' instead. Watches browse conversations only."""
+    console.print("[yellow]Note: 'watch-conversations' is deprecated. Use 'watch-all' for unified watching.[/yellow]\n")
+    ctx.invoke(watch_all, repo=repo, interval=interval, once=once, fix=fix)
+
+
+def respond_to_conversation(
+    repo_path: str,
+    conv: RepoConversation,
+    messages: list[RepoConversationMessage],
+    allow_edits: bool = False,
+) -> None:
+    """Generate and post Claude's response to a conversation."""
+    console.print(f"\n[cyan]Responding to conversation in {conv.file_path}:{conv.line_number}[/cyan]")
+
+    # Get file context
+    line_number = conv.current_line_number or conv.line_number
+    file_context = get_file_context(repo_path, conv.file_path, line_number)
+
+    # Build conversation history
+    conv_history = "\n".join([
+        f"[{msg.author}]: {msg.content}"
+        for msg in messages
+    ])
+
+    # Build prompt - different based on whether edits are allowed
+    if allow_edits:
+        prompt = f"""You are Claude, an AI assistant helping with code review and discussion.
+
+A user has started a conversation about a specific line of code. You have permission to edit files to address their feedback.
+
+REPOSITORY: {repo_path}
+FILE: {conv.file_path}
+LINE: {line_number}
+
+CODE CONTEXT (the >>> marks the line being discussed):
+{file_context}
+
+CONVERSATION SO FAR:
+{conv_history}
+
+Please respond to the user's latest message. If they're requesting a change or fix:
+1. Make the necessary edits to the file
+2. Briefly explain what you changed
+
+If they're just asking a question, answer it. Be concise."""
+    else:
+        prompt = f"""You are Claude, an AI assistant helping with code review and discussion.
+
+A user has started a conversation about a specific line of code. Please provide a helpful response.
+
+FILE: {conv.file_path}
+LINE: {line_number}
+
+CODE CONTEXT (the >>> marks the line being discussed):
+{file_context}
+
+CONVERSATION SO FAR:
+{conv_history}
+
+Please respond to the user's latest message. Be concise but helpful. If they're asking about the code, explain what it does. If they're suggesting a change, discuss the pros and cons. If they have a question, answer it.
+
+Your response (just the message content, no prefixes):"""
+
+    console.print("[dim]Generating response...[/dim]")
+    response = call_claude(prompt, allow_edits=allow_edits)
+
+    if response.startswith("[Error"):
+        console.print(f"[red]{response}[/red]")
+        return
+
+    # Post the response
+    try:
+        db.add_repo_conversation_message(conv.uuid, response, author="claude")
+        console.print(f"[green]✓ Posted response[/green]")
+        console.print(Panel(response, title="Claude's response", border_style="green"))
+    except Exception as e:
+        console.print(f"[red]Error posting response: {e}[/red]")
+
+    # If edits were allowed, commit any changes and try to update any matching PR
+    if allow_edits:
+        try:
+            git = GitOps(repo_path)
+            if git.has_uncommitted_changes():
+                # Commit the changes
+                commit_msg = f"Address feedback: {conv.file_path}:{line_number}\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
+                commit_result = git.commit_all(commit_msg)
+                if commit_result["success"]:
+                    console.print(f"[green]✓ {commit_result['message']}[/green]")
+
+                    # Try to find and update any PR on the current branch
+                    current_branch = git.get_current_branch()
+                    prs = db.list_prs(repo_path=repo_path)
+                    matching_pr = next(
+                        (p for p in prs if p.head_ref == current_branch and p.status.value not in ("merged", "closed")),
+                        None
+                    )
+                    if matching_pr:
+                        diff = git.get_diff(matching_pr.base_ref, matching_pr.head_ref)
+                        head_commit = git.get_commit_sha(matching_pr.head_ref)
+                        new_revision = db.update_pr_diff(matching_pr.uuid, diff, head_commit)
+                        console.print(f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {new_revision})[/green]")
+                else:
+                    console.print(f"[yellow]No changes to commit[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not commit changes: {e}[/yellow]")
+
+
+def respond_to_pr_comment(
+    repo_path: str,
+    pr: PullRequest,
+    comment: Comment,
+    replies: list[CommentReply],
+    allow_edits: bool = False,
+) -> None:
+    """Generate and post Claude's response to a PR comment."""
+    console.print(f"\n[cyan]Responding to PR #{pr.uuid} comment in {comment.file_path}:{comment.line_number}[/cyan]")
+
+    # Get file context
+    file_context = get_file_context(repo_path, comment.file_path, comment.line_number)
+
+    # Build conversation history
+    conv_parts = [f"[reviewer]: {comment.content}"]
+    for reply in replies:
+        conv_parts.append(f"[{reply.author}]: {reply.content}")
+    conv_history = "\n".join(conv_parts)
+
+    # Build prompt - different based on whether edits are allowed
+    if allow_edits:
+        prompt = f"""You are Claude, an AI assistant responding to code review comments on a PR. You have permission to edit files to address feedback.
+
+REPOSITORY: {repo_path}
+PR: {pr.title}
+FILE: {comment.file_path}
+LINE: {comment.line_number}
+
+CODE CONTEXT (the >>> marks the line being discussed):
+{file_context}
+
+REVIEW CONVERSATION:
+{conv_history}
+
+Please address the reviewer's feedback:
+1. If the feedback requests a code change, make the edit to the file
+2. Briefly explain what you changed (or why you disagree, if applicable)
+
+Be concise."""
+    else:
+        prompt = f"""You are Claude, an AI assistant responding to code review comments on a PR.
+
+PR: {pr.title}
+FILE: {comment.file_path}
+LINE: {comment.line_number}
+
+CODE CONTEXT (the >>> marks the line being discussed):
+{file_context}
+
+REVIEW CONVERSATION:
+{conv_history}
+
+Please respond to the latest comment. Be concise but helpful. If it's feedback about the code:
+- Acknowledge the feedback
+- Explain what you'll do to address it (or why you disagree, if applicable)
+- If you've already made changes, briefly describe what was done
+
+Your response (just the message content, no prefixes):"""
+
+    console.print("[dim]Generating response...[/dim]")
+    response = call_claude(prompt, allow_edits=allow_edits)
+
+    if response.startswith("[Error"):
+        console.print(f"[red]{response}[/red]")
+        return
+
+    # Post the reply
+    try:
+        db.add_reply(comment.uuid, response, author="claude")
+        console.print(f"[green]✓ Posted reply to PR comment[/green]")
+        console.print(Panel(response, title="Claude's response", border_style="green"))
+    except Exception as e:
+        console.print(f"[red]Error posting reply: {e}[/red]")
+
+    # If edits were allowed, commit any changes and update the PR
+    if allow_edits:
+        try:
+            git = GitOps(repo_path)
+            if git.has_uncommitted_changes():
+                # Commit the changes
+                commit_msg = f"Address review feedback: {comment.file_path}:{comment.line_number}\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
+                commit_result = git.commit_all(commit_msg)
+                if commit_result["success"]:
+                    console.print(f"[green]✓ {commit_result['message']}[/green]")
+
+                    # Update the PR diff
+                    diff = git.get_diff(pr.base_ref, pr.head_ref)
+                    head_commit = git.get_commit_sha(pr.head_ref)
+                    new_revision = db.update_pr_diff(pr.uuid, diff, head_commit)
+                    console.print(f"[green]✓ Updated PR diff (revision {new_revision})[/green]")
+                else:
+                    console.print(f"[yellow]No changes to commit[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not commit changes: {e}[/yellow]")
 
 
 if __name__ == "__main__":

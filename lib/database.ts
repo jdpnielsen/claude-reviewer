@@ -57,6 +57,39 @@ export interface CommentReply {
   created_at: string;
 }
 
+// Repo-level conversations (independent of PRs)
+export interface RepoConversation {
+  id: number;
+  uuid: string;
+  repo_path: string;
+  file_path: string;
+  line_number: number;
+  anchor_content: string | null;
+  anchor_context_before: string | null;
+  anchor_context_after: string | null;
+  anchor_commit: string | null;
+  status: 'active' | 'orphaned' | 'resolved';
+  file_exists: boolean;
+  current_line_number: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RepoConversationMessage {
+  id: number;
+  uuid: string;
+  conversation_id: number;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
+export interface RepoConversationWithMessages {
+  conversation: RepoConversation;
+  messages: RepoConversationMessage[];
+  message_count: number;
+}
+
 // Database path - shared with Python CLI
 const DB_DIR = process.env.DATABASE_DIR || path.join(os.homedir(), '.claude-reviewer');
 const DB_PATH = process.env.DATABASE_PATH || path.join(DB_DIR, 'data.db');
@@ -189,6 +222,42 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_replies_comment ON comment_replies(comment_id);
+
+    -- Repo-level conversations (independent of PRs)
+    CREATE TABLE IF NOT EXISTS repo_conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT UNIQUE NOT NULL,
+        repo_path TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        line_number INTEGER NOT NULL,
+        anchor_content TEXT,
+        anchor_context_before TEXT,
+        anchor_context_after TEXT,
+        anchor_commit TEXT,
+        status TEXT DEFAULT 'active',
+        file_exists BOOLEAN DEFAULT TRUE,
+        current_line_number INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_repo_conv_uuid ON repo_conversations(uuid);
+    CREATE INDEX IF NOT EXISTS idx_repo_conv_repo ON repo_conversations(repo_path);
+    CREATE INDEX IF NOT EXISTS idx_repo_conv_file ON repo_conversations(repo_path, file_path);
+    CREATE INDEX IF NOT EXISTS idx_repo_conv_status ON repo_conversations(status);
+
+    -- Repo conversation messages
+    CREATE TABLE IF NOT EXISTS repo_conversation_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT UNIQUE NOT NULL,
+        conversation_id INTEGER NOT NULL REFERENCES repo_conversations(id) ON DELETE CASCADE,
+        author TEXT NOT NULL DEFAULT 'user',
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rcm_conversation ON repo_conversation_messages(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_rcm_uuid ON repo_conversation_messages(uuid);
   `);
 }
 
@@ -508,6 +577,205 @@ export function getCommentsWithReplies(prUuid: string, unresolvedOnly: boolean =
     comment,
     replies: getReplies(comment.uuid)
   }));
+}
+
+// =============================================================================
+// Repo Conversation Operations
+// =============================================================================
+
+export function createRepoConversation(
+  repoPath: string,
+  filePath: string,
+  lineNumber: number,
+  content: string,
+  author: string = 'user',
+  anchor?: {
+    content: string;
+    contextBefore: string;
+    contextAfter: string;
+    commit: string;
+  }
+): string {
+  const db = getDatabase();
+  const conversationUuid = generateUuid();
+  const messageUuid = generateUuid();
+
+  const transaction = db.transaction(() => {
+    // Create conversation
+    db.prepare(`
+      INSERT INTO repo_conversations
+      (uuid, repo_path, file_path, line_number, anchor_content, anchor_context_before, anchor_context_after, anchor_commit, current_line_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      conversationUuid,
+      repoPath,
+      filePath,
+      lineNumber,
+      anchor?.content || null,
+      anchor?.contextBefore || null,
+      anchor?.contextAfter || null,
+      anchor?.commit || null,
+      lineNumber
+    );
+
+    // Get the conversation id
+    const conv = db.prepare('SELECT id FROM repo_conversations WHERE uuid = ?').get(conversationUuid) as { id: number };
+
+    // Create first message
+    db.prepare(`
+      INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+      VALUES (?, ?, ?, ?)
+    `).run(messageUuid, conv.id, author, content);
+  });
+
+  transaction();
+  checkpoint();
+  return conversationUuid;
+}
+
+export function getRepoConversation(uuid: string): RepoConversation | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT * FROM repo_conversations WHERE uuid = ?').get(uuid);
+  return row as RepoConversation | null;
+}
+
+export function listRepoConversations(options: {
+  repoPath: string;
+  filePath?: string;
+  status?: 'active' | 'orphaned' | 'resolved' | 'all';
+  limit?: number;
+} = { repoPath: '' }): RepoConversationWithMessages[] {
+  const db = getDatabase();
+  const { repoPath, filePath, status = 'all', limit = 100 } = options;
+
+  let query = 'SELECT * FROM repo_conversations WHERE repo_path = ?';
+  const params: (string | number)[] = [repoPath];
+
+  if (filePath) {
+    query += ' AND file_path = ?';
+    params.push(filePath);
+  }
+
+  if (status !== 'all') {
+    query += ' AND status = ?';
+    params.push(status);
+  }
+
+  query += ' ORDER BY updated_at DESC LIMIT ?';
+  params.push(limit);
+
+  const conversations = db.prepare(query).all(...params) as RepoConversation[];
+
+  return conversations.map(conv => {
+    const messages = db.prepare(`
+      SELECT * FROM repo_conversation_messages
+      WHERE conversation_id = ?
+      ORDER BY created_at ASC
+    `).all(conv.id) as RepoConversationMessage[];
+
+    return {
+      conversation: conv,
+      messages,
+      message_count: messages.length
+    };
+  });
+}
+
+export function getRepoConversationWithMessages(uuid: string): RepoConversationWithMessages | null {
+  const db = getDatabase();
+  const conv = db.prepare('SELECT * FROM repo_conversations WHERE uuid = ?').get(uuid) as RepoConversation | undefined;
+  if (!conv) return null;
+
+  const messages = db.prepare(`
+    SELECT * FROM repo_conversation_messages
+    WHERE conversation_id = ?
+    ORDER BY created_at ASC
+  `).all(conv.id) as RepoConversationMessage[];
+
+  return {
+    conversation: conv,
+    messages,
+    message_count: messages.length
+  };
+}
+
+export function addRepoConversationMessage(
+  conversationUuid: string,
+  content: string,
+  author: string = 'user'
+): string {
+  const db = getDatabase();
+  const messageUuid = generateUuid();
+
+  const conv = db.prepare('SELECT id FROM repo_conversations WHERE uuid = ?').get(conversationUuid) as { id: number } | undefined;
+  if (!conv) throw new Error(`Conversation ${conversationUuid} not found`);
+
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+      VALUES (?, ?, ?, ?)
+    `).run(messageUuid, conv.id, author, content);
+
+    db.prepare(`
+      UPDATE repo_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(conv.id);
+  });
+
+  transaction();
+  checkpoint();
+  return messageUuid;
+}
+
+export function updateRepoConversationStatus(
+  uuid: string,
+  status: 'active' | 'orphaned' | 'resolved'
+): boolean {
+  const db = getDatabase();
+  const result = db.prepare(`
+    UPDATE repo_conversations
+    SET status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE uuid = ?
+  `).run(status, uuid);
+  checkpoint();
+  return result.changes > 0;
+}
+
+export function updateRepoConversationAnchor(
+  uuid: string,
+  currentLineNumber: number | null,
+  fileExists: boolean = true
+): boolean {
+  const db = getDatabase();
+  const result = db.prepare(`
+    UPDATE repo_conversations
+    SET current_line_number = ?, file_exists = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE uuid = ?
+  `).run(currentLineNumber, fileExists ? 1 : 0, uuid);
+  checkpoint();
+  return result.changes > 0;
+}
+
+export function getConversationCountsByFile(repoPath: string): Record<string, number> {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT file_path, COUNT(*) as count
+    FROM repo_conversations
+    WHERE repo_path = ? AND status != 'resolved'
+    GROUP BY file_path
+  `).all(repoPath) as Array<{ file_path: string; count: number }>;
+
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    counts[row.file_path] = row.count;
+  }
+  return counts;
+}
+
+export function deleteRepoConversation(uuid: string): boolean {
+  const db = getDatabase();
+  const result = db.prepare('DELETE FROM repo_conversations WHERE uuid = ?').run(uuid);
+  checkpoint();
+  return result.changes > 0;
 }
 
 // =============================================================================
