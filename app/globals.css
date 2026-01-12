@@ -93,11 +93,18 @@ input, select, textarea {
 
 /* PR Detail Page Styles */
 .pr-detail {
-  padding-bottom: 4rem;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  margin: 0 auto;
+  padding-top: 1rem;
 }
 
 .pr-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
 }
 
 .back-link {
@@ -164,15 +171,21 @@ input, select, textarea {
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .pr-sidebar {
-  position: sticky;
-  top: 1rem;
-  height: fit-content;
-  max-height: calc(100vh - 2rem);
+  height: 100%;
   overflow-y: auto;
   min-width: 250px;
+}
+
+.pr-main {
+  height: 100%;
+  overflow-y: auto;
+  background: #0d1117;
 }
 
 .sidebar-section {
@@ -192,7 +205,42 @@ input, select, textarea {
 .file-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-align: left;
+  width: 100%;
+}
+
+.folder-item:hover {
+  color: #c9d1d9;
+}
+
+.folder-item .folder-icon {
+  transition: none;
+}
+
+.folder-item.collapsed .folder-icon {
+  transform: rotate(-90deg);
+}
+
+.folder-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.folder-children.collapsed {
+  display: none;
 }
 
 .file-item {
