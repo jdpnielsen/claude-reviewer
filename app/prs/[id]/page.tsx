@@ -367,7 +367,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       const containerRect = mainContainer.getBoundingClientRect();
       const elementRect = element.getBoundingClientRect();
       const scrollTop = mainContainer.scrollTop + (elementRect.top - containerRect.top) - 20;
-      mainContainer.scrollTo({ top: scrollTop, behavior: 'smooth' });
+      mainContainer.scrollTop = scrollTop;
     }
   };
 
