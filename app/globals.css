@@ -827,6 +827,25 @@ input, select, textarea {
   font-size: 0.85rem;
 }
 
+.reply-form textarea:disabled,
+.reply-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.claude-thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  background: linear-gradient(135deg, rgba(218, 119, 86, 0.1) 0%, rgba(196, 94, 62, 0.1) 100%);
+  border: 1px solid rgba(218, 119, 86, 0.3);
+  border-radius: 6px;
+  color: #da7756;
+  font-size: 0.85rem;
+}
+
 .edit-comment-form textarea {
   width: 100%;
   padding: 0.5rem;

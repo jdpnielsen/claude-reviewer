@@ -212,29 +212,6 @@ export default function ConversationsListPage() {
     }
   };
 
-  const addReply = async (conversationUuid: string) => {
-    if (!replyContent.trim()) return;
-
-    try {
-      const res = await fetch(`/api/browse/conversations/${conversationUuid}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: replyContent,
-          author: 'user'
-        })
-      });
-
-      if (!res.ok) throw new Error('Failed to add reply');
-
-      // Reload conversation messages
-      await loadConversationMessages(conversationUuid);
-      setReplyContent('');
-    } catch (e) {
-      console.error('Error adding reply:', e);
-    }
-  };
-
   const respondWithClaude = async (conversationUuid: string, autoCommit: boolean = false) => {
     setClaudeResponding(conversationUuid);
     setClaudeError(null);
@@ -272,6 +249,34 @@ export default function ConversationsListPage() {
       setClaudeError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       setClaudeResponding(null);
+    }
+  };
+
+  const addReply = async (conversationUuid: string, triggerClaude: boolean = true) => {
+    if (!replyContent.trim()) return;
+
+    try {
+      const res = await fetch(`/api/browse/conversations/${conversationUuid}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: replyContent,
+          author: 'user'
+        })
+      });
+
+      if (!res.ok) throw new Error('Failed to add reply');
+
+      // Reload conversation messages
+      await loadConversationMessages(conversationUuid);
+      setReplyContent('');
+
+      // Auto-trigger Claude to respond
+      if (triggerClaude) {
+        respondWithClaude(conversationUuid, false);
+      }
+    } catch (e) {
+      console.error('Error adding reply:', e);
     }
   };
 

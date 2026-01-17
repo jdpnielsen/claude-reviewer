@@ -11,7 +11,8 @@ import {
   Send,
   X,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 
 // Types
@@ -147,6 +148,7 @@ export default function BrowsePage() {
   const [newComment, setNewComment] = useState('');
   const [conversationMessages, setConversationMessages] = useState<Record<string, ConversationMessage[]>>({});
   const [replyContent, setReplyContent] = useState('');
+  const [claudeResponding, setClaudeResponding] = useState<string | null>(null);
 
   // Load tree when repo path changes
   useEffect(() => {
@@ -274,6 +276,37 @@ export default function BrowsePage() {
     }
   };
 
+  const respondWithClaude = async (conversationUuid: string) => {
+    setClaudeResponding(conversationUuid);
+
+    try {
+      const res = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'respond',
+          conversationUuid,
+          allowEdits: true,
+          autoCommit: false,
+          push: false
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to get Claude response');
+      }
+
+      // Reload conversation messages to show Claude's response
+      await loadConversationMessages(conversationUuid);
+    } catch (e) {
+      console.error('Error getting Claude response:', e);
+    } finally {
+      setClaudeResponding(null);
+    }
+  };
+
   const addComment = async () => {
     if (!commentingAt || !newComment.trim() || !selectedFile) return;
 
@@ -297,6 +330,11 @@ export default function BrowsePage() {
       await loadFile(selectedFile);
       setCommentingAt(null);
       setNewComment('');
+
+      // Auto-trigger Claude to respond to the new conversation
+      if (data.conversationUuid) {
+        respondWithClaude(data.conversationUuid);
+      }
     } catch (e) {
       console.error('Error adding comment:', e);
     }
@@ -320,6 +358,9 @@ export default function BrowsePage() {
       // Reload conversation messages
       await loadConversationMessages(conversationUuid);
       setReplyContent('');
+
+      // Auto-trigger Claude to respond
+      respondWithClaude(conversationUuid);
     } catch (e) {
       console.error('Error adding reply:', e);
     }
@@ -567,6 +608,14 @@ export default function BrowsePage() {
                                     </div>
                                   )}
 
+                                  {/* Claude thinking indicator */}
+                                  {claudeResponding === conv.uuid && (
+                                    <div className="claude-thinking">
+                                      <Loader2 size={14} className="spinning" />
+                                      <span>Claude is thinking...</span>
+                                    </div>
+                                  )}
+
                                   {/* Reply form - always visible for active conversations */}
                                   {conv.status !== 'resolved' && (
                                     <div className="reply-form">
@@ -580,8 +629,12 @@ export default function BrowsePage() {
                                             addReply(conv.uuid);
                                           }
                                         }}
+                                        disabled={claudeResponding === conv.uuid}
                                       />
-                                      <button onClick={() => addReply(conv.uuid)}>
+                                      <button
+                                        onClick={() => addReply(conv.uuid)}
+                                        disabled={claudeResponding === conv.uuid}
+                                      >
                                         <Send size={14} />
                                         Reply
                                       </button>

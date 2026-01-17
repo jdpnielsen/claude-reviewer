@@ -1,4 +1,30 @@
-"""SQLite database operations for Claude Reviewer."""
+"""SQLite database operations for Claude Reviewer.
+
+This module provides the data persistence layer for the Claude Reviewer application,
+using SQLite with WAL mode for concurrent access. It handles:
+
+- Pull Requests: Create, read, update, delete PRs with diff snapshots
+- Comments: Line-level code review comments on PRs
+- Reviews: Approval/changes-requested actions on PRs
+- Comment Replies: Threaded discussions on comments
+- Repo Conversations: Standalone code discussions independent of PRs
+
+Database Schema:
+    - pull_requests: Core PR metadata (title, refs, commits, status)
+    - diff_snapshots: Versioned diff content for each PR revision
+    - comments: Line-specific review comments
+    - comment_replies: Replies to comments (threaded discussion)
+    - reviews: Review decisions (approve/request changes)
+    - repo_conversations: File-anchored discussions outside of PRs
+    - repo_conversation_messages: Messages within repo conversations
+
+Usage:
+    from claude_reviewer.database import init_db, create_pr, get_pr_by_uuid
+
+    init_db()  # Initialize schema (safe to call multiple times)
+    pr_uuid = create_pr(repo_path, title, base_ref, head_ref, ...)
+    pr = get_pr_by_uuid(pr_uuid)
+"""
 
 from __future__ import annotations
 
