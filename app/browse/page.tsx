@@ -148,7 +148,7 @@ export default function BrowsePage() {
   const [newComment, setNewComment] = useState('');
   const [conversationMessages, setConversationMessages] = useState<Record<string, ConversationMessage[]>>({});
   const [replyContent, setReplyContent] = useState('');
-  const [claudeResponding, setClaudeResponding] = useState<string | null>(null);
+  const [claudeResponding, setClaudeResponding] = useState<Set<string>>(new Set());
 
   // Load tree when repo path changes
   useEffect(() => {
@@ -176,10 +176,23 @@ export default function BrowsePage() {
             const msgRes = await fetch(`/api/browse/conversations/${conv.uuid}/messages`);
             if (msgRes.ok) {
               const msgData = await msgRes.json();
+              const messages = msgData.messages || [];
               setConversationMessages(prev => ({
                 ...prev,
-                [conv.uuid]: msgData.messages
+                [conv.uuid]: messages
               }));
+
+              // Check if Claude has responded - remove from pending if last message is from Claude
+              if (messages.length > 0 && messages[messages.length - 1].author === 'claude') {
+                setClaudeResponding(prev => {
+                  if (prev.has(conv.uuid)) {
+                    const next = new Set(prev);
+                    next.delete(conv.uuid);
+                    return next;
+                  }
+                  return prev;
+                });
+              }
             }
           }
         }
@@ -277,9 +290,11 @@ export default function BrowsePage() {
   };
 
   const respondWithClaude = async (conversationUuid: string) => {
-    setClaudeResponding(conversationUuid);
+    // Add to set of pending responses
+    setClaudeResponding(prev => new Set(prev).add(conversationUuid));
 
     try {
+      // Use async mode so Claude processes in background even if user navigates away
       const res = await fetch('/api/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -288,22 +303,26 @@ export default function BrowsePage() {
           conversationUuid,
           allowEdits: true,
           autoCommit: false,
-          push: false
+          push: false,
+          async: true  // Fire-and-forget mode
         })
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to get Claude response');
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to trigger Claude response');
       }
 
-      // Reload conversation messages to show Claude's response
-      await loadConversationMessages(conversationUuid);
+      // Response is processing in background
+      // Polling will remove from claudeResponding when Claude's response arrives
     } catch (e) {
-      console.error('Error getting Claude response:', e);
-    } finally {
-      setClaudeResponding(null);
+      console.error('Error triggering Claude response:', e);
+      // Remove from pending on error
+      setClaudeResponding(prev => {
+        const next = new Set(prev);
+        next.delete(conversationUuid);
+        return next;
+      });
     }
   };
 
@@ -332,8 +351,8 @@ export default function BrowsePage() {
       setNewComment('');
 
       // Auto-trigger Claude to respond to the new conversation
-      if (data.conversationUuid) {
-        respondWithClaude(data.conversationUuid);
+      if (data.uuid) {
+        respondWithClaude(data.uuid);
       }
     } catch (e) {
       console.error('Error adding comment:', e);
@@ -609,7 +628,7 @@ export default function BrowsePage() {
                                   )}
 
                                   {/* Claude thinking indicator */}
-                                  {claudeResponding === conv.uuid && (
+                                  {claudeResponding.has(conv.uuid) && (
                                     <div className="claude-thinking">
                                       <Loader2 size={14} className="spinning" />
                                       <span>Claude is thinking...</span>
@@ -629,11 +648,11 @@ export default function BrowsePage() {
                                             addReply(conv.uuid);
                                           }
                                         }}
-                                        disabled={claudeResponding === conv.uuid}
+                                        disabled={claudeResponding.has(conv.uuid)}
                                       />
                                       <button
                                         onClick={() => addReply(conv.uuid)}
-                                        disabled={claudeResponding === conv.uuid}
+                                        disabled={claudeResponding.has(conv.uuid)}
                                       >
                                         <Send size={14} />
                                         Reply

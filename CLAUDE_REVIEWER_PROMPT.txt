@@ -61,9 +61,21 @@ When working on significant changes, use the local PR review system to get feedb
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI (http://localhost:3456) |
 
+## Browse Conversations
+
+The Browse feature (`localhost:3456/browse`) lets you explore and discuss any file in your repo, independent of PRs:
+
+1. **Start a conversation:** Click any line in the Browse view to start a discussion
+2. **Conversations track lines:** Even as code changes, conversations stay anchored to their original context
+3. **Watch for responses:** Use `watch-all` to monitor and respond to all conversations:
+   ```bash
+   claude-reviewer watch-all --fix  # Responds to both PR comments AND browse conversations
+   ```
+
 ## Tips
 
 - Always create a feature branch before making a PR (can't PR from main to main)
 - The web UI at localhost:3456 shows diffs with inline commenting
 - Use `--delete-branch` with merge to clean up feature branches
 - Check `claude-reviewer comments <pr-id> --unresolved` for pending items
+- Use `watch-all` instead of `watch` to monitor both PR comments and browse conversations

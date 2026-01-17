@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
         if (action === 'respond') {
             // Respond to a conversation with Claude (with edit capability)
-            const { conversationUuid, allowEdits = true, autoCommit = false, push = false } = body;
+            const { conversationUuid, allowEdits = true, autoCommit = false, push = false, async: runAsync = false } = body;
 
             if (!conversationUuid) {
                 return NextResponse.json({ error: 'conversationUuid is required' }, { status: 400 });
@@ -36,7 +36,39 @@ export async function POST(req: NextRequest) {
             const { conversation, messages } = convData;
             const lineNumber = conversation.current_line_number || conversation.line_number;
 
-            // Call Claude to respond
+            // If async mode, spawn the process and return immediately
+            if (runAsync) {
+                // Fire and forget - don't await
+                (async () => {
+                    try {
+                        const result = await respondToConversation({
+                            repoPath: conversation.repo_path,
+                            filePath: conversation.file_path,
+                            lineNumber,
+                            messages: messages.map(m => ({ author: m.author, content: m.content })),
+                            allowEdits
+                        });
+
+                        if (!result.error) {
+                            addRepoConversationMessage(conversationUuid, result.response, 'claude');
+
+                            if (autoCommit && result.hasChanges) {
+                                await commitChanges({
+                                    repoPath: conversation.repo_path,
+                                    message: `Address feedback: ${conversation.file_path}:${lineNumber}`,
+                                    push
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Background Claude response error:', e);
+                    }
+                })();
+
+                return NextResponse.json({ status: 'processing', conversationUuid });
+            }
+
+            // Synchronous mode - wait for response
             const result = await respondToConversation({
                 repoPath: conversation.repo_path,
                 filePath: conversation.file_path,

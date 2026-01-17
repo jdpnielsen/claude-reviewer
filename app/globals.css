@@ -123,6 +123,34 @@ input, select, textarea {
   border-radius: 4px;
 }
 
+/* Comment Card - floating card for adding new comments */
+.comment-card {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 100;
+  width: 300px;
+}
+
+.comment-card textarea {
+  width: 100%;
+  min-height: 80px;
+  margin-bottom: 1rem;
+}
+
+.comment-card-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.comment-card-cancel {
+  background-color: #6e7681;
+}
+
+.comments-summary {
+  padding: 1rem;
+}
+
 /* PR Detail Page Styles */
 .pr-detail {
   height: 100vh;

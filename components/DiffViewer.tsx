@@ -116,21 +116,20 @@ export default function DiffViewer({ oldValue, newValue, splitView = false, onAd
                 hideLineNumbers={false}
             />
             {commentingLine !== null && (
-                <div className="card" style={{ position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 100, width: '300px' }}>
+                <div className="card comment-card">
                     <h4>Add Comment to Line {commentingLine}</h4>
                     <textarea
-                        style={{ width: '100%', minHeight: '80px', marginBottom: '1rem' }}
                         value={newCommentText}
                         onChange={(e) => setNewCommentText(e.target.value)}
                         placeholder="What needs fixing?"
                     />
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div className="comment-card-actions">
                         <button onClick={submitComment}>Add</button>
-                        <button style={{ backgroundColor: '#6e7681' }} onClick={() => setCommentingLine(null)}>Cancel</button>
+                        <button className="comment-card-cancel" onClick={() => setCommentingLine(null)}>Cancel</button>
                     </div>
                 </div>
             )}
-            <div style={{ padding: '1rem' }}>
+            <div className="comments-summary">
                 {Object.entries(comments).map(([line, lineComments]) => (
                     <div key={line} className="comment-box">
                         <strong>Line {line}:</strong>

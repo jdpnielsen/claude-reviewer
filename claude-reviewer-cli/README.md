@@ -127,10 +127,20 @@ claude-reviewer merge a1b2c3d4 --delete-branch
 
 The web interface provides:
 
-- **Diff viewer** - Side-by-side or unified view
-- **Inline comments** - Click any line to add a comment
-- **File tree** - Navigate between changed files
+### PR Review
+- **Diff viewer** - Syntax-highlighted diffs with expandable context
+- **Inline comments** - Click any line to add a comment with threaded replies
+- **File tree** - Navigate between changed files (organized by folder)
 - **Review actions** - Approve or request changes
+- **AI Review** - Request automated code review with full codebase context
+- **Markdown preview** - Toggle between raw diff and rendered markdown
+- **Comment management** - Edit, resolve/unresolve, and reply to comments
+
+### Browse Mode
+- **Repository browser** - Browse any local repository
+- **Code conversations** - Click any line to start a conversation with Claude
+- **Auto-responses** - Claude automatically responds to your comments
+- **Line tracking** - Conversations track their original line even as code changes
 
 Start it with:
 
