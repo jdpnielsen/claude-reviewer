@@ -1014,12 +1014,13 @@ def get_file_context(repo_path: str, file_path: str, line_number: int, context_l
         return f"[Error reading file: {e}]"
 
 
-def call_claude(prompt: str, allow_edits: bool = False) -> str:
+def call_claude(prompt: str, allow_edits: bool = False, cwd: str | None = None) -> str:
     """Call Claude CLI with a prompt and return the response.
 
     Args:
         prompt: The prompt to send to Claude
         allow_edits: If True, allows Claude to edit files without permission prompts
+        cwd: Working directory to run Claude in (important for file edits)
     """
     try:
         cmd = ["claude", "-p"]
@@ -1032,6 +1033,7 @@ def call_claude(prompt: str, allow_edits: bool = False) -> str:
             capture_output=True,
             text=True,
             timeout=300 if allow_edits else 120,
+            cwd=cwd,
         )
         if result.returncode != 0:
             return f"[Error calling Claude: {result.stderr}]"
@@ -1223,7 +1225,7 @@ Please respond to the user's latest message. Be concise but helpful. If they're 
 Your response (just the message content, no prefixes):"""
 
     console.print("[dim]Generating response...[/dim]")
-    response = call_claude(prompt, allow_edits=allow_edits)
+    response = call_claude(prompt, allow_edits=allow_edits, cwd=repo_path)
 
     if response.startswith("[Error"):
         console.print(f"[red]{response}[/red]")
@@ -1326,7 +1328,7 @@ Please respond to the latest comment. Be concise but helpful. If it's feedback a
 Your response (just the message content, no prefixes):"""
 
     console.print("[dim]Generating response...[/dim]")
-    response = call_claude(prompt, allow_edits=allow_edits)
+    response = call_claude(prompt, allow_edits=allow_edits, cwd=repo_path)
 
     if response.startswith("[Error"):
         console.print(f"[red]{response}[/red]")

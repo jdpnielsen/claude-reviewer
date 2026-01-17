@@ -1,12 +1,36 @@
 // Claude CLI integration for AI-powered code review operations
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
-async function runClaude(prompt: string): Promise<string> {
+interface RunClaudeOptions {
+    cwd?: string;
+    allowEdits?: boolean;
+    timeout?: number;
+}
+
+async function runClaude(prompt: string, options: RunClaudeOptions = {}): Promise<string> {
+    const { cwd, allowEdits = false, timeout = 300000 } = options;
+
     return new Promise((resolve, reject) => {
-        // Use -p for non-interactive mode which accepts stdin and prints to stdout
-        const child = spawn('claude', ['-p'], {
-            stdio: ['pipe', 'pipe', 'pipe']
+        // Build command args
+        const args = ['-p'];
+        if (allowEdits) {
+            // --dangerously-skip-permissions allows all tools without prompting
+            args.unshift('--dangerously-skip-permissions');
+        }
+
+        const child = spawn('claude', args, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            cwd: cwd || process.cwd(),
+            env: { ...process.env }
         });
+
+        // Set timeout
+        const timeoutId = setTimeout(() => {
+            child.kill();
+            reject(new Error('Claude CLI timed out'));
+        }, timeout);
 
         let stdout = '';
         let stderr = '';
@@ -20,11 +44,9 @@ async function runClaude(prompt: string): Promise<string> {
         });
 
         child.on('close', (code) => {
+            clearTimeout(timeoutId);
             if (code !== 0) {
                 console.error('Claude CLI error:', stderr);
-                // Fallback: sometimes stderr has the response or info, but usually non-zero is error
-                // However, if we get stdout, we might want to return it.
-                // For now reject if non-zero.
                 reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
             } else {
                 resolve(stdout.trim());
@@ -32,6 +54,7 @@ async function runClaude(prompt: string): Promise<string> {
         });
 
         child.on('error', (err) => {
+            clearTimeout(timeoutId);
             reject(err);
         });
 
@@ -130,4 +153,160 @@ function cleanDiffOutput(text: string): string {
     }
 
     return clean.trim();
+}
+
+// Get file context around a specific line
+function getFileContext(repoPath: string, filePath: string, lineNumber: number, contextLines: number = 10): string {
+    try {
+        const fullPath = path.join(repoPath, filePath);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const lines = content.split('\n');
+
+        const start = Math.max(0, lineNumber - contextLines - 1);
+        const end = Math.min(lines.length, lineNumber + contextLines);
+
+        const contextParts: string[] = [];
+        for (let i = start; i < end; i++) {
+            const lineNum = i + 1;
+            const prefix = lineNum === lineNumber ? '>>> ' : '    ';
+            contextParts.push(`${prefix}${lineNum}: ${lines[i]}`);
+        }
+
+        return contextParts.join('\n');
+    } catch (e) {
+        return `[Error reading file: ${e}]`;
+    }
+}
+
+export interface ConversationMessage {
+    author: string;
+    content: string;
+}
+
+export interface RespondToConversationParams {
+    repoPath: string;
+    filePath: string;
+    lineNumber: number;
+    messages: ConversationMessage[];
+    allowEdits?: boolean;
+}
+
+export interface RespondToConversationResult {
+    response: string;
+    hasChanges: boolean;
+    error?: string;
+}
+
+export async function respondToConversation(params: RespondToConversationParams): Promise<RespondToConversationResult> {
+    const { repoPath, filePath, lineNumber, messages, allowEdits = true } = params;
+
+    // Get file context
+    const fileContext = getFileContext(repoPath, filePath, lineNumber);
+
+    // Build conversation history
+    const convHistory = messages.map(msg => `[${msg.author}]: ${msg.content}`).join('\n');
+
+    // Build prompt based on whether edits are allowed
+    let prompt: string;
+    if (allowEdits) {
+        prompt = `You are Claude, an AI assistant helping with code review and discussion.
+
+A user has started a conversation about a specific line of code. You have permission to edit files to address their feedback.
+
+REPOSITORY: ${repoPath}
+FILE: ${filePath}
+LINE: ${lineNumber}
+
+CODE CONTEXT (the >>> marks the line being discussed):
+${fileContext}
+
+CONVERSATION SO FAR:
+${convHistory}
+
+Please respond to the user's latest message. If they're requesting a change or fix:
+1. Make the necessary edits to the file using the Edit tool
+2. Briefly explain what you changed
+
+If they're just asking a question, answer it. Be concise.`;
+    } else {
+        prompt = `You are Claude, an AI assistant helping with code review and discussion.
+
+A user has started a conversation about a specific line of code. Please provide a helpful response.
+
+FILE: ${filePath}
+LINE: ${lineNumber}
+
+CODE CONTEXT (the >>> marks the line being discussed):
+${fileContext}
+
+CONVERSATION SO FAR:
+${convHistory}
+
+Please respond to the user's latest message. Be concise but helpful.`;
+    }
+
+    try {
+        const response = await runClaude(prompt, {
+            cwd: repoPath,
+            allowEdits,
+            timeout: allowEdits ? 300000 : 120000 // 5 min for edits, 2 min otherwise
+        });
+
+        // Check if there are uncommitted changes (only if edits were allowed)
+        let hasChanges = false;
+        if (allowEdits) {
+            try {
+                const { execSync } = await import('child_process');
+                const status = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
+                hasChanges = status.trim().length > 0;
+            } catch {
+                // Ignore git errors
+            }
+        }
+
+        return { response, hasChanges };
+    } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+        return { response: '', hasChanges: false, error: errorMessage };
+    }
+}
+
+export interface CommitChangesParams {
+    repoPath: string;
+    message: string;
+    push?: boolean;
+}
+
+export interface CommitChangesResult {
+    success: boolean;
+    commitHash?: string;
+    error?: string;
+}
+
+export async function commitChanges(params: CommitChangesParams): Promise<CommitChangesResult> {
+    const { repoPath, message, push = false } = params;
+
+    try {
+        const { execSync } = await import('child_process');
+
+        // Stage all changes
+        execSync('git add -A', { cwd: repoPath });
+
+        // Commit with co-author
+        const fullMessage = `${message}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`;
+        execSync(`git commit -m "${fullMessage.replace(/"/g, '\\"')}"`, { cwd: repoPath });
+
+        // Get commit hash
+        const commitHash = execSync('git rev-parse HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+
+        // Push if requested
+        if (push) {
+            execSync('git push', { cwd: repoPath });
+        }
+
+        return { success: true, commitHash };
+    } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+        return { success: false, error: errorMessage };
+    }
 }

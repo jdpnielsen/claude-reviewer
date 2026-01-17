@@ -1477,6 +1477,67 @@ input, select, textarea {
   background: #30363d;
 }
 
+/* Claude respond buttons */
+.claude-respond-btn,
+.claude-respond-commit-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: none;
+  border: none;
+}
+
+.claude-respond-btn {
+  background: linear-gradient(135deg, #da7756 0%, #c45e3e 100%);
+  color: white;
+}
+
+.claude-respond-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #e08866 0%, #d46e4e 100%);
+}
+
+.claude-respond-commit-btn {
+  background: linear-gradient(135deg, #6e40c9 0%, #553098 100%);
+  color: white;
+}
+
+.claude-respond-commit-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7e50d9 0%, #6540a8 100%);
+}
+
+.claude-respond-btn:disabled,
+.claude-respond-commit-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.claude-status-message {
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #8b949e;
+}
+
 /* Reply form in conversations list */
 .reply-form-inline {
   display: flex;

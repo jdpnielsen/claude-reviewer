@@ -10,7 +10,10 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
-  Trash2
+  Trash2,
+  Bot,
+  Loader2,
+  GitCommit
 } from 'lucide-react';
 
 interface ConversationMessage {
@@ -75,6 +78,8 @@ export default function ConversationsListPage() {
   const [expandedConversation, setExpandedConversation] = useState<string | null>(null);
   const [conversationMessages, setConversationMessages] = useState<Record<string, ConversationMessage[]>>({});
   const [replyContent, setReplyContent] = useState('');
+  const [claudeResponding, setClaudeResponding] = useState<string | null>(null);
+  const [claudeError, setClaudeError] = useState<string | null>(null);
 
   // Load recent repos on mount
   useEffect(() => {
@@ -227,6 +232,46 @@ export default function ConversationsListPage() {
       setReplyContent('');
     } catch (e) {
       console.error('Error adding reply:', e);
+    }
+  };
+
+  const respondWithClaude = async (conversationUuid: string, autoCommit: boolean = false) => {
+    setClaudeResponding(conversationUuid);
+    setClaudeError(null);
+
+    try {
+      const res = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'respond',
+          conversationUuid,
+          allowEdits: true,
+          autoCommit,
+          push: false
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to get Claude response');
+      }
+
+      // Reload conversation messages to show Claude's response
+      await loadConversationMessages(conversationUuid);
+
+      // Show commit info if changes were made
+      if (data.hasChanges && !autoCommit) {
+        setClaudeError(`Claude made changes. Use "Respond & Commit" to auto-commit, or commit manually.`);
+      } else if (data.commit?.success) {
+        setClaudeError(`Changes committed: ${data.commit.commitHash?.slice(0, 7)}`);
+      }
+    } catch (e) {
+      console.error('Error getting Claude response:', e);
+      setClaudeError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setClaudeResponding(null);
     }
   };
 
@@ -438,7 +483,46 @@ export default function ConversationsListPage() {
                                 </button>
                               </div>
                             )}
+                            {claudeError && expandedConversation === conv.uuid && (
+                              <div className="claude-status-message">
+                                {claudeError}
+                              </div>
+                            )}
                             <div className="conversation-actions">
+                              {conv.status !== 'resolved' && conv.file_exists && (
+                                <>
+                                  <button
+                                    className="claude-respond-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      respondWithClaude(conv.uuid, false);
+                                    }}
+                                    disabled={claudeResponding === conv.uuid}
+                                  >
+                                    {claudeResponding === conv.uuid ? (
+                                      <Loader2 size={14} className="spinning" />
+                                    ) : (
+                                      <Bot size={14} />
+                                    )}
+                                    {claudeResponding === conv.uuid ? 'Thinking...' : 'Ask Claude'}
+                                  </button>
+                                  <button
+                                    className="claude-respond-commit-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      respondWithClaude(conv.uuid, true);
+                                    }}
+                                    disabled={claudeResponding === conv.uuid}
+                                  >
+                                    {claudeResponding === conv.uuid ? (
+                                      <Loader2 size={14} className="spinning" />
+                                    ) : (
+                                      <GitCommit size={14} />
+                                    )}
+                                    Ask & Commit
+                                  </button>
+                                </>
+                              )}
                               {conv.status !== 'resolved' && (
                                 <button
                                   className="resolve-btn"
