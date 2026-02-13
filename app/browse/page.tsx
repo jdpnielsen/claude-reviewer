@@ -265,6 +265,36 @@ export default function BrowsePage() {
     }
   };
 
+  const loadFolderChildren = async (folderPath: string) => {
+    try {
+      const url = `/api/browse/tree?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(folderPath)}&depth=2`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (data.tree && data.tree.children) {
+        // Update tree with new children
+        setTree(prevTree => {
+          if (!prevTree) return prevTree;
+
+          const updateNode = (node: TreeNode): TreeNode => {
+            if (node.path === folderPath) {
+              return { ...node, children: data.tree.children };
+            }
+            if (node.children) {
+              return { ...node, children: node.children.map(updateNode) };
+            }
+            return node;
+          };
+
+          return updateNode(prevTree);
+        });
+      }
+    } catch (e) {
+      console.error('Error loading folder children:', e);
+    }
+  };
+
   const toggleFolder = (path: string) => {
     setExpandedFolders(prev => {
       const next = new Set(prev);
@@ -272,6 +302,8 @@ export default function BrowsePage() {
         next.delete(path);
       } else {
         next.add(path);
+        // Load children if not already loaded
+        loadFolderChildren(path);
       }
       return next;
     });
