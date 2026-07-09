@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPRByUuid, getLatestDiff, updatePRStatus, getCommentsWithReplies } from '@/lib/database';
+import { listCommits, getCommitDiff } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -15,7 +16,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    const diff = getLatestDiff(id);
+    const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
+
+    const url = new URL(req.url);
+    const commitParam = url.searchParams.get('commit');
+
+    let diff: string | null;
+    if (commitParam) {
+      if (!commits.some((c) => c.sha === commitParam)) {
+        return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
+      }
+      diff = getCommitDiff(pr.repo_path, commitParam);
+    } else {
+      diff = getLatestDiff(id);
+    }
+
     const comments = getCommentsWithReplies(id);
 
     // Parse diff to get file list
@@ -26,6 +41,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       diff,
       files,
       comments,
+      commits,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
