@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import { getPRByUuid, addComment, getLatestDiff } from '@/lib/database';
+import { listCommits, blameCommit } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -116,15 +117,25 @@ Do NOT include explanatory text outside the JSON array.`;
       }, { status: 500 });
     }
 
-    // Add comments to the PR
+    // Attribute each comment to whichever commit last touched that line,
+    // restricted to commits within this PR's range - an unrestricted blame
+    // match means the line predates the PR, so it stays cumulative-scoped.
+    const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
+    const commitShas = new Set(commits.map((c) => c.sha));
+
     const addedComments: string[] = [];
     for (const comment of comments) {
       if (comment.file_path && comment.line_number && comment.content) {
+        const blamedSha = blameCommit(pr.repo_path, pr.head_commit, comment.file_path, comment.line_number);
+        const commitSha = blamedSha && commitShas.has(blamedSha) ? blamedSha : null;
         const uuid = addComment(
           id,
           comment.file_path,
           comment.line_number,
-          comment.content
+          comment.content,
+          'new',
+          comment.line_number,
+          commitSha
         );
         addedComments.push(uuid);
       }
