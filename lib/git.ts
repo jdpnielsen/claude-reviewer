@@ -57,6 +57,17 @@ export function listCommits(repoPath: string, baseCommit: string, headCommit: st
     });
 }
 
+export function getCommitDiff(repoPath: string, sha: string): string {
+  const cwd = resolveRepoPath(repoPath);
+  // "sha^..sha" diffs against the first parent even for a merge commit,
+  // so this doesn't need special-casing for merge commits in the PR range.
+  return execFileSync('git', ['diff', '--no-color', `${sha}^..${sha}`], {
+    cwd,
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
 export class GitManager {
   private git: SimpleGit;
   private repoPath: string;

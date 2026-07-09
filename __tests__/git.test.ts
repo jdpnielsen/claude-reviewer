@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import { execFileSync } from "child_process";
 
-import { resolveRepoPath, listCommits } from "../lib/git";
+import { resolveRepoPath, listCommits, getCommitDiff } from "../lib/git";
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
@@ -69,5 +69,41 @@ describe("listCommits", () => {
     expect(commits[1].message).toBe("add b");
     expect(commits[0].shortSha).toHaveLength(7);
     expect(commits[1].sha).toBe(headSha);
+  });
+});
+
+describe("getCommitDiff", () => {
+  let repoDir: string;
+  let addBSha: string;
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reviewer-git-test-"));
+    runGit(repoDir, ["init"]);
+    runGit(repoDir, ["config", "user.email", "test@example.com"]);
+    runGit(repoDir, ["config", "user.name", "Test User"]);
+
+    fs.writeFileSync(path.join(repoDir, "base.txt"), "base\n");
+    runGit(repoDir, ["add", "base.txt"]);
+    runGit(repoDir, ["commit", "-m", "base commit"]);
+
+    fs.writeFileSync(path.join(repoDir, "a.txt"), "content a\n");
+    runGit(repoDir, ["add", "a.txt"]);
+    runGit(repoDir, ["commit", "-m", "add a"]);
+
+    fs.writeFileSync(path.join(repoDir, "b.txt"), "content b\n");
+    runGit(repoDir, ["add", "b.txt"]);
+    runGit(repoDir, ["commit", "-m", "add b"]);
+    addBSha = runGit(repoDir, ["rev-parse", "HEAD"]);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test("returns only the diff introduced by that single commit", () => {
+    const diff = getCommitDiff(repoDir, addBSha);
+
+    expect(diff).toContain("b.txt");
+    expect(diff).not.toContain("a.txt");
   });
 });
