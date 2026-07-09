@@ -1,10 +1,12 @@
 import type { Config } from "jest";
 import nextJest from "next/jest.js";
-import path from "path";
 
 const createJestConfig = nextJest({
-  // Provide the path to your Next.js app to load next.config.js and .env files
-  dir: path.join(__dirname, "../"),
+  // Provide the path to your Next.js app to load next.config.js and .env files.
+  // Uses process.cwd() rather than __dirname: tsconfig.json's "module": "esnext"
+  // makes ts-node compile this config file as ESM, where __dirname is undefined.
+  // `npm test` always runs from the repo root, so process.cwd() is equivalent.
+  dir: process.cwd(),
 });
 
 // Add any custom config to be passed to Jest
