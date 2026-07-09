@@ -94,6 +94,7 @@ interface Comment {
   file_path: string;
   line_number: number;
   end_line_number: number;
+  commit_sha: string | null;
   line_type: 'old' | 'new' | 'context';
   content: string;
   resolved: boolean;
@@ -429,6 +430,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         file_path: commentingAt.file,
         line_number: commentingAt.startLine,
         end_line_number: commentingAt.endLine,
+        commit_sha: selectedCommit,
         line_type: commentingAt.lineType,
         content: newComment,
         resolved: false,
@@ -455,6 +457,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           lineNumber: commentingAt.startLine,
           endLineNumber: commentingAt.endLine,
           lineType: commentingAt.lineType,
+          commitSha: selectedCommit,
           content: newComment,
         }),
       });
@@ -675,7 +678,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   // Get comments for a specific file
   const getFileComments = (filePath: string): CommentWithReplies[] => {
     if (!data) return [];
-    return data.comments.filter((c) => c.comment.file_path === filePath);
+    return data.comments.filter(
+      (c) => c.comment.file_path === filePath && c.comment.commit_sha === selectedCommit
+    );
   };
 
   if (loading) {
