@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,15 +15,6 @@ from rich.console import Console
 import claude_reviewer.cli
 from claude_reviewer.cli import get_local_server_pid_file, main, print_comment, stop_local_server
 from claude_reviewer.models import Comment
-
-
-@pytest.fixture(autouse=True)
-def _disable_console_colors() -> None:
-    """Disable Rich console colors during tests for consistent output."""
-    original_console = claude_reviewer.cli.console
-    claude_reviewer.cli.console = Console(force_terminal=False)
-    yield
-    claude_reviewer.cli.console = original_console
 
 
 @pytest.fixture
@@ -86,6 +78,18 @@ class TestStopCommand:
 
 class TestPrintComment:
     """Tests for print_comment's commit-scope display."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_console_colors(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Disable Rich console colors so literal-substring assertions on output are stable.
+
+        Rich emits ANSI codes even under pytest's `capsys`, which would otherwise break
+        assertions like `"a.py:1 [0123456]" in output`. Scoped to this class only, via
+        `monkeypatch.setattr`, so pytest guarantees the revert and other test classes in
+        this file are unaffected.
+        """
+        monkeypatch.setattr(claude_reviewer.cli, "console", Console(force_terminal=False))
+        yield
 
     def test_shows_short_sha_for_a_commit_scoped_comment(
         self, capsys: pytest.CaptureFixture[str]
