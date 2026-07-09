@@ -28,6 +28,8 @@ import {
   FolderOpen,
   Sparkles,
   Loader2,
+  GitCommit,
+  Layers,
 } from 'lucide-react';
 
 // Map file extensions to Prism language identifiers
@@ -110,11 +112,20 @@ interface FileInfo {
   deletions: number;
 }
 
+interface CommitInfo {
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
 interface PRData {
   pr: PullRequest;
   diff: string;
   files: FileInfo[];
   comments: CommentWithReplies[];
+  commits: CommitInfo[];
 }
 
 // Folder tree structure for sidebar
@@ -205,6 +216,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [commentingAt, setCommentingAt] = useState<{
     file: string; startLine: number; endLine: number; lineType: 'old' | 'new';
   } | null>(null);
@@ -347,10 +359,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     return () => clearInterval(interval);
   }, [id]);
 
-  const fetchPR = async () => {
+  const fetchPR = async (commit: string | null = selectedCommit) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/prs/${id}`);
+      const query = commit ? `?commit=${encodeURIComponent(commit)}` : '';
+      const res = await fetch(`/api/prs/${id}${query}`);
       if (!res.ok) throw new Error('PR not found');
       const prData = await res.json();
       setData(prData);
@@ -367,6 +380,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     } finally {
       setLoading(false);
     }
+  };
+
+  const selectCommit = (sha: string | null) => {
+    setSelectedCommit(sha);
+    fetchPR(sha);
   };
 
   const toggleFile = (path: string) => {
@@ -848,6 +866,31 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
                 return renderNode(tree);
               })()}
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            <h3>Commits ({data.commits.length})</h3>
+            <div className="file-list">
+              <button
+                className={`file-item commit-item ${selectedCommit === null ? 'active' : ''}`}
+                onClick={() => selectCommit(null)}
+              >
+                <Layers size={14} />
+                <span className="file-name">All commits</span>
+              </button>
+              {data.commits.map((commit) => (
+                <button
+                  key={commit.sha}
+                  className={`file-item commit-item ${selectedCommit === commit.sha ? 'active' : ''}`}
+                  onClick={() => selectCommit(commit.sha)}
+                  title={`${commit.shortSha} by ${commit.author}`}
+                >
+                  <GitCommit size={14} />
+                  <span className="file-name">{commit.message}</span>
+                  <span className="commit-sha">{commit.shortSha}</span>
+                </button>
+              ))}
             </div>
           </div>
 

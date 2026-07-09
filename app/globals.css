@@ -344,6 +344,14 @@ input, select, textarea {
   margin-left: 0.25rem;
 }
 
+.commit-sha {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #8b949e;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .review-panel textarea {
   width: 100%;
   padding: 0.5rem;
