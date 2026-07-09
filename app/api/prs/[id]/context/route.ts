@@ -1,23 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPRByUuid } from '@/lib/database';
+import { resolveRepoPath } from '@/lib/git';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
-}
-
-// Translate host paths to Docker paths if running in container
-function translatePath(hostPath: string): string {
-  const hostPrefix = process.env.HOST_PATH_PREFIX;
-  if (hostPrefix && hostPath.startsWith('/Users/')) {
-    // Extract the path after /Users/username/
-    const parts = hostPath.split('/');
-    const userPath = parts.slice(3).join('/'); // Skip /Users/username
-    return path.join(hostPrefix, userPath);
-  }
-  return hostPath;
 }
 
 // GET /api/prs/[id]/context - Get additional context lines for a file
@@ -40,7 +29,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'file parameter required' }, { status: 400 });
     }
 
-    const repoPath = translatePath(pr.repo_path);
+    const repoPath = resolveRepoPath(pr.repo_path);
 
     // Use git show to get file content at the specific commit
     try {

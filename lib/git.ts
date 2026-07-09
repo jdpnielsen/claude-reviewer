@@ -1,10 +1,60 @@
 import { simpleGit, SimpleGit } from 'simple-git';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+
+const FIELD_SEP = '\x1f';
+
+export interface CommitInfo {
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  date: string;
+}
 
 interface GitResult {
   success: boolean;
   message: string;
+}
+
+/**
+ * Translate a host repo path to its location inside the web server's
+ * process when running in the Docker container bundled with this project
+ * (docker-compose.yml bind-mounts the host's home directory to
+ * HOST_PATH_PREFIX). Outside Docker (HOST_PATH_PREFIX unset), returns the
+ * path unchanged.
+ */
+export function resolveRepoPath(repoPath: string): string {
+  const hostPrefix = process.env.HOST_PATH_PREFIX;
+  if (hostPrefix && repoPath.startsWith('/Users/')) {
+    const parts = repoPath.split('/');
+    const userPath = parts.slice(3).join('/'); // Skip /Users/<username>
+    return path.join(hostPrefix, userPath);
+  }
+  return repoPath;
+}
+
+export function listCommits(repoPath: string, baseCommit: string, headCommit: string): CommitInfo[] {
+  const cwd = resolveRepoPath(repoPath);
+  const output = execFileSync(
+    'git',
+    [
+      'log',
+      '--reverse',
+      `--format=%H${FIELD_SEP}%h${FIELD_SEP}%s${FIELD_SEP}%an${FIELD_SEP}%aI`,
+      `${baseCommit}..${headCommit}`,
+    ],
+    { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+  );
+
+  return output
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [sha, shortSha, message, author, date] = line.split(FIELD_SEP);
+      return { sha, shortSha, message, author, date };
+    });
 }
 
 export class GitManager {
