@@ -43,8 +43,13 @@ def print_comment(
     """
     side_note = " [dim]\\[old-side][/dim]" if c.line_type == "old" else ""
     resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
+    line_ref = (
+        f"{c.line_number}-{c.end_line_number}"
+        if c.end_line_number != c.line_number
+        else str(c.line_number)
+    )
     console.print(
-        f"{indent}[cyan]{c.file_path}:{c.line_number}[/cyan]{side_note}{resolved_note}  "
+        f"{indent}[cyan]{c.file_path}:{line_ref}[/cyan]{side_note}{resolved_note}  "
         f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
@@ -238,6 +243,7 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
                     "uuid": c.uuid,
                     "file": c.file_path,
                     "line": c.line_number,
+                    "end_line": c.end_line_number,
                     "line_type": c.line_type,
                     "text": c.content,
                     "resolved": c.resolved,

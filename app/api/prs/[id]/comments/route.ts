@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { filePath, lineNumber, content, lineType, commentUuid, author } = body;
+    const { filePath, lineNumber, endLineNumber, content, lineType, commentUuid, author } = body;
 
     const pr = getPRByUuid(id);
     if (!pr) {
@@ -66,7 +66,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid lineType' }, { status: 400 });
     }
 
-    const newCommentUuid = addComment(id, filePath, lineNumber, content, lineType || 'new');
+    if (endLineNumber !== undefined && endLineNumber < lineNumber) {
+      return NextResponse.json({ error: 'endLineNumber must be >= lineNumber' }, { status: 400 });
+    }
+
+    const newCommentUuid = addComment(id, filePath, lineNumber, content, lineType || 'new', endLineNumber);
 
     return NextResponse.json({
       uuid: newCommentUuid,

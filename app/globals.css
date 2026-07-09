@@ -676,6 +676,16 @@ input, select, textarea {
   background: rgba(56, 139, 253, 0.15) !important;
 }
 
+/* Persistent range highlight — box-shadow (not background) so it layers over
+   the add/delete background colors below, and over the :hover swap above. */
+.line-in-comment-range {
+  box-shadow: inset 0 0 0 9999px rgba(56, 139, 253, 0.08);
+}
+
+.line-selecting {
+  box-shadow: inset 0 0 0 9999px rgba(56, 139, 253, 0.18);
+}
+
 /* Added lines - GitHub green: white line nums on changed lines */
 .line-add.line-num {
   background: #244032;
@@ -892,6 +902,12 @@ input, select, textarea {
   background: #0d1117;
   border: 1px solid #30363d;
   border-radius: 6px;
+}
+
+.comment-range-label {
+  font-size: 0.8rem;
+  color: #8b949e;
+  margin-bottom: 0.5rem;
 }
 
 .new-comment-form textarea {

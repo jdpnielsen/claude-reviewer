@@ -91,6 +91,7 @@ interface Comment {
   uuid: string;
   file_path: string;
   line_number: number;
+  end_line_number: number;
   line_type: 'old' | 'new' | 'context';
   content: string;
   resolved: boolean;
@@ -204,7 +205,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const [commentingAt, setCommentingAt] = useState<{ file: string; line: number; lineType: 'old' | 'new' } | null>(null);
+  const [commentingAt, setCommentingAt] = useState<{
+    file: string; startLine: number; endLine: number; lineType: 'old' | 'new';
+  } | null>(null);
+  const [lastClickedLine, setLastClickedLine] = useState<{
+    file: string; hunkIndex: number; line: number; lineType: 'old' | 'new';
+  } | null>(null);
   const [newComment, setNewComment] = useState('');
   const [editingComment, setEditingComment] = useState<{ uuid: string; content: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -403,7 +409,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         id: Date.now(),
         uuid: tempUuid,
         file_path: commentingAt.file,
-        line_number: commentingAt.line,
+        line_number: commentingAt.startLine,
+        end_line_number: commentingAt.endLine,
         line_type: commentingAt.lineType,
         content: newComment,
         resolved: false,
@@ -419,6 +426,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     });
     setNewComment('');
     setCommentingAt(null);
+    setLastClickedLine(null);
 
     try {
       const res = await fetch(`/api/prs/${id}/comments`, {
@@ -426,7 +434,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           filePath: commentingAt.file,
-          lineNumber: commentingAt.line,
+          lineNumber: commentingAt.startLine,
+          endLineNumber: commentingAt.endLine,
           lineType: commentingAt.lineType,
           content: newComment,
         }),
@@ -997,22 +1006,44 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                         const currentLine = newLineNum;
                         const anchorLine = line.startsWith('-') ? oldLineNum : newLineNum;
                         const anchorLineType: 'old' | 'new' = line.startsWith('-') ? 'old' : 'new';
-                        const lineClasses = line.startsWith('+')
-                          ? 'line-add'
-                          : line.startsWith('-')
-                            ? 'line-del'
-                            : line.startsWith('@@')
-                              ? 'line-hunk'
-                              : 'line-ctx';
+                        // Frozen per-iteration snapshot — hunkIndex itself is a single mutable
+                        // binding shared across the whole render pass, so closures (e.g. the
+                        // click handler below) must not capture it directly.
+                        const currentHunkIndex = hunkIndex;
 
-                        // Find comments for this line, matching old-side or new/context-side line numbers
+                        // Renders the comment thread once, at the range's end line
                         const lineComments = fileComments.filter((c) => {
                           if (line.startsWith('@@')) return false;
-                          if (line.startsWith('-')) {
-                            return c.comment.line_number === oldLineNum && c.comment.line_type === 'old';
-                          }
-                          return c.comment.line_number === newLineNum && c.comment.line_type !== 'old';
+                          const sideMatches = line.startsWith('-') ? c.comment.line_type === 'old' : c.comment.line_type !== 'old';
+                          return sideMatches && anchorLine === c.comment.end_line_number;
                         });
+
+                        // Persistent highlight for every line within a saved comment's range
+                        const isInSavedCommentRange = fileComments.some((c) => {
+                          if (line.startsWith('@@')) return false;
+                          const sideMatches = line.startsWith('-') ? c.comment.line_type === 'old' : c.comment.line_type !== 'old';
+                          return sideMatches && anchorLine >= c.comment.line_number && anchorLine <= c.comment.end_line_number;
+                        });
+
+                        // Persistent highlight for the in-progress (not yet submitted) selection
+                        const isInPendingSelection =
+                          !!commentingAt &&
+                          commentingAt.file === file.path &&
+                          commentingAt.lineType === anchorLineType &&
+                          anchorLine >= commentingAt.startLine &&
+                          anchorLine <= commentingAt.endLine;
+
+                        const rangeClass = isInPendingSelection ? 'line-selecting' : isInSavedCommentRange ? 'line-in-comment-range' : '';
+                        const lineClasses = [
+                          line.startsWith('+')
+                            ? 'line-add'
+                            : line.startsWith('-')
+                              ? 'line-del'
+                              : line.startsWith('@@')
+                                ? 'line-hunk'
+                                : 'line-ctx',
+                          rangeClass,
+                        ].filter(Boolean).join(' ');
 
                         // Check if this is the last line before next hunk or end of file
                         const nextHunkIdx = hunkStarts[hunkIndex + 1];
@@ -1040,8 +1071,26 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                 <span className={`line-indicator ${lineClasses}`}>{indicator}</span>
                                 <span
                                   className={`line-content ${lineClasses}`}
-                                  onClick={() => {
-                                    setCommentingAt({ file: file.path, line: anchorLine, lineType: anchorLineType });
+                                  onClick={(e) => {
+                                    if (
+                                      e.shiftKey &&
+                                      lastClickedLine &&
+                                      lastClickedLine.file === file.path &&
+                                      lastClickedLine.hunkIndex === currentHunkIndex &&
+                                      lastClickedLine.lineType === anchorLineType
+                                    ) {
+                                      setCommentingAt({
+                                        file: file.path,
+                                        startLine: Math.min(lastClickedLine.line, anchorLine),
+                                        endLine: Math.max(lastClickedLine.line, anchorLine),
+                                        lineType: anchorLineType,
+                                      });
+                                      // Intentionally do not update lastClickedLine, so repeated
+                                      // shift-clicks keep extending from the original anchor.
+                                    } else {
+                                      setCommentingAt({ file: file.path, startLine: anchorLine, endLine: anchorLine, lineType: anchorLineType });
+                                      setLastClickedLine({ file: file.path, hunkIndex: currentHunkIndex, line: anchorLine, lineType: anchorLineType });
+                                    }
                                   }}
                                 >
                                   <SyntaxLine
@@ -1157,8 +1206,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                             ))}
 
                             {/* New comment form */}
-                            {commentingAt?.file === file.path && commentingAt?.line === anchorLine && commentingAt?.lineType === anchorLineType && (
+                            {commentingAt?.file === file.path && commentingAt?.lineType === anchorLineType && commentingAt?.endLine === anchorLine && (
                               <div className="new-comment-form">
+                                {commentingAt.startLine !== commentingAt.endLine && (
+                                  <div className="comment-range-label">
+                                    Commenting on lines {commentingAt.startLine}–{commentingAt.endLine}
+                                  </div>
+                                )}
                                 <textarea
                                   autoFocus
                                   placeholder="Write a comment..."
@@ -1168,7 +1222,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                 />
                                 <div className="comment-actions">
                                   <button onClick={addComment}>Add Comment</button>
-                                  <button className="cancel" onClick={() => setCommentingAt(null)}>
+                                  <button className="cancel" onClick={() => { setCommentingAt(null); setLastClickedLine(null); }}>
                                     Cancel
                                   </button>
                                 </div>

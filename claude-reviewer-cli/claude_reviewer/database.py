@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS comments (
     pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
     file_path TEXT NOT NULL,
     line_number INTEGER NOT NULL,
+    end_line_number INTEGER,
     line_type TEXT DEFAULT 'new',
     content TEXT NOT NULL,
     resolved BOOLEAN DEFAULT FALSE,
@@ -206,9 +207,24 @@ def get_connection(db_path: Path | None = None) -> Generator[sqlite3.Connection,
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Initialize database schema."""
+    """Initialize database schema and apply any pending migrations."""
     with get_connection(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate_comments_end_line(conn)
+
+
+def _migrate_comments_end_line(conn: sqlite3.Connection) -> None:
+    """Backfill end_line_number for databases created before multi-line comments existed."""
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "end_line_number" for col in columns):
+        try:
+            conn.execute("ALTER TABLE comments ADD COLUMN end_line_number INTEGER")
+        except sqlite3.OperationalError as e:
+            # A concurrent process may have added the column between the
+            # check above and this ALTER.
+            if "duplicate column" not in str(e).lower():
+                raise
+    conn.execute("UPDATE comments SET end_line_number = line_number WHERE end_line_number IS NULL")
 
 
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
@@ -237,6 +253,7 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         pr_id=row["pr_id"],
         file_path=row["file_path"],
         line_number=row["line_number"],
+        end_line_number=row["end_line_number"],
         line_type=row["line_type"],
         content=row["content"],
         resolved=bool(row["resolved"]),
@@ -437,9 +454,11 @@ def add_comment(
     line_number: int,
     content: str,
     line_type: str = "new",
+    end_line_number: int | None = None,
 ) -> str:
     """Add a comment to a PR and return its UUID."""
     comment_uuid = generate_uuid()
+    resolved_end_line = end_line_number if end_line_number is not None else line_number
 
     with get_connection() as conn:
         pr = conn.execute(
@@ -452,10 +471,10 @@ def add_comment(
 
         conn.execute(
             """
-            INSERT INTO comments (uuid, pr_id, file_path, line_number, line_type, content)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, line_type, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (comment_uuid, pr["id"], file_path, line_number, line_type, content),
+            (comment_uuid, pr["id"], file_path, line_number, resolved_end_line, line_type, content),
         )
 
         # Update PR timestamp

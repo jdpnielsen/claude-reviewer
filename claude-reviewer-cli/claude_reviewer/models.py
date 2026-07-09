@@ -43,6 +43,7 @@ class Comment:
     pr_id: int
     file_path: str
     line_number: int
+    end_line_number: int
     content: str
     resolved: bool = False
     line_type: str = "new"

@@ -25,6 +25,7 @@ export interface Comment {
   pr_id: number;
   file_path: string;
   line_number: number;
+  end_line_number: number;
   line_type: 'old' | 'new' | 'context';
   content: string;
   resolved: boolean;
@@ -191,6 +192,7 @@ function initSchema(db: Database.Database): void {
         pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
         file_path TEXT NOT NULL,
         line_number INTEGER NOT NULL,
+        end_line_number INTEGER,
         line_type TEXT DEFAULT 'new',
         content TEXT NOT NULL,
         resolved BOOLEAN DEFAULT FALSE,
@@ -259,6 +261,26 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_rcm_conversation ON repo_conversation_messages(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_rcm_uuid ON repo_conversation_messages(uuid);
   `);
+
+  migrateCommentsEndLine(db);
+}
+
+// Backfills end_line_number for databases created before multi-line comments
+// existed. Runs on every getDatabase() reconnect, so it must stay cheap and
+// idempotent, not just run-once-guarded.
+function migrateCommentsEndLine(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'end_line_number')) {
+    try {
+      db.exec('ALTER TABLE comments ADD COLUMN end_line_number INTEGER');
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+    }
+  }
+  db.exec('UPDATE comments SET end_line_number = line_number WHERE end_line_number IS NULL');
+  checkpoint();
 }
 
 // Generate short UUID
@@ -406,7 +428,8 @@ export function addComment(
   filePath: string,
   lineNumber: number,
   content: string,
-  lineType: 'old' | 'new' | 'context' = 'new'
+  lineType: 'old' | 'new' | 'context' = 'new',
+  endLineNumber: number = lineNumber
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -416,9 +439,9 @@ export function addComment(
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO comments (uuid, pr_id, file_path, line_number, line_type, content)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(commentUuid, pr.id, filePath, lineNumber, lineType, content);
+      INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, line_type, content)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(commentUuid, pr.id, filePath, lineNumber, endLineNumber, lineType, content);
 
     db.prepare(
       'UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?'
