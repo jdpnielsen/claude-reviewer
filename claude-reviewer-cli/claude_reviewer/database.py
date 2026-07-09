@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS comments (
     file_path TEXT NOT NULL,
     line_number INTEGER NOT NULL,
     end_line_number INTEGER,
+    commit_sha TEXT,
     line_type TEXT DEFAULT 'new',
     content TEXT NOT NULL,
     resolved BOOLEAN DEFAULT FALSE,
@@ -211,6 +212,7 @@ def init_db(db_path: Path | None = None) -> None:
     with get_connection(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
         _migrate_comments_end_line(conn)
+        _migrate_comments_commit_sha(conn)
 
 
 def _migrate_comments_end_line(conn: sqlite3.Connection) -> None:
@@ -225,6 +227,21 @@ def _migrate_comments_end_line(conn: sqlite3.Connection) -> None:
             if "duplicate column" not in str(e).lower():
                 raise
     conn.execute("UPDATE comments SET end_line_number = line_number WHERE end_line_number IS NULL")
+
+
+def _migrate_comments_commit_sha(conn: sqlite3.Connection) -> None:
+    """Add commit_sha for databases created before commit-by-commit review existed.
+
+    NULL means "scoped to the cumulative view" - correct for every pre-existing
+    comment, so unlike _migrate_comments_end_line, no backfill is needed.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "commit_sha" for col in columns):
+        try:
+            conn.execute("ALTER TABLE comments ADD COLUMN commit_sha TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
 
 
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
@@ -254,6 +271,7 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         file_path=row["file_path"],
         line_number=row["line_number"],
         end_line_number=row["end_line_number"],
+        commit_sha=row["commit_sha"],
         line_type=row["line_type"],
         content=row["content"],
         resolved=bool(row["resolved"]),
@@ -455,6 +473,7 @@ def add_comment(
     content: str,
     line_type: str = "new",
     end_line_number: int | None = None,
+    commit_sha: str | None = None,
 ) -> str:
     """Add a comment to a PR and return its UUID."""
     comment_uuid = generate_uuid()
@@ -471,10 +490,10 @@ def add_comment(
 
         conn.execute(
             """
-            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, line_type, content)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, line_type, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (comment_uuid, pr["id"], file_path, line_number, resolved_end_line, line_type, content),
+            (comment_uuid, pr["id"], file_path, line_number, resolved_end_line, commit_sha, line_type, content),
         )
 
         # Update PR timestamp

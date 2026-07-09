@@ -225,6 +225,33 @@ class TestComments:
         assert comment_uuid is not None
         assert len(comment_uuid) == 8
 
+    def test_add_comment_stores_commit_sha(self, temp_db: Path) -> None:
+        """Test that commit_sha defaults to None and can be set."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        db.add_comment(pr_uuid=uuid, file_path="scoped.py", line_number=1, content="cumulative")
+        db.add_comment(
+            pr_uuid=uuid,
+            file_path="scoped.py",
+            line_number=2,
+            content="scoped",
+            commit_sha="abc1234",
+        )
+
+        comments = db.get_comments(uuid, file_path="scoped.py")
+        cumulative = next(c for c in comments if c.content == "cumulative")
+        scoped = next(c for c in comments if c.content == "scoped")
+        assert cumulative.commit_sha is None
+        assert scoped.commit_sha == "abc1234"
+
     def test_get_comments(self, temp_db: Path) -> None:
         """Test retrieving comments."""
         uuid = db.create_pr(
