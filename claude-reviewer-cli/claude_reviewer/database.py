@@ -493,7 +493,16 @@ def add_comment(
             INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, line_type, content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (comment_uuid, pr["id"], file_path, line_number, resolved_end_line, commit_sha, line_type, content),
+            (
+                comment_uuid,
+                pr["id"],
+                file_path,
+                line_number,
+                resolved_end_line,
+                commit_sha,
+                line_type,
+                content,
+            ),
         )
 
         # Update PR timestamp
