@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { filePath, lineNumber, endLineNumber, content, lineType, commentUuid, author } = body;
+    const { filePath, lineNumber, endLineNumber, content, lineType, commentUuid, author, commitSha } = body;
 
     const pr = getPRByUuid(id);
     if (!pr) {
@@ -70,7 +70,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'endLineNumber must be >= lineNumber' }, { status: 400 });
     }
 
-    const newCommentUuid = addComment(id, filePath, lineNumber, content, lineType || 'new', endLineNumber);
+    const newCommentUuid = addComment(
+      id,
+      filePath,
+      lineNumber,
+      content,
+      lineType || 'new',
+      endLineNumber,
+      typeof commitSha === 'string' ? commitSha : null
+    );
 
     return NextResponse.json({
       uuid: newCommentUuid,
