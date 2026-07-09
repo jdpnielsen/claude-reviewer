@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -29,6 +30,31 @@ from .models import (
 )
 
 console = Console()
+
+
+def print_comment(
+    c: Comment, replies: list[CommentReply] | None = None, indent: str = "  "
+) -> None:
+    """Print a single comment as a scannable location header + indented content.
+
+    highlight=False avoids Rich's automatic ReprHighlighter, which otherwise
+    bolds numbers/brackets/parens inside the file path and content, producing
+    jumbled, inconsistent coloring.
+    """
+    side_note = " [dim]\\[old-side][/dim]" if c.line_type == "old" else ""
+    resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
+    console.print(
+        f"{indent}[cyan]{c.file_path}:{c.line_number}[/cyan]{side_note}{resolved_note}  "
+        f"[dim]· {c.uuid}[/dim]",
+        highlight=False,
+    )
+    console.print(f"{indent}  {c.content}", highlight=False)
+    for reply in replies or []:
+        author_color = "green" if reply.author == "claude" else "blue"
+        console.print(
+            f"{indent}  [{author_color}]↳ {reply.author}:[/{author_color}] {reply.content}",
+            highlight=False,
+        )
 
 
 def get_review_url(pr_uuid: str, port: int = 41729) -> str:
@@ -212,6 +238,7 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
                     "uuid": c.uuid,
                     "file": c.file_path,
                     "line": c.line_number,
+                    "line_type": c.line_type,
                     "text": c.content,
                     "resolved": c.resolved,
                     "replies": [{"author": r.author, "text": r.content} for r in replies],
@@ -236,18 +263,10 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
 
         # Show inline comments
         if comments_with_replies:
-            console.print("[bold]Inline Comments:[/bold]")
+            console.print("[bold]Inline Comments:[/bold]\n")
             for c, replies in comments_with_replies:
-                resolved_mark = "[dim](resolved)[/dim] " if c.resolved else ""
-                console.print(
-                    f"  {resolved_mark}[cyan][{c.file_path}:{c.line_number}][/cyan] "
-                    f"[dim]({c.uuid})[/dim] {c.content}"
-                )
-                for reply in replies:
-                    author_color = "green" if reply.author == "claude" else "blue"
-                    console.print(
-                        f"    [{author_color}]↳ {reply.author}:[/{author_color}] {reply.content}"
-                    )
+                print_comment(c, replies)
+                console.print()
         elif not reviews:
             console.print("[dim]No comments or reviews found[/dim]")
 
@@ -997,12 +1016,11 @@ def watch(pr_id: str, until: str, interval: int, timeout: int) -> None:
                         comments_list = db.get_comments(pr_id, unresolved_only=True)
                         if comments_list:
                             console.print(
-                                f"\n[bold]Unresolved comments ({len(comments_list)}):[/bold]"
+                                f"\n[bold]Unresolved comments ({len(comments_list)}):[/bold]\n"
                             )
                             for c in comments_list:
-                                console.print(
-                                    f"  [cyan][{c.file_path}:{c.line_number}][/cyan] {c.content}"
-                                )
+                                print_comment(c)
+                                console.print()
                         sys.exit(0)
                 elif until == "feedback_given":
                     # Wait for either approved or changes_requested
@@ -1015,12 +1033,10 @@ def watch(pr_id: str, until: str, interval: int, timeout: int) -> None:
                             # Show the comments
                             comments_list = db.get_comments(pr_id, unresolved_only=True)
                             if comments_list:
-                                console.print("\n[bold]Review comments:[/bold]")
+                                console.print("\n[bold]Review comments:[/bold]\n")
                                 for c in comments_list:
-                                    console.print(
-                                        f"  [cyan][{c.file_path}:{c.line_number}][/cyan] "
-                                        f"[dim]({c.uuid})[/dim] {c.content}"
-                                    )
+                                    print_comment(c)
+                                    console.print()
                         sys.exit(0)
                 else:
                     # Check for specific status
@@ -1039,12 +1055,10 @@ def watch(pr_id: str, until: str, interval: int, timeout: int) -> None:
                             # Show the comments
                             comments_list = db.get_comments(pr_id, unresolved_only=True)
                             if comments_list:
-                                console.print("\n[bold]Review comments:[/bold]")
+                                console.print("\n[bold]Review comments:[/bold]\n")
                                 for c in comments_list:
-                                    console.print(
-                                        f"  [cyan][{c.file_path}:{c.line_number}][/cyan] "
-                                        f"[dim]({c.uuid})[/dim] {c.content}"
-                                    )
+                                    print_comment(c)
+                                    console.print()
                         sys.exit(0)
 
     except KeyboardInterrupt:
@@ -1073,6 +1087,72 @@ def get_file_context(repo_path: str, file_path: str, line_number: int, context_l
         return "\n".join(context_lines_list)
     except Exception as e:
         return f"[Error reading file: {e}]"
+
+
+def get_diff_line_context(
+    diff_content: str, file_path: str, line_number: int, line_type: str, context_lines: int = 10
+) -> str | None:
+    """Get diff content around a specific old-side or new-side line.
+
+    Unlike get_file_context, this reads the line from the PR's stored diff rather
+    than the working tree, since an old-side line number is only meaningful
+    relative to the diff it was anchored against (the line may no longer exist,
+    or may exist at a different line number, in the current working tree).
+
+    Returns None if the file or line can't be located in the diff.
+    """
+    for file_section in re.split(r"^diff --git ", diff_content, flags=re.MULTILINE)[1:]:
+        section_lines = file_section.splitlines()
+        header_match = re.match(r"a/(.*?) b/(.*)", section_lines[0])
+        if not header_match or header_match.group(2) != file_path:
+            continue
+
+        old_ln = new_ln = 0
+        rows: list[tuple[int | None, int | None, str]] = []
+        for line in section_lines[1:]:
+            hunk_match = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line)
+            if hunk_match:
+                old_ln = int(hunk_match.group(1)) - 1
+                new_ln = int(hunk_match.group(2)) - 1
+                continue
+            if line.startswith(("---", "+++", "index ", "new file mode", "deleted file mode")):
+                continue
+            if line.startswith("+"):
+                new_ln += 1
+                rows.append((None, new_ln, line))
+            elif line.startswith("-"):
+                old_ln += 1
+                rows.append((old_ln, None, line))
+            else:
+                old_ln += 1
+                new_ln += 1
+                rows.append((old_ln, new_ln, line))
+
+        target_idx = None
+        for i, (o, n, _line) in enumerate(rows):
+            if line_type == "old" and o == line_number and n is None:
+                target_idx = i
+                break
+            if line_type != "old" and n == line_number:
+                target_idx = i
+                break
+
+        if target_idx is None:
+            return None
+
+        start = max(0, target_idx - context_lines)
+        end = min(len(rows), target_idx + context_lines + 1)
+        context_lines_list = []
+        for i in range(start, end):
+            o, n, line = rows[i]
+            prefix = ">>> " if i == target_idx else "    "
+            old_col = f"{o:4d}" if o is not None else "    "
+            new_col = f"{n:4d}" if n is not None else "    "
+            context_lines_list.append(f"{prefix}{old_col} {new_col} | {line}")
+
+        return "\n".join(context_lines_list)
+
+    return None
 
 
 def call_claude(prompt: str, allow_edits: bool = False, cwd: str | None = None) -> str:
@@ -1339,8 +1419,21 @@ def respond_to_pr_comment(
     """Generate and post Claude's response to a PR comment."""
     console.print(f"\n[cyan]Responding to PR #{pr.uuid} comment in {comment.file_path}:{comment.line_number}[/cyan]")
 
-    # Get file context
-    file_context = get_file_context(repo_path, comment.file_path, comment.line_number)
+    # Get file context. Old-side comments anchor to a line number in the diff's
+    # "before" tree, which may no longer exist (or exist at a different line) in
+    # the current working tree, so look it up in the stored diff instead.
+    if comment.line_type == "old":
+        diff_content = db.get_latest_diff(pr.uuid)
+        file_context = diff_content and get_diff_line_context(
+            diff_content, comment.file_path, comment.line_number, comment.line_type
+        )
+        if not file_context:
+            file_context = (
+                f"[Could not locate removed line {comment.line_number} of "
+                f"{comment.file_path} in the stored diff]"
+            )
+    else:
+        file_context = get_file_context(repo_path, comment.file_path, comment.line_number)
 
     # Build conversation history
     conv_parts = [f"[reviewer]: {comment.content}"]
