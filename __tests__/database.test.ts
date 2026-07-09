@@ -207,6 +207,18 @@ describe("Database Module", () => {
       const comments = getComments(prUuid, { filePath: "temp.py" });
       expect(comments.length).toBe(0);
     });
+
+    test("addComment defaults commit_sha to null and stores it when provided", () => {
+      const cumulativeUuid = addComment(prUuid, "scoped.py", 1, "cumulative comment");
+      const scopedUuid = addComment(prUuid, "scoped.py", 2, "commit comment", "new", 2, "abc1234");
+
+      const fileComments = getComments(prUuid, { filePath: "scoped.py" });
+      const cumulative = fileComments.find((c) => c.uuid === cumulativeUuid);
+      const scoped = fileComments.find((c) => c.uuid === scopedUuid);
+
+      expect(cumulative?.commit_sha).toBeNull();
+      expect(scoped?.commit_sha).toBe("abc1234");
+    });
   });
 
   describe("Review Operations", () => {

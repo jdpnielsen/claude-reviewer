@@ -26,6 +26,7 @@ export interface Comment {
   file_path: string;
   line_number: number;
   end_line_number: number;
+  commit_sha: string | null;
   line_type: 'old' | 'new' | 'context';
   content: string;
   resolved: boolean;
@@ -193,6 +194,7 @@ function initSchema(db: Database.Database): void {
         file_path TEXT NOT NULL,
         line_number INTEGER NOT NULL,
         end_line_number INTEGER,
+        commit_sha TEXT,
         line_type TEXT DEFAULT 'new',
         content TEXT NOT NULL,
         resolved BOOLEAN DEFAULT FALSE,
@@ -263,6 +265,7 @@ function initSchema(db: Database.Database): void {
   `);
 
   migrateCommentsEndLine(db);
+  migrateCommentsCommitSha(db);
 }
 
 // Backfills end_line_number for databases created before multi-line comments
@@ -281,6 +284,22 @@ function migrateCommentsEndLine(db: Database.Database): void {
   }
   db.exec('UPDATE comments SET end_line_number = line_number WHERE end_line_number IS NULL');
   checkpoint();
+}
+
+// Adds commit_sha for databases created before commit-by-commit review existed.
+// NULL means "scoped to the cumulative view" - correct for every pre-existing
+// comment, so unlike migrateCommentsEndLine, no backfill is needed.
+function migrateCommentsCommitSha(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'commit_sha')) {
+    try {
+      db.exec('ALTER TABLE comments ADD COLUMN commit_sha TEXT');
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+    }
+  }
 }
 
 // Generate short UUID
@@ -429,7 +448,8 @@ export function addComment(
   lineNumber: number,
   content: string,
   lineType: 'old' | 'new' | 'context' = 'new',
-  endLineNumber: number = lineNumber
+  endLineNumber: number = lineNumber,
+  commitSha: string | null = null
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -439,9 +459,9 @@ export function addComment(
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, line_type, content)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(commentUuid, pr.id, filePath, lineNumber, endLineNumber, lineType, content);
+      INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, line_type, content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(commentUuid, pr.id, filePath, lineNumber, endLineNumber, commitSha, lineType, content);
 
     db.prepare(
       'UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?'
