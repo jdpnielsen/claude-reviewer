@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -602,6 +603,11 @@ def is_web_ui_running(port: int = 41729) -> bool:
     return False
 
 
+def get_local_server_pid_file(port: int) -> Path:
+    """Path to the PID file tracking a locally-running (non-Docker) web server."""
+    return Path.home() / ".claude-reviewer" / f"local-server-{port}.pid"
+
+
 def run_local_server(port: int, web_dir: Path) -> None:
     """Run the web server locally using npm."""
     console.print(f"[bold]Starting local web server on port {port}...[/bold]")
@@ -621,10 +627,57 @@ def run_local_server(port: int, web_dir: Path) -> None:
     env["PORT"] = str(port)
 
     console.print(f"[green]Starting server at http://localhost:{port}[/green]")
+
+    pid_file = get_local_server_pid_file(port)
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # New session so the whole npm -> next-server tree shares one process
+    # group, letting `stop` kill it as a unit even if this CLI process exits.
+    process = subprocess.Popen(
+        ["npm", "run", "start"], cwd=web_dir, env=env, start_new_session=True
+    )
+    pid_file.write_text(str(process.pid))
     try:
-        subprocess.run(["npm", "run", "start"], cwd=web_dir, env=env)
+        process.wait()
     except KeyboardInterrupt:
         console.print("\n[yellow]Server stopped[/yellow]")
+        process.terminate()
+        process.wait()
+    finally:
+        pid_file.unlink(missing_ok=True)
+
+
+def stop_local_server(port: int) -> bool:
+    """Stop a locally-running (--local) web server, if any.
+
+    Falls back to whatever process is listening on the port if the PID
+    file is missing or stale, e.g. because the CLI process that started
+    it was killed or exited without cleaning up.
+    """
+    pid_file = get_local_server_pid_file(port)
+    pid: int | None = None
+
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+        except ValueError:
+            pid = None
+
+    if pid is None and is_port_in_use(port):
+        result = subprocess.run(["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True)
+        listening_pids = [int(p) for p in result.stdout.split() if p.strip()]
+        pid = listening_pids[0] if listening_pids else None
+
+    pid_file.unlink(missing_ok=True)
+
+    if pid is None:
+        return False
+
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
 
 
 @main.command()
@@ -798,10 +851,14 @@ def serve(port: int, detach: bool, dev: bool, pull: bool, local: bool) -> None:
 
 
 @main.command()
-def stop() -> None:
+@click.option(
+    "--port", "-p", default=41729, help="Port the local web server is running on (default: 41729)"
+)
+def stop(port: int) -> None:
     """Stop the web UI server.
 
-    This only stops claude-reviewer containers, not other Docker services.
+    Stops claude-reviewer Docker containers as well as a locally-running
+    (--local) server on the given port.
     """
     console.print("[bold]Stopping Claude Reviewer web UI...[/bold]")
 
@@ -825,10 +882,14 @@ def stop() -> None:
     if compose_result.returncode == 0 and "Removed" in compose_result.stderr:
         stopped = True
 
+    # Also stop a locally-running (--local) server, if any
+    if stop_local_server(port):
+        stopped = True
+
     if stopped:
         console.print("[green]Stopped[/green]")
     else:
-        console.print("[yellow]No claude-reviewer containers were running[/yellow]")
+        console.print("[yellow]No claude-reviewer web UI was running[/yellow]")
 
 
 @main.command()
