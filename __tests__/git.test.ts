@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import { execFileSync } from "child_process";
 
-import { resolveRepoPath, listCommits, getCommitDiff } from "../lib/git";
+import { resolveRepoPath, listCommits, getCommitDiff, blameCommit } from "../lib/git";
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
@@ -105,5 +105,46 @@ describe("getCommitDiff", () => {
 
     expect(diff).toContain("b.txt");
     expect(diff).not.toContain("a.txt");
+  });
+});
+
+describe("blameCommit", () => {
+  let repoDir: string;
+  let addASha: string;
+  let headSha: string;
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reviewer-git-test-"));
+    runGit(repoDir, ["init"]);
+    runGit(repoDir, ["config", "user.email", "test@example.com"]);
+    runGit(repoDir, ["config", "user.name", "Test User"]);
+
+    fs.writeFileSync(path.join(repoDir, "base.txt"), "base\n");
+    runGit(repoDir, ["add", "base.txt"]);
+    runGit(repoDir, ["commit", "-m", "base commit"]);
+
+    fs.writeFileSync(path.join(repoDir, "a.txt"), "line one\nline two\n");
+    runGit(repoDir, ["add", "a.txt"]);
+    runGit(repoDir, ["commit", "-m", "add a"]);
+    addASha = runGit(repoDir, ["rev-parse", "HEAD"]);
+
+    fs.writeFileSync(path.join(repoDir, "b.txt"), "content b\n");
+    runGit(repoDir, ["add", "b.txt"]);
+    runGit(repoDir, ["commit", "-m", "add b"]);
+    headSha = runGit(repoDir, ["rev-parse", "HEAD"]);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test("finds the commit that last touched a line", () => {
+    const sha = blameCommit(repoDir, headSha, "a.txt", 1);
+    expect(sha).toBe(addASha);
+  });
+
+  test("returns null for a file that doesn't exist", () => {
+    const sha = blameCommit(repoDir, headSha, "nope.txt", 1);
+    expect(sha).toBeNull();
   });
 });

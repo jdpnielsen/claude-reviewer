@@ -68,6 +68,25 @@ export function getCommitDiff(repoPath: string, sha: string): string {
   });
 }
 
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}/;
+
+export function blameCommit(repoPath: string, headCommit: string, filePath: string, line: number): string | null {
+  const cwd = resolveRepoPath(repoPath);
+  try {
+    const output = execFileSync(
+      'git',
+      ['blame', '--porcelain', '-L', `${line},${line}`, headCommit, '--', filePath],
+      { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+    );
+    const match = output.match(FULL_SHA_PATTERN);
+    return match ? match[0] : null;
+  } catch {
+    // File not found at this commit, invalid line number, etc. - the caller
+    // treats a null result as "couldn't attribute this line to a commit."
+    return null;
+  }
+}
+
 export class GitManager {
   private git: SimpleGit;
   private repoPath: string;
