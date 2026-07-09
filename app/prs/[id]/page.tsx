@@ -91,6 +91,7 @@ interface Comment {
   uuid: string;
   file_path: string;
   line_number: number;
+  line_type: 'old' | 'new' | 'context';
   content: string;
   resolved: boolean;
   created_at: string;
@@ -203,7 +204,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const [commentingAt, setCommentingAt] = useState<{ file: string; line: number } | null>(null);
+  const [commentingAt, setCommentingAt] = useState<{ file: string; line: number; lineType: 'old' | 'new' } | null>(null);
   const [newComment, setNewComment] = useState('');
   const [editingComment, setEditingComment] = useState<{ uuid: string; content: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -403,6 +404,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         uuid: tempUuid,
         file_path: commentingAt.file,
         line_number: commentingAt.line,
+        line_type: commentingAt.lineType,
         content: newComment,
         resolved: false,
         created_at: new Date().toISOString(),
@@ -425,6 +427,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         body: JSON.stringify({
           filePath: commentingAt.file,
           lineNumber: commentingAt.line,
+          lineType: commentingAt.lineType,
           content: newComment,
         }),
       });
@@ -992,6 +995,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                         }
 
                         const currentLine = newLineNum;
+                        const anchorLine = line.startsWith('-') ? oldLineNum : newLineNum;
+                        const anchorLineType: 'old' | 'new' = line.startsWith('-') ? 'old' : 'new';
                         const lineClasses = line.startsWith('+')
                           ? 'line-add'
                           : line.startsWith('-')
@@ -1000,10 +1005,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                               ? 'line-hunk'
                               : 'line-ctx';
 
-                        // Find comments for this line (only for new/context lines)
-                        const lineComments = fileComments.filter(
-                          (c) => c.comment.line_number === currentLine && !line.startsWith('-') && !line.startsWith('@@')
-                        );
+                        // Find comments for this line, matching old-side or new/context-side line numbers
+                        const lineComments = fileComments.filter((c) => {
+                          if (line.startsWith('@@')) return false;
+                          if (line.startsWith('-')) {
+                            return c.comment.line_number === oldLineNum && c.comment.line_type === 'old';
+                          }
+                          return c.comment.line_number === newLineNum && c.comment.line_type !== 'old';
+                        });
 
                         // Check if this is the last line before next hunk or end of file
                         const nextHunkIdx = hunkStarts[hunkIndex + 1];
@@ -1032,9 +1041,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                 <span
                                   className={`line-content ${lineClasses}`}
                                   onClick={() => {
-                                    if (!line.startsWith('-')) {
-                                      setCommentingAt({ file: file.path, line: currentLine });
-                                    }
+                                    setCommentingAt({ file: file.path, line: anchorLine, lineType: anchorLineType });
                                   }}
                                 >
                                   <SyntaxLine
@@ -1150,7 +1157,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                             ))}
 
                             {/* New comment form */}
-                            {commentingAt?.file === file.path && commentingAt?.line === currentLine && (
+                            {commentingAt?.file === file.path && commentingAt?.line === anchorLine && commentingAt?.lineType === anchorLineType && (
                               <div className="new-comment-form">
                                 <textarea
                                   autoFocus

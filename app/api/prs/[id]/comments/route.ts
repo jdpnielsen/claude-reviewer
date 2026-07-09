@@ -61,6 +61,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const VALID_LINE_TYPES = ['old', 'new', 'context'];
+    if (lineType !== undefined && !VALID_LINE_TYPES.includes(lineType)) {
+      return NextResponse.json({ error: 'Invalid lineType' }, { status: 400 });
+    }
+
     const newCommentUuid = addComment(id, filePath, lineNumber, content, lineType || 'new');
 
     return NextResponse.json({
