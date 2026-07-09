@@ -42,6 +42,7 @@ def print_comment(
     jumbled, inconsistent coloring.
     """
     side_note = " [dim]\\[old-side][/dim]" if c.line_type == "old" else ""
+    commit_note = f" [dim]\\[{c.commit_sha[:7]}][/dim]" if c.commit_sha else ""
     resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
     line_ref = (
         f"{c.line_number}-{c.end_line_number}"
@@ -49,7 +50,7 @@ def print_comment(
         else str(c.line_number)
     )
     console.print(
-        f"{indent}[cyan]{c.file_path}:{line_ref}[/cyan]{side_note}{resolved_note}  "
+        f"{indent}[cyan]{c.file_path}:{line_ref}[/cyan]{side_note}{commit_note}{resolved_note}  "
         f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
@@ -244,6 +245,7 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
                     "file": c.file_path,
                     "line": c.line_number,
                     "end_line": c.end_line_number,
+                    "commit_sha": c.commit_sha,
                     "line_type": c.line_type,
                     "text": c.content,
                     "resolved": c.resolved,

@@ -9,8 +9,20 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
-from claude_reviewer.cli import get_local_server_pid_file, main, stop_local_server
+import claude_reviewer.cli
+from claude_reviewer.cli import get_local_server_pid_file, main, print_comment, stop_local_server
+from claude_reviewer.models import Comment
+
+
+@pytest.fixture(autouse=True)
+def _disable_console_colors() -> None:
+    """Disable Rich console colors during tests for consistent output."""
+    original_console = claude_reviewer.cli.console
+    claude_reviewer.cli.console = Console(force_terminal=False)
+    yield
+    claude_reviewer.cli.console = original_console
 
 
 @pytest.fixture
@@ -70,3 +82,46 @@ class TestStopCommand:
 
         assert result.exit_code == 0
         assert "Stopped" in result.output
+
+
+class TestPrintComment:
+    """Tests for print_comment's commit-scope display."""
+
+    def test_shows_short_sha_for_a_commit_scoped_comment(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A comment tagged with a commit shows that commit's short SHA."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="looks good",
+            commit_sha="0123456789abcdef",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "a.py:1 [0123456]" in output
+
+    def test_omits_commit_tag_for_a_cumulative_comment(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A comment with no commit_sha (cumulative view) shows no commit tag."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="looks good",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "a.py:1  ·" in output
