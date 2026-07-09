@@ -78,7 +78,7 @@ class TestPullRequests:
             head_commit="b",
             diff="d",
         )
-        
+
         # Add a comment to verify cascade delete
         db.add_comment(uuid, "file.py", 1, "comment")
 
@@ -87,7 +87,7 @@ class TestPullRequests:
 
         pr = db.get_pr_by_uuid(uuid)
         assert pr is None
-        
+
         comments = db.get_comments(uuid)
         assert len(comments) == 0
 

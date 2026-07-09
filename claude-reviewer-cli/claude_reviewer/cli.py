@@ -103,14 +103,14 @@ def create(
         if not base:
             # Try to find the default branch
             possible_defaults = ["main", "master", "trunk", "development"]
-            
+
             # 1. Try to get semantic default from remote
             remote_info = subprocess.run(
-                ["git", "remote", "show", "origin"], 
-                cwd=repo_path, 
-                capture_output=True, 
+                ["git", "remote", "show", "origin"],
+                cwd=repo_path,
+                capture_output=True,
                 text=True,
-                check=False  # Don't raise on error, just continue to next method
+                check=False,  # Don't raise on error, just continue to next method
             ).stdout
             for line in remote_info.split("\n"):
                 if "HEAD branch:" in line:
@@ -126,11 +126,11 @@ def create(
                     if name in local_branches:
                         base = name
                         break
-            
+
             # 3. Fallback
             if not base:
                 base = "main"
-                
+
             console.print(f"[dim]Auto-detected base branch: {base}[/dim]")
 
         if head_ref == base:
@@ -294,7 +294,7 @@ def list_prs(repo: str | None, status: str | None, limit: int, show_all: bool) -
     Use --all to show PRs from all repositories.
     """
     status_filter = PRStatus(status) if status else None
-    
+
     # Determine repo path filter
     repo_path = None
     if repo:
@@ -310,9 +310,9 @@ def list_prs(repo: str | None, status: str | None, limit: int, show_all: bool) -
                 cwd=cwd,
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
             ).stdout.strip()
-            
+
             if git_root:
                 repo_path = str(Path(git_root).resolve())
         except FileNotFoundError:
@@ -329,7 +329,9 @@ def list_prs(repo: str | None, status: str | None, limit: int, show_all: bool) -
             console.print("[dim]No PRs found[/dim]")
         return
 
-    title_text = "Pull Requests" if show_all or not repo_path else f"Pull Requests ({Path(repo_path).name})"
+    title_text = (
+        "Pull Requests" if show_all or not repo_path else f"Pull Requests ({Path(repo_path).name})"
+    )
     table = Table(title=title_text)
     table.add_column("ID", style="cyan")
     table.add_column("Title", style="white")
@@ -371,7 +373,7 @@ def close(pr_id: str) -> None:
     if pr.status == PRStatus.MERGED:
         console.print(f"[yellow]Warning: PR '{pr_id}' is already merged[/yellow]")
         return
-        
+
     if pr.status == PRStatus.CLOSED:
         console.print(f"[yellow]PR '{pr_id}' is already closed[/yellow]")
         return
@@ -392,7 +394,9 @@ def delete(pr_id: str, force: bool) -> None:
         sys.exit(1)
 
     if not force:
-        console.print(f"[bold red]Warning: This will permanently delete PR #{pr_id} and all its comments/reviews.[/bold red]")
+        console.print(
+            f"[bold red]Warning: This will permanently delete PR #{pr_id} and all its comments/reviews.[/bold red]"
+        )
         if not click.confirm(f"Are you sure you want to delete PR #{pr_id} '{pr.title}'?"):
             console.print("[dim]Aborted[/dim]")
             return
@@ -623,9 +627,7 @@ def is_web_ui_running(port: int = 41729) -> bool:
     if verify_docker_container(CONTAINER_NAME):
         return True
     # Check if port is in use (could be local dev server)
-    if is_port_in_use(port):
-        return True
-    return False
+    return bool(is_port_in_use(port))
 
 
 def get_local_server_pid_file(port: int) -> Path:
@@ -1072,14 +1074,16 @@ def watch(pr_id: str, until: str, interval: int, timeout: int) -> None:
         sys.exit(0)
 
 
-def get_file_context(repo_path: str, file_path: str, line_number: int, context_lines: int = 10) -> str:
+def get_file_context(
+    repo_path: str, file_path: str, line_number: int, context_lines: int = 10
+) -> str:
     """Get file content around a specific line."""
     full_path = Path(repo_path) / file_path
     if not full_path.exists():
         return f"[File {file_path} not found]"
 
     try:
-        with open(full_path, "r", encoding="utf-8") as f:
+        with open(full_path, encoding="utf-8") as f:
             lines = f.readlines()
 
         start = max(0, line_number - context_lines - 1)
@@ -1197,7 +1201,11 @@ def call_claude(prompt: str, allow_edits: bool = False, cwd: str | None = None) 
 @click.option("--repo", "-r", default=".", help="Path to git repository")
 @click.option("--interval", "-i", default=3, help="Polling interval in seconds (default: 3)")
 @click.option("--once", is_flag=True, help="Run once and exit (don't poll)")
-@click.option("--fix", is_flag=True, help="Allow Claude to edit files to fix issues (uses --dangerously-skip-permissions)")
+@click.option(
+    "--fix",
+    is_flag=True,
+    help="Allow Claude to edit files to fix issues (uses --dangerously-skip-permissions)",
+)
 def watch_all(repo: str, interval: int, once: bool, fix: bool) -> None:
     """Watch for ALL unanswered comments and conversations, respond with Claude.
 
@@ -1258,7 +1266,9 @@ def watch_all(repo: str, interval: int, once: bool, fix: bool) -> None:
                 console.print("[dim]No unanswered comments or conversations found[/dim]")
                 return
 
-            console.print(f"[bold]Found {len(pr_unanswered)} PR comment(s), {len(browse_unanswered)} conversation(s)[/bold]\n")
+            console.print(
+                f"[bold]Found {len(pr_unanswered)} PR comment(s), {len(browse_unanswered)} conversation(s)[/bold]\n"
+            )
 
             # Handle PR comments
             for pr, comment, replies in pr_unanswered:
@@ -1270,12 +1280,20 @@ def watch_all(repo: str, interval: int, once: bool, fix: bool) -> None:
                 respond_to_conversation(repo_path, conv, messages, allow_edits=fix)
                 conv_responded += 1
 
-            console.print(f"\n[green]✓ Responded to {pr_responded} PR comment(s), {conv_responded} conversation(s)[/green]")
+            console.print(
+                f"\n[green]✓ Responded to {pr_responded} PR comment(s), {conv_responded} conversation(s)[/green]"
+            )
         else:
-            with Live(Spinner("dots", text=make_spinner_text(0, 0, 0)), refresh_per_second=4) as live:
+            with Live(
+                Spinner("dots", text=make_spinner_text(0, 0, 0)), refresh_per_second=4
+            ) as live:
                 while True:
                     elapsed = int(time.time() - start_time)
-                    live.update(Spinner("dots", text=make_spinner_text(pr_responded, conv_responded, elapsed)))
+                    live.update(
+                        Spinner(
+                            "dots", text=make_spinner_text(pr_responded, conv_responded, elapsed)
+                        )
+                    )
 
                     # Check PR comments
                     pr_unanswered = get_unanswered_prs()
@@ -1296,7 +1314,9 @@ def watch_all(repo: str, interval: int, once: bool, fix: bool) -> None:
                     time.sleep(interval)
 
     except KeyboardInterrupt:
-        console.print(f"\n[yellow]Stopped. Responded to {pr_responded} PR comment(s), {conv_responded} conversation(s)[/yellow]")
+        console.print(
+            f"\n[yellow]Stopped. Responded to {pr_responded} PR comment(s), {conv_responded} conversation(s)[/yellow]"
+        )
         sys.exit(0)
 
 
@@ -1307,9 +1327,13 @@ def watch_all(repo: str, interval: int, once: bool, fix: bool) -> None:
 @click.option("--once", is_flag=True, help="Run once and exit (don't poll)")
 @click.option("--fix", is_flag=True, help="Allow Claude to edit files to fix issues")
 @click.pass_context
-def watch_conversations(ctx: click.Context, repo: str, interval: int, once: bool, fix: bool) -> None:
+def watch_conversations(
+    ctx: click.Context, repo: str, interval: int, once: bool, fix: bool
+) -> None:
     """[Deprecated] Use 'watch-all' instead. Watches browse conversations only."""
-    console.print("[yellow]Note: 'watch-conversations' is deprecated. Use 'watch-all' for unified watching.[/yellow]\n")
+    console.print(
+        "[yellow]Note: 'watch-conversations' is deprecated. Use 'watch-all' for unified watching.[/yellow]\n"
+    )
     ctx.invoke(watch_all, repo=repo, interval=interval, once=once, fix=fix)
 
 
@@ -1320,17 +1344,16 @@ def respond_to_conversation(
     allow_edits: bool = False,
 ) -> None:
     """Generate and post Claude's response to a conversation."""
-    console.print(f"\n[cyan]Responding to conversation in {conv.file_path}:{conv.line_number}[/cyan]")
+    console.print(
+        f"\n[cyan]Responding to conversation in {conv.file_path}:{conv.line_number}[/cyan]"
+    )
 
     # Get file context
     line_number = conv.current_line_number or conv.line_number
     file_context = get_file_context(repo_path, conv.file_path, line_number)
 
     # Build conversation history
-    conv_history = "\n".join([
-        f"[{msg.author}]: {msg.content}"
-        for msg in messages
-    ])
+    conv_history = "\n".join([f"[{msg.author}]: {msg.content}" for msg in messages])
 
     # Build prompt - different based on whether edits are allowed
     if allow_edits:
@@ -1381,7 +1404,7 @@ Your response (just the message content, no prefixes):"""
     # Post the response
     try:
         db.add_repo_conversation_message(conv.uuid, response, author="claude")
-        console.print(f"[green]✓ Posted response[/green]")
+        console.print("[green]✓ Posted response[/green]")
         console.print(Panel(response, title="Claude's response", border_style="green"))
     except Exception as e:
         console.print(f"[red]Error posting response: {e}[/red]")
@@ -1401,16 +1424,23 @@ Your response (just the message content, no prefixes):"""
                     current_branch = git.get_current_branch()
                     prs = db.list_prs(repo_path=repo_path)
                     matching_pr = next(
-                        (p for p in prs if p.head_ref == current_branch and p.status.value not in ("merged", "closed")),
-                        None
+                        (
+                            p
+                            for p in prs
+                            if p.head_ref == current_branch
+                            and p.status.value not in ("merged", "closed")
+                        ),
+                        None,
                     )
                     if matching_pr:
                         diff = git.get_diff(matching_pr.base_ref, matching_pr.head_ref)
                         head_commit = git.get_commit_sha(matching_pr.head_ref)
                         new_revision = db.update_pr_diff(matching_pr.uuid, diff, head_commit)
-                        console.print(f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {new_revision})[/green]")
+                        console.print(
+                            f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {new_revision})[/green]"
+                        )
                 else:
-                    console.print(f"[yellow]No changes to commit[/yellow]")
+                    console.print("[yellow]No changes to commit[/yellow]")
         except Exception as e:
             console.print(f"[yellow]Warning: Could not commit changes: {e}[/yellow]")
 
@@ -1423,7 +1453,9 @@ def respond_to_pr_comment(
     allow_edits: bool = False,
 ) -> None:
     """Generate and post Claude's response to a PR comment."""
-    console.print(f"\n[cyan]Responding to PR #{pr.uuid} comment in {comment.file_path}:{comment.line_number}[/cyan]")
+    console.print(
+        f"\n[cyan]Responding to PR #{pr.uuid} comment in {comment.file_path}:{comment.line_number}[/cyan]"
+    )
 
     # Get file context. Old-side comments anchor to a line number in the diff's
     # "before" tree, which may no longer exist (or exist at a different line) in
@@ -1497,7 +1529,7 @@ Your response (just the message content, no prefixes):"""
     # Post the reply
     try:
         db.add_reply(comment.uuid, response, author="claude")
-        console.print(f"[green]✓ Posted reply to PR comment[/green]")
+        console.print("[green]✓ Posted reply to PR comment[/green]")
         console.print(Panel(response, title="Claude's response", border_style="green"))
     except Exception as e:
         console.print(f"[red]Error posting reply: {e}[/red]")
@@ -1519,7 +1551,7 @@ Your response (just the message content, no prefixes):"""
                     new_revision = db.update_pr_diff(pr.uuid, diff, head_commit)
                     console.print(f"[green]✓ Updated PR diff (revision {new_revision})[/green]")
                 else:
-                    console.print(f"[yellow]No changes to commit[/yellow]")
+                    console.print("[yellow]No changes to commit[/yellow]")
         except Exception as e:
             console.print(f"[yellow]Warning: Could not commit changes: {e}[/yellow]")
 
