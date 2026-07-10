@@ -12,6 +12,7 @@ process.env.DATABASE_DIR = testDbDir;
 process.env.DATABASE_PATH = testDbPath;
 
 import {
+  getDatabase,
   createPR,
   getPRByUuid,
   getPRById,
@@ -26,6 +27,15 @@ import {
   submitReview,
   getReviews,
   closeDatabase,
+  listAuthors,
+  getAuthorById,
+  getAuthorByName,
+  getDefaultHumanAuthor,
+  getDefaultAgentAuthor,
+  createAuthor,
+  updateAuthor,
+  deleteAuthor,
+  setDefaultAuthor,
 } from "../lib/database";
 
 describe("Database Module", () => {
@@ -271,6 +281,83 @@ describe("Database Module", () => {
     test("getReviews returns empty for non-existent PR", () => {
       const reviews = getReviews("nonexistent");
       expect(reviews).toEqual([]);
+    });
+  });
+
+  describe("Author Operations", () => {
+    test("seeding creates exactly one agent row named claude", () => {
+      const authors = listAuthors();
+      const agents = authors.filter((a) => a.kind === "agent");
+      expect(agents.length).toBe(1);
+      expect(agents[0].name).toBe("claude");
+    });
+
+    test("seeding creates exactly one human row", () => {
+      const authors = listAuthors();
+      const humans = authors.filter((a) => a.kind === "human");
+      expect(humans.length).toBe(1);
+    });
+
+    test("getDefaultHumanAuthor and getDefaultAgentAuthor resolve the seeded rows", () => {
+      const human = getDefaultHumanAuthor();
+      const agent = getDefaultAgentAuthor();
+      expect(human.kind).toBe("human");
+      expect(agent.kind).toBe("agent");
+      expect(agent.name).toBe("claude");
+    });
+
+    test("createAuthor adds a new row and getAuthorByName finds it case-insensitively", () => {
+      const created = createAuthor("human", "Alice", "alice@example.com");
+      expect(created.id).toBeDefined();
+      expect(created.email).toBe("alice@example.com");
+
+      const found = getAuthorByName("ALICE");
+      expect(found?.id).toBe(created.id);
+    });
+
+    test("createAuthor rejects a duplicate name case-insensitively", () => {
+      createAuthor("human", "Bob");
+      expect(() => createAuthor("human", "bob")).toThrow(/already exists/i);
+    });
+
+    test("updateAuthor changes name and email without touching kind", () => {
+      const created = createAuthor("human", "Carol");
+      const updated = updateAuthor(created.id, { name: "Caroline", email: "c@example.com" });
+      expect(updated.name).toBe("Caroline");
+      expect(updated.email).toBe("c@example.com");
+      expect(updated.kind).toBe("human");
+    });
+
+    test("deleteAuthor refuses to delete an author referenced by a reply", () => {
+      const author = createAuthor("human", "Dave");
+      const prUuid = createPR("/repo/authors", "Author Test PR", "main", "feature", "a", "b", "diff");
+      const commentUuid = addComment(prUuid, "file.py", 1, "a comment");
+      // addReply isn't rewired onto author_id until Task 5, so for this task
+      // insert directly against the schema to set up a referencing row.
+      const rawDb = getDatabase();
+      const comment = rawDb.prepare("SELECT id FROM comments WHERE uuid = ?").get(commentUuid) as { id: number };
+      rawDb.prepare(
+        "INSERT INTO comment_replies (uuid, comment_id, author_id, content) VALUES (?, ?, ?, ?)"
+      ).run("replyuuid1", comment.id, author.id, "a reply");
+
+      expect(() => deleteAuthor(author.id)).toThrow(/referenced by 1 reply/i);
+    });
+
+    test("deleteAuthor refuses to delete the current default", () => {
+      const human = getDefaultHumanAuthor();
+      expect(() => deleteAuthor(human.id)).toThrow(/current default/i);
+    });
+
+    test("deleteAuthor succeeds for an unreferenced, non-default author", () => {
+      const author = createAuthor("human", "Eve");
+      deleteAuthor(author.id);
+      expect(getAuthorById(author.id)).toBeUndefined();
+    });
+
+    test("setDefaultAuthor repoints the default for that author's kind", () => {
+      const newHuman = createAuthor("human", "Frank");
+      setDefaultAuthor(newHuman.id);
+      expect(getDefaultHumanAuthor().id).toBe(newHuman.id);
     });
   });
 });
