@@ -142,10 +142,10 @@ describe('Diff Viewer E2E Tests', () => {
       );
 
       // Each link should have a corresponding file diff
-      for (const href of linkHrefs) {
-        if (href) {
-          expect(fileDiffIds).toContain(href);
-        }
+      const validHrefs = linkHrefs.filter((href): href is string => Boolean(href));
+      expect(validHrefs.length).toBeGreaterThan(0);
+      for (const href of validHrefs) {
+        expect(fileDiffIds).toContain(href);
       }
     });
 
@@ -167,9 +167,6 @@ describe('Diff Viewer E2E Tests', () => {
         console.log('Not enough files to test scrolling');
         return;
       }
-
-      // Get initial scroll position
-      const initialScroll = await page.evaluate(() => window.scrollY);
 
       // Click the second file link
       await fileLinks[1].click();
