@@ -7,6 +7,7 @@ const config: Config = {
   setupFilesAfterEnv: ["<rootDir>/test-config/jest.e2e.setup.ts"],
   testMatch: ["<rootDir>/tests/e2e/**/*.test.ts"],
   testTimeout: 30000,
+  verbose: true,
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
   },
