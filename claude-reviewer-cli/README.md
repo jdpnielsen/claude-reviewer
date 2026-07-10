@@ -74,6 +74,8 @@ claude-reviewer merge a1b2c3d4 --push
 | `status` | Check PR status |
 | `comments` | Get inline comments with file:line references |
 | `show` | Show detailed PR information |
+| `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
+| `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
 | `update` | Update PR diff after making changes |
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
@@ -130,6 +132,25 @@ claude-reviewer merge a1b2c3d4 --push
 
 # Merge and delete source branch
 claude-reviewer merge a1b2c3d4 --delete-branch
+```
+
+### Manage Authors
+
+```bash
+# List registered authors (shows which is default for each kind)
+claude-reviewer authors list
+
+# Register a new reviewer identity
+claude-reviewer authors add "Jane Doe" --kind human --email jane@example.com
+
+# Rename an existing author (past replies referencing it update automatically)
+claude-reviewer authors edit "Jane Doe" --name "Jane R. Doe"
+
+# Make an author the default for its kind (used by --author me / --author claude)
+claude-reviewer authors set-default "Jane R. Doe"
+
+# Remove an author (refuses if referenced by any reply, or if it's a current default)
+claude-reviewer authors remove "Jane R. Doe"
 ```
 
 ## Web UI

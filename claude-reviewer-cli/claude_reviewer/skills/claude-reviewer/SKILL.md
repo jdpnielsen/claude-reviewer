@@ -110,7 +110,8 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `status <id>` | `pending` / `approved` / `changes_requested` / `merged` / `closed`. |
 | `show <id>` | Full PR detail + diff preview. |
 | `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text. |
-| `reply <id> <comment-uuid> "text"` | Explain what you did about a comment. |
+| `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
+| `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
 | `update <id>` | Re-diff after new commits; resets status to pending. |
 | `watch <id> [--until ...]` | Block until feedback arrives. Default `--until feedback_given`. |
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
