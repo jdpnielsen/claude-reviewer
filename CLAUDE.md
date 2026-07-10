@@ -52,3 +52,10 @@ reference tables in `README.md` / `claude-reviewer-cli/README.md` in the same ch
 - Stop web UI: `claude-reviewer stop`
 - Run tests: `cd claude-reviewer-cli && make test`
 - Type checking: `cd claude-reviewer-cli && make typecheck`
+
+## Test Database Isolation
+
+Both sides of this app can silently write to your **real** `~/.claude-reviewer/data.db` if test isolation is set up wrong. Before any manual/exploratory testing, verify isolation actually worked (e.g. check `~/.claude-reviewer/data.db`'s row counts before/after) rather than assuming an env var took effect.
+
+- **Web (TS/Vitest)**: `lib/database.ts` resolves `DATABASE_DIR`/`DATABASE_PATH` lazily inside `getDatabase()` (`getDbDir()`/`getDbPath()` functions), not as frozen module-level `const`s. This is required, not stylistic: ES module import hoisting means a test file's own `process.env.DATABASE_PATH = ...` line runs *after* an `import ... from "../lib/database"` statement's side effects, so a frozen top-level const would always resolve to the real path regardless of the env var. Do not revert this to a top-level const.
+- **CLI (Python)**: `claude_reviewer/database.py` has **no env var override** for the database path — `DATABASE_PATH`/`DATABASE_DIR` only exist on the Node/Docker side. Setting them before running `python -m claude_reviewer.cli ...` does nothing; the CLI will use the real database. To isolate a Python test or ad-hoc script, monkeypatch `db.DEFAULT_DB_PATH` directly before calling `db.init_db()` — see the `temp_db` fixture in `claude-reviewer-cli/tests/conftest.py` for the pattern.
