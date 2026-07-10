@@ -9,6 +9,7 @@ out/
 build/
 dist/
 *.egg-info/
+next-env.d.ts
 
 # Testing
 coverage/
