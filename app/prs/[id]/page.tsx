@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Highlight, themes } from 'prism-react-renderer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useConfirm } from '@/components/ConfirmDialog';
 import {
   ArrowLeft,
   GitPullRequest,
@@ -213,6 +214,7 @@ function SyntaxLine({ code, language }: { code: string; language: string }) {
 
 export default function PRPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const confirm = useConfirm();
   const [data, setData] = useState<PRData | null>(null);
   const [loading, setLoading] = useState(true);
   // Set while a *subsequent* fetchPR (e.g. switching commits) is in flight.
@@ -664,7 +666,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     const message = replyCount > 0
       ? `Delete this comment and its ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}?`
       : 'Delete this comment?';
-    if (!confirm(message)) return;
+    if (!(await confirm(message, { danger: true }))) return;
 
     const originalCommentWithReplies = data.comments.find((c) => c.comment.uuid === commentUuid);
 
