@@ -147,7 +147,7 @@ export default function SettingsPage() {
               <th>Name</th>
               <th>Email</th>
               <th>Default</th>
-              <th></th>
+              <th aria-label="Actions"></th>
             </tr>
           </thead>
           <tbody>
