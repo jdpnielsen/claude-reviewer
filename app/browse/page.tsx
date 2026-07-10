@@ -590,7 +590,15 @@ export default function BrowsePage() {
                               <div
                                 {...getLineProps({ line })}
                                 className="code-line"
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => setCommentingAt(lineNumber)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setCommentingAt(lineNumber);
+                                  }
+                                }}
                               >
                                 <span className="line-number">{lineNumber}</span>
                                 <span className="line-content">
@@ -612,7 +620,7 @@ export default function BrowsePage() {
                                     placeholder="Add a comment..."
                                     value={newComment}
                                     onChange={(e) => setNewComment(e.target.value)}
-                                    autoFocus
+                                    ref={(el) => el?.focus()}
                                   />
                                   <div className="comment-form-actions">
                                     <button onClick={() => setCommentingAt(null)}>Cancel</button>

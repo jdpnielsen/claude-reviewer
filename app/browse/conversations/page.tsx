@@ -439,7 +439,15 @@ export default function ConversationsListPage() {
                       >
                         <div
                           className="conversation-summary"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => toggleConversation(conv.uuid)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              toggleConversation(conv.uuid);
+                            }
+                          }}
                         >
                           <div className="summary-left">
                             {expandedConversation === conv.uuid ? (

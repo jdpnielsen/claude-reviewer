@@ -1142,7 +1142,18 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                 className="file-diff"
               >
                 <div className="file-header">
-                  <div className="file-header-left" onClick={() => toggleFile(file.path)}>
+                  <div
+                    className="file-header-left"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleFile(file.path)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleFile(file.path);
+                      }
+                    }}
+                  >
                     {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     <span className="file-path">{file.path}</span>
                     <span className="file-badge">{file.changeType}</span>
@@ -1325,6 +1336,25 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                     </span>
                                     <span
                                       className={`line-content ${lineClasses}`}
+                                      role="button"
+                                      tabIndex={0}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          setCommentingAt({
+                                            file: file.path,
+                                            startLine: anchorLine,
+                                            endLine: anchorLine,
+                                            lineType: anchorLineType,
+                                          });
+                                          setLastClickedLine({
+                                            file: file.path,
+                                            hunkIndex: currentHunkIndex,
+                                            line: anchorLine,
+                                            lineType: anchorLineType,
+                                          });
+                                        }
+                                      }}
                                       onClick={(e) => {
                                         if (
                                           e.shiftKey &&
@@ -1429,7 +1459,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                     {editingComment?.uuid === c.uuid ? (
                                       <div className="edit-comment-form">
                                         <textarea
-                                          autoFocus
+                                          ref={(el) => el?.focus()}
                                           value={editingComment.content}
                                           onChange={(e) =>
                                             setEditingComment({
@@ -1497,7 +1527,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                         {replyingTo === c.uuid ? (
                                           <div className="reply-form">
                                             <textarea
-                                              autoFocus
+                                              ref={(el) => el?.focus()}
                                               placeholder="Write a reply..."
                                               value={replyContent}
                                               onChange={(e) => setReplyContent(e.target.value)}
@@ -1543,7 +1573,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                         </div>
                                       )}
                                       <textarea
-                                        autoFocus
+                                        ref={(el) => el?.focus()}
                                         placeholder="Write a comment..."
                                         value={newComment}
                                         onChange={(e) => setNewComment(e.target.value)}
