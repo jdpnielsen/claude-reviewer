@@ -2,6 +2,10 @@
  * E2E tests for PR list and review workflow.
  */
 import puppeteer, { Browser, Page } from "puppeteer";
+import { execFileSync } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 // Import database functions to set up test data
 // We need to set env vars before import
@@ -14,10 +18,15 @@ import {
   closeDatabase,
 } from "../../lib/database";
 
+function git(args: string[], cwd: string): string {
+  return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+}
+
 describe("PR Workflow E2E Tests", () => {
   let browser: Browser;
   let page: Page;
   let testPRUuid: string;
+  let testRepoDir: string;
 
   beforeAll(async () => {
     browser = await puppeteer.launch({
@@ -26,14 +35,35 @@ describe("PR Workflow E2E Tests", () => {
     });
     page = await browser.newPage();
 
+    // The PR detail API shells out to git (lib/git.ts's listCommits) against
+    // pr.repo_path, so repo_path must be a real repo with real base/head
+    // commits, not a placeholder path.
+    testRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reviewer-e2e-repo-"));
+    git(["init", "-q"], testRepoDir);
+    git(["config", "user.email", "e2e@test.local"], testRepoDir);
+    git(["config", "user.name", "E2E Test"], testRepoDir);
+
+    fs.writeFileSync(path.join(testRepoDir, "test.ts"), 'const hello = "world";\nexport { hello };\n');
+    git(["add", "test.ts"], testRepoDir);
+    git(["commit", "-q", "-m", "initial"], testRepoDir);
+    const baseCommit = git(["rev-parse", "HEAD"], testRepoDir);
+
+    fs.writeFileSync(
+      path.join(testRepoDir, "test.ts"),
+      'const hello = "world";\nconst foo = "bar";\nconst baz = "qux";\nexport { hello };\n'
+    );
+    git(["add", "test.ts"], testRepoDir);
+    git(["commit", "-q", "-m", "add foo and baz"], testRepoDir);
+    const headCommit = git(["rev-parse", "HEAD"], testRepoDir);
+
     // Create test PR data
     testPRUuid = createPR(
-      "/test/repo",
+      testRepoDir,
       "Test PR for E2E",
       "main",
       "feature-test",
-      "abc123",
-      "def456",
+      baseCommit,
+      headCommit,
       `diff --git a/test.ts b/test.ts
 --- a/test.ts
 +++ b/test.ts
@@ -54,6 +84,9 @@ describe("PR Workflow E2E Tests", () => {
       await browser.close();
     }
     closeDatabase();
+    if (testRepoDir) {
+      fs.rmSync(testRepoDir, { recursive: true, force: true });
+    }
   });
 
   describe("PR List Page", () => {
