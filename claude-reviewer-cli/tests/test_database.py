@@ -536,3 +536,36 @@ class TestCommentReplies:
 
         replies = db.get_replies(comment_uuid)
         assert replies[0].author == "Renamed Human"
+
+
+class TestRepoConversations:
+    """Tests for repo conversation operations."""
+
+    def test_create_repo_conversation_defaults_to_default_human(self, temp_db: Path) -> None:
+        conv_uuid = db.create_repo_conversation("/repo", "file.py", 10, "first message")
+        messages = db.get_repo_conversation_messages(conv_uuid)
+        assert messages[0].author == db.get_default_human_author().name
+        assert messages[0].author_kind == "human"
+
+    def test_create_repo_conversation_claude_author_attributes_to_agent(self, temp_db: Path) -> None:
+        conv_uuid = db.create_repo_conversation("/repo", "file2.py", 5, "claude's message", author="claude")
+        messages = db.get_repo_conversation_messages(conv_uuid)
+        assert messages[0].author == "claude"
+        assert messages[0].author_kind == "agent"
+
+    def test_add_repo_conversation_message_claude_attributes_to_agent(self, temp_db: Path) -> None:
+        conv_uuid = db.create_repo_conversation("/repo", "file3.py", 1, "human message")
+        db.add_repo_conversation_message(conv_uuid, "claude's reply", author="claude")
+
+        messages = db.get_repo_conversation_messages(conv_uuid)
+        assert messages[1].author == "claude"
+        assert messages[1].author_kind == "agent"
+
+    def test_get_unanswered_conversations_uses_author_kind(self, temp_db: Path) -> None:
+        conv_uuid = db.create_repo_conversation("/repo/unanswered", "file.py", 1, "a question")
+        unanswered = db.get_unanswered_conversations("/repo/unanswered")
+        assert any(c.uuid == conv_uuid for c, _msgs in unanswered)
+
+        db.add_repo_conversation_message(conv_uuid, "an answer", author="claude")
+        unanswered_after = db.get_unanswered_conversations("/repo/unanswered")
+        assert not any(c.uuid == conv_uuid for c, _msgs in unanswered_after)

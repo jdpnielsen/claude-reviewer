@@ -867,10 +867,21 @@ def _row_to_repo_message(row: sqlite3.Row) -> RepoConversationMessage:
         id=row["id"],
         uuid=row["uuid"],
         conversation_id=row["conversation_id"],
+        author_id=row["author_id"],
         author=row["author"],
+        author_kind=row["author_kind"],
         content=row["content"],
         created_at=row["created_at"],
     )
+
+
+def _resolve_message_author_id(author_hint: str) -> int:
+    """Resolve the repo-conversation author hint: 'claude' attributes to the
+    default agent, anything else (including the historical default 'user')
+    attributes to the default human."""
+    if author_hint == "claude":
+        return get_default_agent_author().id
+    return get_default_human_author().id
 
 
 def create_repo_conversation(
@@ -887,6 +898,7 @@ def create_repo_conversation(
     """Create a new repo conversation with initial message and return its UUID."""
     conv_uuid = generate_uuid()
     msg_uuid = generate_uuid()
+    author_id = _resolve_message_author_id(author)
 
     with get_connection() as conn:
         cursor = conn.execute(
@@ -913,10 +925,10 @@ def create_repo_conversation(
         # Add initial message
         conn.execute(
             """
-            INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+            INSERT INTO repo_conversation_messages (uuid, conversation_id, author_id, content)
             VALUES (?, ?, ?, ?)
             """,
-            (msg_uuid, conv_id, author, content),
+            (msg_uuid, conv_id, author_id, content),
         )
 
     return conv_uuid
@@ -1011,6 +1023,7 @@ def add_repo_conversation_message(
 ) -> str:
     """Add a message to a repo conversation and return its UUID."""
     msg_uuid = generate_uuid()
+    author_id = _resolve_message_author_id(author)
 
     with get_connection() as conn:
         conv = conn.execute(
@@ -1023,10 +1036,10 @@ def add_repo_conversation_message(
 
         conn.execute(
             """
-            INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+            INSERT INTO repo_conversation_messages (uuid, conversation_id, author_id, content)
             VALUES (?, ?, ?, ?)
             """,
-            (msg_uuid, conv["id"], author, content),
+            (msg_uuid, conv["id"], author_id, content),
         )
 
         # Update conversation timestamp
@@ -1051,8 +1064,11 @@ def get_repo_conversation_messages(conv_uuid: str) -> list[RepoConversationMessa
 
         rows = conn.execute(
             """
-            SELECT * FROM repo_conversation_messages
-            WHERE conversation_id = ? ORDER BY created_at
+            SELECT rcm.id, rcm.uuid, rcm.conversation_id, rcm.author_id,
+                   a.name AS author, a.kind AS author_kind, rcm.content, rcm.created_at
+            FROM repo_conversation_messages rcm
+            JOIN authors a ON a.id = rcm.author_id
+            WHERE rcm.conversation_id = ? ORDER BY rcm.created_at
             """,
             (conv["id"],),
         ).fetchall()
@@ -1080,7 +1096,7 @@ def get_unanswered_conversations(
 
     for conv in conversations:
         messages = get_repo_conversation_messages(conv.uuid)
-        if messages and messages[-1].author != "claude":
+        if messages and messages[-1].author_kind != "agent":
             unanswered.append((conv, messages))
 
     return unanswered
