@@ -9,12 +9,10 @@ import {
   GitMerge,
   MessageSquare,
   File,
-  FileText,
   Eye,
   Code,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   Plus,
   Maximize2,
   Minimize2,
@@ -27,7 +25,7 @@ import {
   Layers,
 } from 'lucide-react';
 import Link from 'next/link';
-import { Highlight, themes } from 'prism-react-renderer';
+import { Highlight } from 'prism-react-renderer';
 import { useState, useEffect, useRef, use } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -424,6 +422,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }, 5000);
 
     return () => clearInterval(interval);
+    // fetchPR reads `data` only to pick a loading indicator, and also sets `data` -
+    // adding it as a dependency would refetch every time data changes, looping forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
@@ -582,7 +583,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
             }
           : prev,
       );
-    } catch (e) {
+    } catch {
       alert('Error adding comment');
       // Revert on error
       setData((prev) =>
@@ -620,7 +621,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           content: editingComment.content,
         }),
       });
-    } catch (e) {
+    } catch {
       alert('Error updating comment');
       // Revert on error
       if (originalCommentWithReplies) {
@@ -688,7 +689,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
             }
           : prev,
       );
-    } catch (e) {
+    } catch {
       alert('Error adding reply');
       // Revert on error
       setData((prev) =>
@@ -723,7 +724,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ commentUuid, resolved }),
       });
-    } catch (e) {
+    } catch {
       alert('Error updating comment');
       // Revert on error
       setData((prev) =>
@@ -760,7 +761,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
     try {
       await fetch(`/api/prs/${id}/comments?uuid=${commentUuid}`, { method: 'DELETE' });
-    } catch (e) {
+    } catch {
       alert('Error deleting comment');
       // Revert on error
       if (originalCommentWithReplies) {
@@ -781,7 +782,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       });
       setReviewSummary('');
       fetchPR();
-    } catch (e) {
+    } catch {
       alert('Error submitting review');
     } finally {
       setSubmitting(false);
@@ -802,7 +803,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         // Refresh to show new comments
         fetchPR();
       }
-    } catch (e) {
+    } catch {
       alert('Error requesting AI review');
     } finally {
       setRequestingAI(false);

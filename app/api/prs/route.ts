@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { listPRs, createPR, getPRByUuid, getLatestDiff } from '@/lib/database';
+import { listPRs, createPR, getPRByUuid } from '@/lib/database';
 import { GitManager } from '@/lib/git';
 
 // GET /api/prs - List all PRs
