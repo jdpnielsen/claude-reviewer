@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useRef, use } from 'react';
 import Link from 'next/link';
 import { Highlight, themes } from 'prism-react-renderer';
 import ReactMarkdown from 'react-markdown';
@@ -244,6 +244,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const MAX_LINES_DEFAULT = 300; // Limit lines for performance
   // Track collapsed folders in sidebar
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  // Guards against out-of-order fetchPR responses: whichever fetchPR call was
+  // *started* most recently owns this ref's current value. If a response comes
+  // back and the ref has since moved on (a newer fetch started), that response
+  // is stale and must not be applied - the sidebar (e.g. selectedCommit) may
+  // already reflect a later click than the one this response belongs to.
+  const latestRequestRef = useRef(0);
 
   const fetchContext = async (filePath: string, startLine: number, endLine: number, key: string) => {
     if (loadingContext.has(key)) return;
@@ -365,6 +371,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   }, [id]);
 
   const fetchPR = async (commit: string | null = selectedCommit) => {
+    // Claim this call's slot as the most recent request. If a later fetchPR
+    // call claims a higher requestId before this one's response arrives,
+    // this call's response is stale and must be ignored below.
+    const requestId = ++latestRequestRef.current;
     // The very first load has no data yet, so a full-page spinner is expected.
     // Once data exists, this is a reload triggered by switching commits -
     // keep the sidebar/file-tree mounted and only flag the diff pane as busy.
@@ -379,6 +389,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       const res = await fetch(`/api/prs/${id}${query}`);
       if (!res.ok) throw new Error('PR not found');
       const prData = await res.json();
+      // A newer fetchPR call started while this one was in flight (e.g. the
+      // user clicked another commit before this response arrived) - that
+      // newer call owns the final state now, so drop this stale response
+      // rather than clobbering it.
+      if (latestRequestRef.current !== requestId) return;
       setData(prData);
       // For large PRs (>10 files), only expand first 3 files for performance
       // For smaller PRs, expand all
@@ -389,10 +404,19 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         setExpandedFiles(new Set(files.map(f => f.path)));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error loading PR');
+      if (latestRequestRef.current === requestId) {
+        setError(e instanceof Error ? e.message : 'Error loading PR');
+      }
     } finally {
-      setLoading(false);
-      setDiffLoading(false);
+      // Only the most recent call clears the loading flags. A stale call's
+      // finally would otherwise flip diffLoading/loading to false while a
+      // newer fetch is still in flight, causing the spinner to disappear
+      // prematurely; the newer call's own finally will clear them once it
+      // settles.
+      if (latestRequestRef.current === requestId) {
+        setLoading(false);
+        setDiffLoading(false);
+      }
     }
   };
 
