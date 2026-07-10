@@ -1252,9 +1252,13 @@ def delete_author(author_id: int) -> None:
         total_references = reply_count + message_count
         if total_references > 0:
             plural = "reply" if total_references == 1 else "replies"
-            raise ValueError(f'Cannot delete "{author.name}" - referenced by {total_references} {plural}')
+            raise ValueError(
+                f'Cannot delete "{author.name}" - referenced by {total_references} {plural}'
+            )
 
-        default_key = "default_human_author_id" if author.kind == "human" else "default_agent_author_id"
+        default_key = (
+            "default_human_author_id" if author.kind == "human" else "default_agent_author_id"
+        )
         current_default = conn.execute(
             "SELECT value FROM settings WHERE key = ?", (default_key,)
         ).fetchone()

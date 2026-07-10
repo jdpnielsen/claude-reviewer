@@ -377,6 +377,8 @@ class TestReplyAuthorResolution:
         )
         comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
 
-        result = runner.invoke(main, ["reply", pr_uuid, comment_uuid, "a reply", "--author", "Nobody"])
+        result = runner.invoke(
+            main, ["reply", pr_uuid, comment_uuid, "a reply", "--author", "Nobody"]
+        )
         assert result.exit_code != 0
         assert "Unknown author" in result.output
