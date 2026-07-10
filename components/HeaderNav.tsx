@@ -1,8 +1,8 @@
 'use client';
 
+import { GitPullRequest, FolderTree, MessageSquare, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { GitPullRequest, FolderTree, MessageSquare, Settings } from 'lucide-react';
 
 export function HeaderNav() {
   const pathname = usePathname();
@@ -22,17 +22,11 @@ export function HeaderNav() {
 
   return (
     <nav className="header-nav">
-      <Link
-        href="/"
-        className={`nav-tab ${isActive('/') ? 'active' : ''}`}
-      >
+      <Link href="/" className={`nav-tab ${isActive('/') ? 'active' : ''}`}>
         <GitPullRequest size={16} />
         PRs
       </Link>
-      <Link
-        href="/browse"
-        className={`nav-tab ${isActive('/browse') ? 'active' : ''}`}
-      >
+      <Link href="/browse" className={`nav-tab ${isActive('/browse') ? 'active' : ''}`}>
         <FolderTree size={16} />
         Browse
       </Link>
@@ -43,10 +37,7 @@ export function HeaderNav() {
         <MessageSquare size={16} />
         Conversations
       </Link>
-      <Link
-        href="/settings"
-        className={`nav-tab ${isActive('/settings') ? 'active' : ''}`}
-      >
+      <Link href="/settings" className={`nav-tab ${isActive('/settings') ? 'active' : ''}`}>
         <Settings size={16} />
         Settings
       </Link>

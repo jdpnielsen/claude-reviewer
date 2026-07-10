@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  getRepoConversationWithMessages,
-  addRepoConversationMessage
-} from '@/lib/database';
+
+import { getRepoConversationWithMessages, addRepoConversationMessage } from '@/lib/database';
 
 interface RouteParams {
   params: Promise<{ id: string }>;

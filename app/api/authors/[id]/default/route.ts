@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { setDefaultAuthor } from '@/lib/database';
 
 interface RouteParams {

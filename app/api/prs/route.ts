@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { listPRs, createPR, getPRByUuid, getLatestDiff } from '@/lib/database';
 import { GitManager } from '@/lib/git';
 
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     if (!repoPath || !title || !baseRef || !headRef) {
       return NextResponse.json(
         { error: 'Missing required fields: repoPath, title, baseRef, headRef' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -48,16 +49,19 @@ export async function POST(req: NextRequest) {
       baseCommit,
       headCommit,
       diff,
-      description || ''
+      description || '',
     );
 
     const pr = getPRByUuid(uuid);
 
-    return NextResponse.json({
-      uuid,
-      pr,
-      reviewUrl: `/prs/${uuid}`,
-    }, { status: 201 });
+    return NextResponse.json(
+      {
+        uuid,
+        pr,
+        reviewUrl: `/prs/${uuid}`,
+      },
+      { status: 201 },
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

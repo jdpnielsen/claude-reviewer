@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useState } from 'react';
+
 import { ConfirmProvider, useConfirm } from '@/components/ConfirmDialog';
 
 function TestHarness() {
@@ -23,7 +24,7 @@ function renderHarness() {
   return render(
     <ConfirmProvider>
       <TestHarness />
-    </ConfirmProvider>
+    </ConfirmProvider>,
   );
 }
 

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { GitPullRequest, Clock, CheckCircle, XCircle, GitMerge, Filter } from 'lucide-react';
+import Link from 'next/link';
+import { useState, useEffect } from 'react';
 
 interface PullRequest {
   id: number;
@@ -81,10 +81,7 @@ export default function Home() {
         </h1>
         <div className="filter-bar">
           <Filter size={16} />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All</option>
             <option value="pending">Pending</option>
             <option value="changes_requested">Changes Requested</option>
@@ -128,10 +125,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="pr-card-status">
-                  <span
-                    className="status-badge"
-                    style={{ backgroundColor: config.color }}
-                  >
+                  <span className="status-badge" style={{ backgroundColor: config.color }}>
                     <StatusIcon size={14} />
                     {config.label}
                   </span>

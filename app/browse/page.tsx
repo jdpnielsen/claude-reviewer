@@ -1,7 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Highlight, themes } from 'prism-react-renderer';
 import {
   Folder,
   FolderOpen,
@@ -12,8 +10,10 @@ import {
   X,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
 } from 'lucide-react';
+import { Highlight, themes } from 'prism-react-renderer';
+import { useState, useEffect } from 'react';
 
 // Types
 interface TreeNode {
@@ -94,7 +94,10 @@ const githubDarkTheme = {
   styles: [
     { types: ['comment', 'prolog', 'doctype', 'cdata'], style: { color: '#8b949e' } },
     { types: ['punctuation'], style: { color: '#c9d1d9' } },
-    { types: ['property', 'tag', 'boolean', 'number', 'constant', 'symbol'], style: { color: '#79c0ff' } },
+    {
+      types: ['property', 'tag', 'boolean', 'number', 'constant', 'symbol'],
+      style: { color: '#79c0ff' },
+    },
     { types: ['selector', 'attr-name', 'string', 'char', 'builtin'], style: { color: '#a5d6ff' } },
     { types: ['operator', 'entity', 'url'], style: { color: '#c9d1d9' } },
     { types: ['atrule', 'attr-value', 'keyword'], style: { color: '#ff7b72' } },
@@ -119,7 +122,7 @@ function getRecentRepos(): string[] {
 function saveRecentRepo(path: string): void {
   if (typeof window === 'undefined') return;
   try {
-    const recent = getRecentRepos().filter(p => p !== path);
+    const recent = getRecentRepos().filter((p) => p !== path);
     recent.unshift(path);
     localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT_REPOS)));
   } catch {
@@ -147,7 +150,9 @@ export default function BrowsePage() {
   // Comment state
   const [commentingAt, setCommentingAt] = useState<number | null>(null);
   const [newComment, setNewComment] = useState('');
-  const [conversationMessages, setConversationMessages] = useState<Record<string, ConversationMessage[]>>({});
+  const [conversationMessages, setConversationMessages] = useState<
+    Record<string, ConversationMessage[]>
+  >({});
   const [replyContent, setReplyContent] = useState('');
   const [claudeResponding, setClaudeResponding] = useState<Set<string>>(new Set());
 
@@ -178,14 +183,14 @@ export default function BrowsePage() {
             if (msgRes.ok) {
               const msgData = await msgRes.json();
               const messages = msgData.messages || [];
-              setConversationMessages(prev => ({
+              setConversationMessages((prev) => ({
                 ...prev,
-                [conv.uuid]: messages
+                [conv.uuid]: messages,
               }));
 
               // Check if Claude has responded - remove from pending if last message is from Claude
               if (messages.length > 0 && messages[messages.length - 1].author_kind === 'agent') {
-                setClaudeResponding(prev => {
+                setClaudeResponding((prev) => {
                   if (prev.has(conv.uuid)) {
                     const next = new Set(prev);
                     next.delete(conv.uuid);
@@ -257,9 +262,9 @@ export default function BrowsePage() {
       const res = await fetch(`/api/browse/conversations/${uuid}/messages`);
       if (!res.ok) throw new Error('Failed to load conversation');
       const data: ConversationWithMessages = await res.json();
-      setConversationMessages(prev => ({
+      setConversationMessages((prev) => ({
         ...prev,
-        [uuid]: data.messages
+        [uuid]: data.messages,
       }));
     } catch (e) {
       console.error('Error loading conversation:', e);
@@ -275,7 +280,7 @@ export default function BrowsePage() {
 
       if (data.tree && data.tree.children) {
         // Update tree with new children
-        setTree(prevTree => {
+        setTree((prevTree) => {
           if (!prevTree) return prevTree;
 
           const updateNode = (node: TreeNode): TreeNode => {
@@ -297,7 +302,7 @@ export default function BrowsePage() {
   };
 
   const toggleFolder = (path: string) => {
-    setExpandedFolders(prev => {
+    setExpandedFolders((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
         next.delete(path);
@@ -324,7 +329,7 @@ export default function BrowsePage() {
 
   const respondWithClaude = async (conversationUuid: string) => {
     // Add to set of pending responses
-    setClaudeResponding(prev => new Set(prev).add(conversationUuid));
+    setClaudeResponding((prev) => new Set(prev).add(conversationUuid));
 
     try {
       // Use async mode so Claude processes in background even if user navigates away
@@ -337,8 +342,8 @@ export default function BrowsePage() {
           allowEdits: true,
           autoCommit: false,
           push: false,
-          async: true  // Fire-and-forget mode
-        })
+          async: true, // Fire-and-forget mode
+        }),
       });
 
       if (!res.ok) {
@@ -351,7 +356,7 @@ export default function BrowsePage() {
     } catch (e) {
       console.error('Error triggering Claude response:', e);
       // Remove from pending on error
-      setClaudeResponding(prev => {
+      setClaudeResponding((prev) => {
         const next = new Set(prev);
         next.delete(conversationUuid);
         return next;
@@ -370,8 +375,8 @@ export default function BrowsePage() {
           repo: repoPath,
           filePath: selectedFile,
           lineNumber: commentingAt,
-          content: newComment
-        })
+          content: newComment,
+        }),
       });
 
       if (!res.ok) throw new Error('Failed to add comment');
@@ -399,8 +404,8 @@ export default function BrowsePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: replyContent
-        })
+          content: replyContent,
+        }),
       });
 
       if (!res.ok) throw new Error('Failed to add reply');
@@ -421,7 +426,7 @@ export default function BrowsePage() {
       const res = await fetch('/api/browse/conversations', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, status: 'resolved' })
+        body: JSON.stringify({ uuid, status: 'resolved' }),
       });
 
       if (!res.ok) throw new Error('Failed to resolve conversation');
@@ -453,9 +458,7 @@ export default function BrowsePage() {
             <span>{node.name}</span>
           </button>
           {isExpanded && node.children && (
-            <div>
-              {node.children.map(child => renderTreeNode(child, depth + 1))}
-            </div>
+            <div>{node.children.map((child) => renderTreeNode(child, depth + 1))}</div>
           )}
         </div>
       );
@@ -481,8 +484,8 @@ export default function BrowsePage() {
   };
 
   const getLineConversations = (lineNumber: number): Conversation[] => {
-    return fileConversations.filter(c =>
-      (c.current_line_number || c.line_number) === lineNumber && c.status !== 'resolved'
+    return fileConversations.filter(
+      (c) => (c.current_line_number || c.line_number) === lineNumber && c.status !== 'resolved',
     );
   };
 
@@ -544,9 +547,7 @@ export default function BrowsePage() {
                 </button>
               </div>
               <div className="repo-path-display">{repoPath.split('/').pop()}</div>
-              <div className="file-list">
-                {tree && renderTreeNode(tree)}
-              </div>
+              <div className="file-list">{tree && renderTreeNode(tree)}</div>
             </div>
           </aside>
 
@@ -575,7 +576,9 @@ export default function BrowsePage() {
                     language={getLanguage(selectedFile)}
                   >
                     {({ style, tokens, getLineProps, getTokenProps }) => (
-                      <pre style={{ ...style, margin: 0, padding: '1rem', background: 'transparent' }}>
+                      <pre
+                        style={{ ...style, margin: 0, padding: '1rem', background: 'transparent' }}
+                      >
                         {tokens.map((line, lineIdx) => {
                           const lineNumber = lineIdx + 1;
                           const lineConversations = getLineConversations(lineNumber);
@@ -620,7 +623,7 @@ export default function BrowsePage() {
                               )}
 
                               {/* Existing Conversations */}
-                              {lineConversations.map(conv => (
+                              {lineConversations.map((conv) => (
                                 <div
                                   key={conv.uuid}
                                   className={`inline-comment ${conv.status === 'orphaned' ? 'orphaned' : ''}`}
@@ -633,7 +636,8 @@ export default function BrowsePage() {
                                           Line changed
                                         </span>
                                       )}
-                                      {conv.message_count} message{conv.message_count !== 1 ? 's' : ''}
+                                      {conv.message_count} message
+                                      {conv.message_count !== 1 ? 's' : ''}
                                     </span>
                                     <div className="comment-actions">
                                       <button onClick={() => resolveConversation(conv.uuid)}>
@@ -646,7 +650,7 @@ export default function BrowsePage() {
                                   {/* Full conversation - always visible */}
                                   {conversationMessages[conv.uuid] && (
                                     <div className="conversation-thread">
-                                      {conversationMessages[conv.uuid].map(msg => (
+                                      {conversationMessages[conv.uuid].map((msg) => (
                                         <div
                                           key={msg.uuid}
                                           className={`comment-reply ${msg.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}

@@ -1,7 +1,7 @@
-import { simpleGit, SimpleGit } from 'simple-git';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { simpleGit, SimpleGit } from 'simple-git';
 
 const FIELD_SEP = '\x1f';
 
@@ -39,7 +39,11 @@ export function resolveRepoPath(repoPath: string): string {
  * List the commits in `baseCommit..headCommit`, oldest-first (`--reverse`)
  * so callers can render/step through them in the order they were authored.
  */
-export function listCommits(repoPath: string, baseCommit: string, headCommit: string): CommitInfo[] {
+export function listCommits(
+  repoPath: string,
+  baseCommit: string,
+  headCommit: string,
+): CommitInfo[] {
   const cwd = resolveRepoPath(repoPath);
   const output = execFileSync(
     'git',
@@ -49,7 +53,7 @@ export function listCommits(repoPath: string, baseCommit: string, headCommit: st
       `--format=%H${FIELD_SEP}%h${FIELD_SEP}%s${FIELD_SEP}%an${FIELD_SEP}%aI`,
       `${baseCommit}..${headCommit}`,
     ],
-    { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+    { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
   );
 
   return output
@@ -74,13 +78,18 @@ export function getCommitDiff(repoPath: string, sha: string): string {
 
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}/;
 
-export function blameCommit(repoPath: string, headCommit: string, filePath: string, line: number): string | null {
+export function blameCommit(
+  repoPath: string,
+  headCommit: string,
+  filePath: string,
+  line: number,
+): string | null {
   const cwd = resolveRepoPath(repoPath);
   try {
     const output = execFileSync(
       'git',
       ['blame', '--porcelain', '-L', `${line},${line}`, headCommit, '--', filePath],
-      { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+      { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
     );
     const match = output.match(FULL_SHA_PATTERN);
     return match ? match[0] : null;
@@ -183,7 +192,7 @@ export class GitManager {
 
   async push(remote: string = 'origin', branch?: string): Promise<GitResult> {
     try {
-      const targetBranch = branch || await this.getCurrentBranch();
+      const targetBranch = branch || (await this.getCurrentBranch());
       await this.git.push(remote, targetBranch);
       return {
         success: true,
@@ -234,14 +243,19 @@ export class GitManager {
     return await this.git.commit(message);
   }
 
-  async getCommitsBetween(base: string, head: string): Promise<Array<{
-    sha: string;
-    message: string;
-    author: string;
-    date: string;
-  }>> {
+  async getCommitsBetween(
+    base: string,
+    head: string,
+  ): Promise<
+    Array<{
+      sha: string;
+      message: string;
+      author: string;
+      date: string;
+    }>
+  > {
     const log = await this.git.log({ from: base, to: head });
-    return log.all.map(c => ({
+    return log.all.map((c) => ({
       sha: c.hash,
       message: c.message,
       author: c.author_name,

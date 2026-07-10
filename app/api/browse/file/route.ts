@@ -1,15 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { listRepoConversations, updateRepoConversationAnchor, updateRepoConversationStatus, RepoConversationWithMessages } from '@/lib/database';
+import { NextRequest, NextResponse } from 'next/server';
+
+import {
+  listRepoConversations,
+  updateRepoConversationAnchor,
+  updateRepoConversationStatus,
+  RepoConversationWithMessages,
+} from '@/lib/database';
 
 // Relocate a conversation's anchor in the current file content
 // Returns the new line number or null if not found
 function relocateAnchor(
   conv: RepoConversationWithMessages,
   lines: string[],
-  searchRadius: number = 50
+  searchRadius: number = 50,
 ): number | null {
   const anchorContent = conv.conversation.anchor_content;
   if (!anchorContent) return null;
@@ -39,8 +45,8 @@ function relocateAnchor(
   const contextAfter = conv.conversation.anchor_context_after;
 
   if (contextBefore || contextAfter) {
-    const beforeLines = contextBefore ? contextBefore.split('\n').map(l => l.trim()) : [];
-    const afterLines = contextAfter ? contextAfter.split('\n').map(l => l.trim()) : [];
+    const beforeLines = contextBefore ? contextBefore.split('\n').map((l) => l.trim()) : [];
+    const afterLines = contextAfter ? contextAfter.split('\n').map((l) => l.trim()) : [];
 
     // Search for context pattern
     for (let i = startSearch; i < endSearch; i++) {
@@ -108,7 +114,7 @@ export async function GET(req: NextRequest) {
       content = execSync(`git show ${commit}:${filePath}`, {
         cwd: gitPath,
         encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024 // 10MB
+        maxBuffer: 10 * 1024 * 1024, // 10MB
       });
     } catch {
       // Fallback to filesystem for new/untracked files
@@ -131,11 +137,11 @@ export async function GET(req: NextRequest) {
     const conversationsData = listRepoConversations({
       repoPath,
       filePath,
-      status: 'all'
+      status: 'all',
     });
 
     // Relocate anchors and update conversation positions
-    const conversations = conversationsData.map(c => {
+    const conversations = conversationsData.map((c) => {
       // Only try to relocate active/orphaned conversations that have anchors
       if (c.conversation.status !== 'resolved' && c.conversation.anchor_content) {
         const newLineNumber = relocateAnchor(c, allLines);
@@ -155,7 +161,7 @@ export async function GET(req: NextRequest) {
             current_line_number: newLineNumber,
             status: 'active' as const,
             message_count: c.message_count,
-            latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null
+            latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null,
           };
         } else {
           // Anchor not found - mark as orphaned
@@ -168,7 +174,7 @@ export async function GET(req: NextRequest) {
             current_line_number: c.conversation.current_line_number || c.conversation.line_number,
             status: 'orphaned' as const,
             message_count: c.message_count,
-            latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null
+            latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null,
           };
         }
       }
@@ -180,7 +186,7 @@ export async function GET(req: NextRequest) {
         current_line_number: c.conversation.current_line_number || c.conversation.line_number,
         status: c.conversation.status,
         message_count: c.message_count,
-        latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null
+        latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null,
       };
     });
 
@@ -190,7 +196,7 @@ export async function GET(req: NextRequest) {
       try {
         currentCommit = execSync('git rev-parse HEAD', {
           cwd: repoPath,
-          encoding: 'utf-8'
+          encoding: 'utf-8',
         }).trim();
       } catch {
         currentCommit = 'unknown';
@@ -204,7 +210,7 @@ export async function GET(req: NextRequest) {
       startLine: start,
       endLine: endIdx,
       conversations,
-      commit: currentCommit
+      commit: currentCommit,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

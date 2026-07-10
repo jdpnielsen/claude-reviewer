@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
+
 import type { Comment } from './database';
 
 const client = new Anthropic();
@@ -9,10 +10,7 @@ const client = new Anthropic();
  * Infer coding preferences from review comments using Claude.
  * Returns a list of preference statements that can be added to CLAUDE.md
  */
-export async function inferPreferences(
-  comments: Comment[],
-  repoPath: string
-): Promise<string[]> {
+export async function inferPreferences(comments: Comment[], repoPath: string): Promise<string[]> {
   if (comments.length === 0) {
     return [];
   }
@@ -27,17 +25,21 @@ export async function inferPreferences(
   }
 
   // Format comments for the prompt
-  const formattedComments = comments.map(c =>
-    `[${c.file_path}:${c.line_number}] ${c.content}`
-  ).join('\n');
+  const formattedComments = comments
+    .map((c) => `[${c.file_path}:${c.line_number}] ${c.content}`)
+    .join('\n');
 
   const prompt = `You are analyzing code review comments to infer general coding preferences and style guidelines.
 
 Here are the review comments:
 ${formattedComments}
 
-${existingContent ? `Here is the existing CLAUDE.md content (avoid duplicating these):
-${existingContent}` : ''}
+${
+  existingContent
+    ? `Here is the existing CLAUDE.md content (avoid duplicating these):
+${existingContent}`
+    : ''
+}
 
 Based on these comments, identify any general coding preferences or patterns that could be added to a CLAUDE.md file. These should be:
 1. General guidelines, not specific to one file
@@ -53,9 +55,7 @@ Return only the JSON array, no other text.`;
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      messages: [
-        { role: 'user', content: prompt }
-      ]
+      messages: [{ role: 'user', content: prompt }],
     });
 
     const content = response.content[0];
@@ -71,7 +71,7 @@ Return only the JSON array, no other text.`;
     }
 
     const preferences = JSON.parse(match[0]) as string[];
-    return preferences.filter(p => typeof p === 'string' && p.length > 0);
+    return preferences.filter((p) => typeof p === 'string' && p.length > 0);
   } catch (error) {
     console.error('Error inferring preferences:', error);
     return [];
@@ -82,10 +82,7 @@ Return only the JSON array, no other text.`;
  * Append new preferences to CLAUDE.md in the repository.
  * Creates the file if it doesn't exist.
  */
-export async function appendToClaudeMd(
-  repoPath: string,
-  preferences: string[]
-): Promise<void> {
+export async function appendToClaudeMd(repoPath: string, preferences: string[]): Promise<void> {
   if (preferences.length === 0) {
     return;
   }
@@ -115,7 +112,7 @@ This file contains coding preferences learned from code reviews.
 
   // Add new preferences
   const timestamp = new Date().toISOString().split('T')[0];
-  const preferencesText = preferences.map(p => `- ${p}`).join('\n');
+  const preferencesText = preferences.map((p) => `- ${p}`).join('\n');
   const newSection = `\n<!-- Added ${timestamp} -->\n${preferencesText}\n`;
 
   // Find where to insert (at end of Learned from Reviews section or file)

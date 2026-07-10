@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { useClickOutside, useHotkeys } from '@mantine/hooks';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 
 interface ConfirmOptions {
   danger?: boolean;
