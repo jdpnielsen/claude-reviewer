@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": ["claude-reviewer-cli/**", "docs/**", "*.md", "**/*.md", "docker-compose.yml"],
+  "singleQuote": true,
+  "printWidth": 100,
+  "tabWidth": 2,
+  "sortImports": {
+    "customGroups": [
+      {
+        "groupName": "repo",
+        "elementNamePattern": ["@repo/**"]
+      }
+    ],
+    "groups": [
+      "builtin",
+      {
+        "newlinesBetween": false
+      },
+      "external",
+      "repo",
+      ["internal", "parent", "sibling", "index"],
+      "unknown"
+    ]
+  }
+}
