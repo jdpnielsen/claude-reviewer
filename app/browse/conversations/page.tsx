@@ -20,6 +20,7 @@ import {
 interface ConversationMessage {
   uuid: string;
   author: string;
+  author_kind: 'human' | 'agent';
   content: string;
   created_at: string;
 }
@@ -262,8 +263,7 @@ export default function ConversationsListPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: replyContent,
-          author: 'user'
+          content: replyContent
         })
       });
 
@@ -458,7 +458,7 @@ export default function ConversationsListPage() {
                             {conversationMessages[conv.uuid].map(msg => (
                               <div
                                 key={msg.uuid}
-                                className={`message ${msg.author === 'claude' ? 'message-claude' : 'message-user'}`}
+                                className={`message ${msg.author_kind === 'agent' ? 'message-claude' : 'message-user'}`}
                               >
                                 <span className="message-author">{msg.author}</span>
                                 <span className="message-content">{msg.content}</span>
