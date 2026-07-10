@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "postinstall": "npm rebuild better-sqlite3 --ignore-scripts=false",
     "test": "vitest run --config test-config/vitest.config.ts",
     "test:watch": "vitest --config test-config/vitest.config.ts",
