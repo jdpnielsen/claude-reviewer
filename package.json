@@ -17,35 +17,34 @@
     "test:e2e": "vitest run --config test-config/vitest.e2e.config.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
+    "@anthropic-ai/sdk": "^0.110.0",
     "@mantine/hooks": "^9.4.1",
-    "better-sqlite3": "^11.6.0",
-    "lucide-react": "^0.562.0",
-    "next": "16.1.1",
+    "better-sqlite3": "^12.11.1",
+    "lucide-react": "^1.24.0",
+    "next": "16.2.10",
     "prism-react-renderer": "^2.4.1",
-    "react": "19.2.3",
-    "react-diff-viewer-continued": "^3.4.0",
-    "react-dom": "19.2.3",
+    "react": "19.2.7",
+    "react-diff-viewer-continued": "^4.2.2",
+    "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
-    "react-window": "^2.2.4",
+    "react-window": "^2.2.7",
     "remark-gfm": "^4.0.1",
-    "simple-git": "^3.30.0"
+    "simple-git": "^3.36.0"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.1",
+    "@testing-library/react": "^16.3.2",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/react-window": "^1.8.8",
     "@vitest/coverage-v8": "^4.1.10",
     "jsdom": "^29.1.1",
     "oxfmt": "^0.58.0",
     "oxlint": "^1.73.0",
     "playwright": "^1.61.1",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }
 }
