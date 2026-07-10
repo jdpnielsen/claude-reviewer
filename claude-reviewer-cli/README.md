@@ -19,7 +19,13 @@ When working with AI coding assistants like Claude, you often want to review cha
 
 ```bash
 pip install claude-reviewer
+
+# Teach Claude the review workflow (installs to ~/.claude/skills)
+claude-reviewer skills install
 ```
+
+See [Claude Code Skills](#claude-code-skills) below for what gets installed and the
+project-scoped alternative.
 
 ## Quick Start
 
@@ -72,6 +78,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
 | `stop` | Stop the web UI |
+| `skills install` / `skills list` | Install/list the bundled Claude Code skills (see below) |
 
 ## CLI Reference
 
@@ -192,9 +199,40 @@ claude-reviewer serve --port 8080
 
 Data is stored in `~/.claude-reviewer/data.db`
 
-### CLAUDE.md Integration
+### Claude Code Skills
 
-Add claude-reviewer to your project's `CLAUDE.md` file so Claude Code knows how to use it:
+The CLI ships two [Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills)
+that teach Claude the review workflow directly, so you don't have to paste CLI
+instructions into every project's `CLAUDE.md` by hand:
+
+| Skill | What it does |
+|---|---|
+| `claude-reviewer` | The review-cycle mechanics: create/watch/comments/reply/update/merge. Triggers when you (or Claude) explicitly invoke the review flow. |
+| `claude-reviewer-always` | A standing habit: before Claude calls a non-trivial change "done," pushes, or opens a GitHub PR, it asks whether to open a local claude-reviewer PR first. |
+
+Install them with:
+
+```bash
+# Both skills, for every project (~/.claude/skills)
+claude-reviewer skills install
+
+# Just the on-demand one, for this project only (<repo>/.claude/skills)
+claude-reviewer skills install claude-reviewer --scope project
+
+# See what's bundled with this install
+claude-reviewer skills list
+```
+
+Installing `claude-reviewer-always` at the user scope is what makes the workflow
+"just happen" across every repo you work in, without editing each project's
+`CLAUDE.md`. Restart Claude Code (or start a new session) after installing so it
+picks up the new skill.
+
+### CLAUDE.md Integration (manual alternative)
+
+If you'd rather not install the skill — e.g. you're scripting another agent that
+doesn't support Claude Code skills — paste the same instructions into the project's
+`CLAUDE.md` directly:
 
 ```markdown
 ## Code Review Workflow

@@ -49,6 +49,18 @@ cd claude-reviewer
 claude-reviewer serve --local
 ```
 
+### Claude Code Skills (Optional)
+
+Teach Claude the review workflow directly, instead of pasting CLI instructions into
+every project's `CLAUDE.md`:
+
+```bash
+claude-reviewer skills install
+```
+
+See [Teaching Claude the workflow with Skills](#teaching-claude-the-workflow-with-skills)
+below for what this installs.
+
 ## Quick Start
 
 ### 1. Create a PR
@@ -139,6 +151,8 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer serve` | Start the web UI (Docker) |
 | `claude-reviewer serve --local` | Start the web UI locally (npm) |
 | `claude-reviewer stop` | Stop the web UI |
+| `claude-reviewer skills install` | Install the bundled Claude Code skills (see below) |
+| `claude-reviewer skills list` | List the bundled Claude Code skills |
 
 ### Common Options
 
@@ -213,6 +227,27 @@ Claude Reviewer is designed to work seamlessly with Claude Code:
 
 This keeps you in control while leveraging Claude's capabilities.
 
+### Teaching Claude the workflow with Skills
+
+Rather than pasting CLI instructions into every project's `CLAUDE.md`, install the
+bundled [Claude Code skills](claude-reviewer-cli/claude_reviewer/skills/):
+
+```bash
+claude-reviewer skills install   # installs both, at ~/.claude/skills
+```
+
+- **`claude-reviewer`** — the on-demand skill covering create/watch/comments/reply/
+  update/merge. Use when you explicitly ask for a local review.
+- **`claude-reviewer-always`** — a standing habit: Claude proactively asks whether to
+  open a local PR before considering non-trivial work "done," before pushing, or
+  before opening a GitHub PR. Install this one at the user level so it follows you
+  across every repo, not just ones that spell out the workflow in their own
+  `CLAUDE.md`.
+
+See [claude-reviewer-cli/README.md](claude-reviewer-cli/README.md#claude-code-skills)
+for details, including the manual `CLAUDE.md`-snippet alternative for agents that
+don't support Claude Code skills.
+
 ## Development
 
 ### Prerequisites
@@ -250,7 +285,8 @@ claude-reviewer/
 │   │   ├── cli.py           # CLI commands (Click)
 │   │   ├── database.py      # SQLite operations
 │   │   ├── git_ops.py       # Git operations (GitPython)
-│   │   └── models.py        # Data models
+│   │   ├── models.py        # Data models
+│   │   └── skills/          # Bundled Claude Code skills
 │   └── pyproject.toml
 ├── app/                      # Next.js app router
 │   ├── page.tsx             # PR list dashboard
