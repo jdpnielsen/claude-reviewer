@@ -32,6 +32,9 @@ htmlcov/
 *.swp
 *.swo
 
+!.vscode/extensions.json
+!.vscode/settings.default.json
+
 # OS
 .DS_Store
 Thumbs.db
