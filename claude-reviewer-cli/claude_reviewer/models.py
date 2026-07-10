@@ -125,6 +125,8 @@ class RepoConversationMessage:
     id: int
     uuid: str
     conversation_id: int
+    author_id: int
     author: str
+    author_kind: str  # "human" | "agent"
     content: str
     created_at: Optional[datetime] = None
