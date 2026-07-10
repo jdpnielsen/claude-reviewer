@@ -716,13 +716,27 @@ def stop_local_server(port: int) -> bool:
 @click.option("--dev", is_flag=True, help="Use local docker-compose for development")
 @click.option("--pull/--no-pull", default=True, help="Pull latest image before starting")
 @click.option("--local", is_flag=True, help="Run locally using npm (requires source)")
-def serve(port: int, detach: bool, dev: bool, pull: bool, local: bool) -> None:
+@click.option(
+    "--check",
+    is_flag=True,
+    help="Only report whether the web UI is reachable; don't start or stop anything",
+)
+def serve(port: int, detach: bool, dev: bool, pull: bool, local: bool, check: bool) -> None:
     """Start the web UI server.
 
     By default, pulls and runs the Docker image from Docker Hub.
     Use --local to run with npm start (requires source code).
     Use --dev for local development with docker-compose.
+    Use --check to see whether it's already reachable, without starting anything —
+    exits 0 if it's up, 1 if it's not.
     """
+    if check:
+        if is_web_ui_running(port):
+            console.print(f"[green]Web UI is running on port {port}[/green]")
+            sys.exit(0)
+        console.print(f"[yellow]Web UI is not running on port {port}[/yellow]")
+        sys.exit(1)
+
     # Check if port is already in use
     if is_port_in_use(port):
         console.print(f"[red]Error: Port {port} is already in use[/red]")

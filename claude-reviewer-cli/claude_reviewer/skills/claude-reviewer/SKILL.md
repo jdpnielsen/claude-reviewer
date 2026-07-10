@@ -27,10 +27,11 @@ touch, anything that will outlive this conversation.
    head and base branch.
 2. Confirm there's something to review: `git status` should show committed changes
    that differ from the base branch. Uncommitted changes don't show up in the diff.
-3. Whether the web UI is reachable is the human's call, not yours — never run
-   `claude-reviewer serve` on their behalf. `create` will tell you if it can't see a
-   server (a "Web UI is not running" warning with the exact fix). When that happens,
-   pass it straight to the human and ask them to run it before you hand over a URL.
+3. Check whether the web UI is reachable with `claude-reviewer serve --check` (no
+   side effects — it only reports, exit 0 means running, exit 1 means not). Whether
+   to actually *start* it is the human's call, not yours: never run plain
+   `claude-reviewer serve` on their behalf. If the check comes back not-running, ask
+   them to run it before you hand over a URL.
 
 ## The review loop
 
@@ -43,8 +44,9 @@ git add -A && git commit -m "Add the thing"
 # 2. Open a PR for review
 claude-reviewer create --title "Add the thing" --base main
 # -> PR #a1b2c3d4 created. Review URL: http://localhost:41729/prs/a1b2c3d4
-# If this warns the web UI isn't running, ask the human to run `claude-reviewer serve`
-# (or `serve --dev` from a source checkout) — that's their call, not yours to make.
+
+# 2b. Before handing that URL over, confirm it'll actually load
+claude-reviewer serve --check || echo "ask the human to run: claude-reviewer serve"
 
 # 3. Block until the human responds (approval or changes requested)
 claude-reviewer watch a1b2c3d4
@@ -114,7 +116,8 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
 | `merge <id> [--delete-branch] [--no-push]` | Merge once approved. |
 | `close <id>` / `delete <id>` | Abandon a PR without merging / wipe it entirely. |
-| `serve [--local\|--dev] [-p port]` | Start the web UI (default port 41729). |
+| `serve [--local\|--dev] [-p port]` | Start the web UI (default port 41729). Only ever suggest this to the human, don't run it yourself. |
+| `serve --check [-p port]` | Report whether the web UI is reachable; exits 0/1, starts nothing. Safe to run yourself. |
 | `stop` | Stop the web UI. |
 
 Full flag list: `claude-reviewer <command> --help`.
@@ -123,17 +126,18 @@ Full flag list: `claude-reviewer <command> --help`.
 
 - **"Not a git repository" / base==head error**: you're on `main` with nothing to
   diff, or tried to PR a branch against itself. Create a feature branch first.
-- **PR created but review URL 404s**: the web UI isn't running. Don't start it
-  yourself — ask the human to run `claude-reviewer serve` (or `serve --dev` from this
-  source checkout); spinning up a local server/container on their machine is their
-  decision to make, not yours.
+- **PR created but review URL 404s**: `serve --check` would have caught this — run
+  it before handing over any URL, not just after a 404 report. Either way, don't
+  start the server yourself; ask the human to run `claude-reviewer serve` (or
+  `serve --dev` from this source checkout). Spinning up a local server/container on
+  their machine is their decision to make, not yours.
 - **Human says `serve` errored with "Port already in use"**: that's not a real
   error — it means the web UI was already running. Reassure them, no action needed.
 - **Server was running last session but isn't now**: web UI containers/processes
   don't survive a reboot or a `docker system prune`. `watch`/`comments`/`list` keep
   working fine in this case — they talk to SQLite directly, not the server — which is
-  exactly why the CLI "working" doesn't mean the review link does. If the link is
-  dead, ask the human to `serve` again.
+  exactly why "the CLI works" doesn't mean the review link does. `serve --check` is
+  the one command that actually answers the question; run it if in doubt.
 - **`update` didn't pick up your fix**: `update` diffs `base_ref..head_ref` from git,
   not from memory — make sure the fix is actually committed, not just staged.
 - **Merge refuses**: only `approved` PRs merge. If status is still `pending`, nobody

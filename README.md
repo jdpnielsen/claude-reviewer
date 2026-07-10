@@ -150,6 +150,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer merge <id>` | Merge an approved PR |
 | `claude-reviewer serve` | Start the web UI (Docker) |
 | `claude-reviewer serve --local` | Start the web UI locally (npm) |
+| `claude-reviewer serve --check` | Report whether the web UI is reachable; starts nothing |
 | `claude-reviewer stop` | Stop the web UI |
 | `claude-reviewer skills install` | Install the bundled Claude Code skills (see below) |
 | `claude-reviewer skills list` | List the bundled Claude Code skills |

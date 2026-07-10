@@ -40,19 +40,18 @@ a merged mistake isn't.
    block on it — mention it once ("I can set up a local review checkpoint with
    claude-reviewer, want me to?") and fall back to whatever the user's normal flow is
    if they'd rather not install anything right now.
-2. **Is there already an open PR for this branch?** `claude-reviewer list -s pending`
+2. **Is the web UI actually reachable?** `claude-reviewer serve --check` — no side
+   effects, just reports and exits 0/1. `list`/`status`/`comments` talk straight to
+   SQLite and work fine even when the server is down, so don't take the CLI working
+   as evidence the review link will. If the check says it's down, fold that into the
+   same message rather than a separate round trip: "...and you'll need to run
+   `claude-reviewer serve` first — that's your call, not something I'll start myself."
+3. **Is there already an open PR for this branch?** `claude-reviewer list -s pending`
    and `claude-reviewer list -s changes_requested` (both auto-scope to the current
    repo). If one exists, don't ask to create a new one — say so and offer to `update`
    the existing PR instead.
-3. **Is the change actually committed?** claude-reviewer diffs `base..head` from git,
+4. **Is the change actually committed?** claude-reviewer diffs `base..head` from git,
    not the working tree. Commit first if you haven't.
-
-Don't try to check whether the web UI is up ahead of time — the CLI alone can't tell
-you (`list`/`status`/`comments` talk straight to SQLite and work fine even when the
-server is down), and starting it is the human's call, not yours to make preemptively.
-Let `create` catch it after the human says yes: it warns when it can't see a server.
-If it does, fold that into your next message instead of running `serve` yourself —
-e.g. "...and you'll need to run `claude-reviewer serve` before the link works."
 
 ## How to ask
 
