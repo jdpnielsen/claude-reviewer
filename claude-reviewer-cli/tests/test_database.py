@@ -533,8 +533,12 @@ class TestRepoConversations:
         assert messages[0].author == db.get_default_human_author().name
         assert messages[0].author_kind == "human"
 
-    def test_create_repo_conversation_claude_author_attributes_to_agent(self, temp_db: Path) -> None:
-        conv_uuid = db.create_repo_conversation("/repo", "file2.py", 5, "claude's message", author="claude")
+    def test_create_repo_conversation_claude_author_attributes_to_agent(
+        self, temp_db: Path
+    ) -> None:
+        conv_uuid = db.create_repo_conversation(
+            "/repo", "file2.py", 5, "claude's message", author="claude"
+        )
         messages = db.get_repo_conversation_messages(conv_uuid)
         assert messages[0].author == "claude"
         assert messages[0].author_kind == "agent"
