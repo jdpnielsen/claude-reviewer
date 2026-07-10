@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { repo, filePath, lineNumber, content, author = 'user' } = body;
+    const { repo, filePath, lineNumber, content } = body;
 
     if (!repo || !filePath || lineNumber === undefined || !content) {
       return NextResponse.json(
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       filePath,
       lineNumber,
       content,
-      author,
+      'human',
       anchor
     );
 

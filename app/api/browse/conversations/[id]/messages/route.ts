@@ -30,13 +30,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { content, author = 'user' } = body;
+    const { content } = body;
 
     if (!content) {
       return NextResponse.json({ error: 'content is required' }, { status: 400 });
     }
 
-    const messageUuid = addRepoConversationMessage(id, content, author);
+    const messageUuid = addRepoConversationMessage(id, content, 'human');
     return NextResponse.json({ uuid: messageUuid, success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
