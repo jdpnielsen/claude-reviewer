@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from git import Repo
 
-from claude_reviewer.git_ops import GitOps
+from claude_reviewer.git_ops import GitOps, get_global_git_user
 
 
 @pytest.fixture
@@ -198,3 +198,29 @@ class TestCommitHistory:
             assert "message" in commit
             assert "author" in commit
             assert "date" in commit
+
+
+class TestGetGlobalGitUser:
+    """Tests for get_global_git_user."""
+
+    def test_reads_name_and_email_from_global_gitconfig(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_home:
+            gitconfig = Path(tmp_home) / ".gitconfig"
+            gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@example.com\n")
+            monkeypatch.setenv("HOME", tmp_home)
+
+            name, email = get_global_git_user()
+            assert name == "Test User"
+            assert email == "test@example.com"
+
+    def test_returns_none_when_no_global_config_exists(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_home:
+            monkeypatch.setenv("HOME", tmp_home)
+
+            name, email = get_global_git_user()
+            assert name is None
+            assert email is None
