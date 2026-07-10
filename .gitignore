@@ -28,7 +28,7 @@ htmlcov/
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
 *.swp
 *.swo
 
