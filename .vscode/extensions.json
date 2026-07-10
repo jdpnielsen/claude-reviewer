@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "oxc.oxc-vscode",
+    "EditorConfig.EditorConfig",
+    "dangmai.workspace-default-settings"
+  ]
+}
