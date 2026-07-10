@@ -40,11 +40,17 @@ a merged mistake isn't.
    block on it — mention it once ("I can set up a local review checkpoint with
    claude-reviewer, want me to?") and fall back to whatever the user's normal flow is
    if they'd rather not install anything right now.
-2. **Is there already an open PR for this branch?** `claude-reviewer list -s pending`
+2. **Is the web UI actually running, not just the CLI installed?** The CLI working
+   (`list`, `status`, `comments` all talk straight to SQLite) says nothing about
+   whether the web server is up — and a dead review link is worse than not asking at
+   all. Start it quietly before you ask: `claude-reviewer serve` (`--dev` from a
+   source checkout). A "Port already in use" error just means it's already running —
+   treat that as success, not something to fix.
+3. **Is there already an open PR for this branch?** `claude-reviewer list -s pending`
    and `claude-reviewer list -s changes_requested` (both auto-scope to the current
    repo). If one exists, don't ask to create a new one — say so and offer to `update`
    the existing PR instead.
-3. **Is the change actually committed?** claude-reviewer diffs `base..head` from git,
+4. **Is the change actually committed?** claude-reviewer diffs `base..head` from git,
    not the working tree. Commit first if you haven't.
 
 ## How to ask
