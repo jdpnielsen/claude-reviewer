@@ -941,28 +941,21 @@ def stop(port: int) -> None:
 @main.command("open")
 @click.argument("pr_id", required=False)
 @click.option("--port", "-p", default=41729, help="Port for web UI (default: 41729)")
-@click.option("--dev", is_flag=True, help="Use local docker-compose if starting is needed")
-@click.pass_context
-def open_ui(ctx: click.Context, pr_id: str | None, port: int, dev: bool) -> None:
-    """Open the web UI in your browser, starting it first if it isn't running.
+def open_ui(pr_id: str | None, port: int) -> None:
+    """Open the web UI in your browser.
 
     Pass a PR id to jump straight to that PR's review page instead of the dashboard.
-    Starting uses the same defaults as plain `serve` (detached Docker unless --dev);
-    for --local development, start it yourself with `serve --local` first.
+    Never starts the web UI itself — if it's not reachable, this reports that and
+    tells you to run `serve` first.
     """
     if pr_id and not db.get_pr_by_uuid(pr_id):
         console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
         sys.exit(1)
 
     if not is_web_ui_running(port):
-        console.print("[dim]Web UI is not running — starting it...[/dim]")
-        ctx.invoke(serve, port=port, dev=dev, detach=True, pull=True, local=False, check=False)
-
-        # Give the app inside the container a moment to actually start serving,
-        # rather than opening a browser tab to a connection that isn't ready yet.
-        deadline = time.time() + 10
-        while time.time() < deadline and not is_port_in_use(port):
-            time.sleep(0.5)
+        console.print(f"[yellow]Web UI is not running on port {port}[/yellow]")
+        console.print("[dim]Start it with: claude-reviewer serve[/dim]")
+        sys.exit(1)
 
     url = get_review_url(pr_id, port)
     console.print(f"[green]Opening {url}[/green]")
