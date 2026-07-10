@@ -300,6 +300,7 @@ function migrateCommentsCommitSha(db: Database.Database): void {
       if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
     }
   }
+  checkpoint();
 }
 
 // Generate short UUID

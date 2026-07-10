@@ -215,6 +215,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const { id } = use(params);
   const [data, setData] = useState<PRData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Set while a *subsequent* fetchPR (e.g. switching commits) is in flight.
+  // Unlike `loading`, this never unmounts the sidebar/commit list - it only
+  // signals that the diff pane is refreshing.
+  const [diffLoading, setDiffLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
@@ -361,7 +365,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   }, [id]);
 
   const fetchPR = async (commit: string | null = selectedCommit) => {
-    setLoading(true);
+    // The very first load has no data yet, so a full-page spinner is expected.
+    // Once data exists, this is a reload triggered by switching commits -
+    // keep the sidebar/file-tree mounted and only flag the diff pane as busy.
+    const isInitialLoad = data === null;
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setDiffLoading(true);
+    }
     try {
       const query = commit ? `?commit=${encodeURIComponent(commit)}` : '';
       const res = await fetch(`/api/prs/${id}${query}`);
@@ -380,6 +392,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       setError(e instanceof Error ? e.message : 'Error loading PR');
     } finally {
       setLoading(false);
+      setDiffLoading(false);
     }
   };
 
@@ -948,6 +961,23 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
         {/* Main Diff View */}
         <div className="pr-main">
+          {diffLoading && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.75rem 1rem',
+                background: '#161b22',
+                borderBottom: '1px solid #30363d',
+                color: '#8b949e',
+                fontSize: '0.8rem',
+              }}
+            >
+              <Loader2 size={14} className="animate-spin" />
+              Loading commit diff...
+            </div>
+          )}
           {files.map((file) => {
             const isExpanded = expandedFiles.has(file.path);
             const fileComments = getFileComments(file.path);

@@ -35,6 +35,10 @@ export function resolveRepoPath(repoPath: string): string {
   return repoPath;
 }
 
+/**
+ * List the commits in `baseCommit..headCommit`, oldest-first (`--reverse`)
+ * so callers can render/step through them in the order they were authored.
+ */
 export function listCommits(repoPath: string, baseCommit: string, headCommit: string): CommitInfo[] {
   const cwd = resolveRepoPath(repoPath);
   const output = execFileSync(
