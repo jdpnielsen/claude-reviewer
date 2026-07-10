@@ -91,6 +91,26 @@ export function blameCommit(repoPath: string, headCommit: string, filePath: stri
   }
 }
 
+export function getGitUserIdentity(): { name: string | null; email: string | null } {
+  return {
+    name: tryGlobalGitConfig('user.name'),
+    email: tryGlobalGitConfig('user.email'),
+  };
+}
+
+function tryGlobalGitConfig(key: string): string | null {
+  try {
+    const value = execFileSync('git', ['config', '--global', '--get', key], {
+      encoding: 'utf-8',
+    }).trim();
+    return value || null;
+  } catch {
+    // No git config, no HOME/.gitconfig, or git not installed - all treated
+    // the same: no identity to suggest.
+    return null;
+  }
+}
+
 export class GitManager {
   private git: SimpleGit;
   private repoPath: string;
