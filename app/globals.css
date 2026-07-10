@@ -835,7 +835,7 @@ input, select, textarea {
   border-left: 3px solid #3fb950;
 }
 
-.reply-ben {
+.reply-human {
   background: rgba(56, 139, 253, 0.15);
   border-left: 3px solid #58a6ff;
 }
@@ -849,7 +849,7 @@ input, select, textarea {
   color: #3fb950;
 }
 
-.reply-ben .reply-author {
+.reply-human .reply-author {
   color: #58a6ff;
 }
 

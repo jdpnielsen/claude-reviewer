@@ -85,6 +85,7 @@ interface CommentReply {
   id: number;
   uuid: string;
   author: string;
+  author_kind: 'human' | 'agent';
   content: string;
   created_at: string;
 }
@@ -234,6 +235,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [editingComment, setEditingComment] = useState<{ uuid: string; content: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState('');
+  const [defaultAuthorName, setDefaultAuthorName] = useState('reviewer');
   const [reviewSummary, setReviewSummary] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [requestingAI, setRequestingAI] = useState(false);
@@ -371,6 +373,18 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
     return () => clearInterval(interval);
   }, [id]);
+
+  useEffect(() => {
+    fetch('/api/authors')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const defaultHuman = data?.authors?.find((a: { isDefaultHuman: boolean; name: string }) => a.isDefaultHuman);
+        if (defaultHuman) setDefaultAuthorName(defaultHuman.name);
+      })
+      .catch(() => {
+        // Keep the "reviewer" fallback - replying must never be blocked by this.
+      });
+  }, []);
 
   const fetchPR = async (commit: string | null = selectedCommit) => {
     // Claim this call's slot as the most recent request. If a later fetchPR
@@ -563,7 +577,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     const tempReply: CommentReply = {
       id: Date.now(),
       uuid: `temp-${Date.now()}`,
-      author: 'ben',
+      author: defaultAuthorName,
+      author_kind: 'human',
       content: replyContent,
       created_at: new Date().toISOString(),
     };
@@ -587,7 +602,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         body: JSON.stringify({
           commentUuid,
           content: replyContent,
-          author: 'ben',
         }),
       });
       const result = await res.json();
@@ -1312,7 +1326,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                     {replies.length > 0 && (
                                       <div className="comment-replies">
                                         {replies.map((r) => (
-                                          <div key={r.uuid} className={`comment-reply ${r.author === 'claude' ? 'reply-claude' : 'reply-ben'}`}>
+                                          <div key={r.uuid} className={`comment-reply ${r.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}>
                                             <span className="reply-author">{r.author}:</span>
                                             <span className="reply-content">{r.content}</span>
                                           </div>
