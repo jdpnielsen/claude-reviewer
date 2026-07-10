@@ -93,7 +93,9 @@ export interface RepoConversationMessage {
   id: number;
   uuid: string;
   conversation_id: number;
+  author_id: number;
   author: string;
+  author_kind: 'human' | 'agent';
   content: string;
   created_at: string;
 }
@@ -723,7 +725,7 @@ export function createRepoConversation(
   filePath: string,
   lineNumber: number,
   content: string,
-  author: string = 'user',
+  authorHint: 'human' | 'claude' = 'human',
   anchor?: {
     content: string;
     contextBefore: string;
@@ -734,6 +736,7 @@ export function createRepoConversation(
   const db = getDatabase();
   const conversationUuid = generateUuid();
   const messageUuid = generateUuid();
+  const authorId = (authorHint === 'claude' ? getDefaultAgentAuthor() : getDefaultHumanAuthor()).id;
 
   const transaction = db.transaction(() => {
     // Create conversation
@@ -758,9 +761,9 @@ export function createRepoConversation(
 
     // Create first message
     db.prepare(`
-      INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+      INSERT INTO repo_conversation_messages (uuid, conversation_id, author_id, content)
       VALUES (?, ?, ?, ?)
-    `).run(messageUuid, conv.id, author, content);
+    `).run(messageUuid, conv.id, authorId, content);
   });
 
   transaction();
@@ -803,9 +806,11 @@ export function listRepoConversations(options: {
 
   return conversations.map(conv => {
     const messages = db.prepare(`
-      SELECT * FROM repo_conversation_messages
-      WHERE conversation_id = ?
-      ORDER BY created_at ASC
+      SELECT rcm.id, rcm.uuid, rcm.conversation_id, rcm.author_id, a.name AS author, a.kind AS author_kind, rcm.content, rcm.created_at
+      FROM repo_conversation_messages rcm
+      JOIN authors a ON a.id = rcm.author_id
+      WHERE rcm.conversation_id = ?
+      ORDER BY rcm.created_at ASC
     `).all(conv.id) as RepoConversationMessage[];
 
     return {
@@ -822,9 +827,11 @@ export function getRepoConversationWithMessages(uuid: string): RepoConversationW
   if (!conv) return null;
 
   const messages = db.prepare(`
-    SELECT * FROM repo_conversation_messages
-    WHERE conversation_id = ?
-    ORDER BY created_at ASC
+    SELECT rcm.id, rcm.uuid, rcm.conversation_id, rcm.author_id, a.name AS author, a.kind AS author_kind, rcm.content, rcm.created_at
+    FROM repo_conversation_messages rcm
+    JOIN authors a ON a.id = rcm.author_id
+    WHERE rcm.conversation_id = ?
+    ORDER BY rcm.created_at ASC
   `).all(conv.id) as RepoConversationMessage[];
 
   return {
@@ -837,19 +844,20 @@ export function getRepoConversationWithMessages(uuid: string): RepoConversationW
 export function addRepoConversationMessage(
   conversationUuid: string,
   content: string,
-  author: string = 'user'
+  authorHint: 'human' | 'claude' = 'human'
 ): string {
   const db = getDatabase();
   const messageUuid = generateUuid();
+  const authorId = (authorHint === 'claude' ? getDefaultAgentAuthor() : getDefaultHumanAuthor()).id;
 
   const conv = db.prepare('SELECT id FROM repo_conversations WHERE uuid = ?').get(conversationUuid) as { id: number } | undefined;
   if (!conv) throw new Error(`Conversation ${conversationUuid} not found`);
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO repo_conversation_messages (uuid, conversation_id, author, content)
+      INSERT INTO repo_conversation_messages (uuid, conversation_id, author_id, content)
       VALUES (?, ?, ?, ?)
-    `).run(messageUuid, conv.id, author, content);
+    `).run(messageUuid, conv.id, authorId, content);
 
     db.prepare(`
       UPDATE repo_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?

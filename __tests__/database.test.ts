@@ -39,6 +39,10 @@ import {
   addReply,
   getReplies,
   getCommentsWithReplies,
+  createRepoConversation,
+  addRepoConversationMessage,
+  listRepoConversations,
+  getRepoConversationWithMessages,
 } from "../lib/database";
 
 describe("Database Module", () => {
@@ -397,6 +401,37 @@ describe("Database Module", () => {
       const withReplies = getCommentsWithReplies(prUuid);
       const target = withReplies.find((c) => c.comment.uuid === commentUuid);
       expect(target?.replies.every((r) => r.author_kind === "human")).toBe(true);
+    });
+  });
+
+  describe("Repo Conversation Operations", () => {
+    test("createRepoConversation defaults to the default human author", () => {
+      const convUuid = createRepoConversation("/repo/conv", "file.py", 10, "first message");
+      const withMessages = getRepoConversationWithMessages(convUuid);
+      expect(withMessages?.messages[0].author).toBe(getDefaultHumanAuthor().name);
+      expect(withMessages?.messages[0].author_kind).toBe("human");
+    });
+
+    test("createRepoConversation with 'claude' hint attributes to the default agent", () => {
+      const convUuid = createRepoConversation("/repo/conv", "file2.py", 5, "claude's opening", "claude");
+      const withMessages = getRepoConversationWithMessages(convUuid);
+      expect(withMessages?.messages[0].author).toBe("claude");
+      expect(withMessages?.messages[0].author_kind).toBe("agent");
+    });
+
+    test("addRepoConversationMessage with 'claude' hint attributes to the default agent", () => {
+      const convUuid = createRepoConversation("/repo/conv", "file3.py", 1, "human message");
+      addRepoConversationMessage(convUuid, "claude's reply", "claude");
+
+      const withMessages = getRepoConversationWithMessages(convUuid);
+      expect(withMessages?.messages[1].author).toBe("claude");
+      expect(withMessages?.messages[1].author_kind).toBe("agent");
+    });
+
+    test("listRepoConversations includes author_kind on each message", () => {
+      createRepoConversation("/repo/conv-list", "file.py", 1, "a message");
+      const list = listRepoConversations({ repoPath: "/repo/conv-list" });
+      expect(list[0].messages[0].author_kind).toBe("human");
     });
   });
 });
