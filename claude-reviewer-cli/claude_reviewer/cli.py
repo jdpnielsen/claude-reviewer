@@ -641,19 +641,19 @@ def get_local_server_pid_file(port: int) -> Path:
 
 
 def run_local_server(port: int, web_dir: Path) -> None:
-    """Run the web server locally using npm."""
+    """Run the web server locally using pnpm."""
     console.print(f"[bold]Starting local web server on port {port}...[/bold]")
     console.print(f"[dim]Working directory: {web_dir}[/dim]")
 
     # Check for node_modules
     if not (web_dir / "node_modules").exists():
         console.print("[yellow]Installing dependencies...[/yellow]")
-        subprocess.run(["npm", "ci"], cwd=web_dir, check=True)
+        subprocess.run(["pnpm", "install", "--frozen-lockfile"], cwd=web_dir, check=True)
 
     # Build if needed (simple check for .next)
     if not (web_dir / ".next").exists():
         console.print("[yellow]Building application...[/yellow]")
-        subprocess.run(["npm", "run", "build"], cwd=web_dir, check=True)
+        subprocess.run(["pnpm", "run", "build"], cwd=web_dir, check=True)
 
     env = os.environ.copy()
     env["PORT"] = str(port)
@@ -663,10 +663,10 @@ def run_local_server(port: int, web_dir: Path) -> None:
     pid_file = get_local_server_pid_file(port)
     pid_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # New session so the whole npm -> next-server tree shares one process
+    # New session so the whole pnpm -> next-server tree shares one process
     # group, letting `stop` kill it as a unit even if this CLI process exits.
     process = subprocess.Popen(
-        ["npm", "run", "start"], cwd=web_dir, env=env, start_new_session=True
+        ["pnpm", "run", "start"], cwd=web_dir, env=env, start_new_session=True
     )
     pid_file.write_text(str(process.pid))
     try:
@@ -717,7 +717,7 @@ def stop_local_server(port: int) -> bool:
 @click.option("--detach/--no-detach", "-d", default=True, help="Run in background (Docker only)")
 @click.option("--dev", is_flag=True, help="Use local docker-compose for development")
 @click.option("--pull/--no-pull", default=True, help="Pull latest image before starting")
-@click.option("--local", is_flag=True, help="Run locally using npm (requires source)")
+@click.option("--local", is_flag=True, help="Run locally using pnpm (requires source)")
 @click.option(
     "--check",
     is_flag=True,
@@ -727,7 +727,7 @@ def serve(port: int, detach: bool, dev: bool, pull: bool, local: bool, check: bo
     """Start the web UI server.
 
     By default, pulls and runs the Docker image from Docker Hub.
-    Use --local to run with npm start (requires source code).
+    Use --local to run with pnpm start (requires source code).
     Use --dev for local development with docker-compose.
     Use --check to see whether it's already reachable, without starting anything —
     exits 0 if it's up, 1 if it's not.
@@ -767,7 +767,7 @@ def serve(port: int, detach: bool, dev: bool, pull: bool, local: bool, check: bo
 
         # Try finding web dir for fallback
         web_dir = find_web_dir()
-        if web_dir and click.confirm("Do you want to run locally with npm instead?"):
+        if web_dir and click.confirm("Do you want to run locally with pnpm instead?"):
             run_local_server(port, web_dir)
             return
 

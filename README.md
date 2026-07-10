@@ -38,12 +38,17 @@ claude-reviewer serve
 ```
 
 #### Option B: Local Node.js (No Docker)
-Requires `npm` and the source code.
+Requires `pnpm` and the source code. This repo pins its `pnpm` version via
+[Corepack](https://nodejs.org/api/corepack.html), which ships with Node.js 16.9+:
 
 ```bash
 # Clone the repo if you haven't already
 git clone https://github.com/bowlesb/claude-reviewer.git
 cd claude-reviewer
+
+# Enable Corepack and install the pinned pnpm version (one-time, per machine)
+corepack enable
+corepack install
 
 # Run with local flag
 claude-reviewer serve --local
@@ -151,7 +156,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer update <id>` | Update PR diff after making changes |
 | `claude-reviewer merge <id>` | Merge an approved PR |
 | `claude-reviewer serve` | Start the web UI (Docker) |
-| `claude-reviewer serve --local` | Start the web UI locally (npm) |
+| `claude-reviewer serve --local` | Start the web UI locally (pnpm) |
 | `claude-reviewer serve --check` | Report whether the web UI is reachable; starts nothing |
 | `claude-reviewer stop` | Stop the web UI |
 | `claude-reviewer open [id]` | Open the dashboard (or a specific PR) in your browser; reports and suggests `serve` if it's not running yet |
@@ -257,7 +262,7 @@ don't support Claude Code skills.
 ### Prerequisites
 
 - Python 3.9+
-- Node.js 20+
+- Node.js 20+ (with [Corepack](https://nodejs.org/api/corepack.html) enabled — see below)
 - Docker (for web UI)
 
 ### Local Development
@@ -274,11 +279,19 @@ pip install -e ".[dev]"
 # Run CLI tests
 make test
 
-# Start web UI in development mode
+# Enable pnpm via Corepack (one-time, per machine) and install web dependencies
 cd ..
-npm install
-npm run dev
+corepack enable
+corepack install
+pnpm install
+
+# Start web UI in development mode
+pnpm dev
 ```
+
+This repo pins an exact `pnpm` version in `package.json`'s `packageManager` field;
+`corepack install` reads that field and downloads the matching `pnpm` release, so
+everyone on the team builds with the same package manager version.
 
 ### Project Structure
 
