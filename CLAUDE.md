@@ -37,6 +37,15 @@ When making significant changes, use the local review system:
    claude-reviewer merge <pr-id>
    ```
 
+## Bundled Skills
+
+`claude-reviewer-cli/claude_reviewer/skills/` ships two Claude Code skills
+(`claude-reviewer`, `claude-reviewer-always`) that document this CLI's commands for
+use in *other* projects. They're hand-written, not generated from `cli.py`, so they
+go stale silently. Whenever you add, rename, remove, or change the behavior of a
+`claude-reviewer` CLI command, update the relevant `SKILL.md` file(s) and the CLI
+reference tables in `README.md` / `claude-reviewer-cli/README.md` in the same change.
+
 ## Development
 
 - Start web UI: `claude-reviewer serve --dev`
