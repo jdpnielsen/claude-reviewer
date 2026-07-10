@@ -1,0 +1,33 @@
+{
+  "editor.tabSize": 2,
+  "git.ignoreLimitWarning": true,
+  "editor.formatOnSave": true,
+  "oxc.fmt.configPath": ".oxfmtrc.json",
+  "oxc.fixKind": "all",
+  "editor.defaultFormatter": "oxc.oxc-vscode",
+  "editor.formatOnSaveMode": "file",
+  "[typescript]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  }
+}
