@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import { execFileSync } from "child_process";
 
-import { resolveRepoPath, listCommits, getCommitDiff, blameCommit } from "../lib/git";
+import { resolveRepoPath, listCommits, getCommitDiff, blameCommit, getGitUserIdentity } from "../lib/git";
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
@@ -146,5 +146,43 @@ describe("blameCommit", () => {
   test("returns null for a file that doesn't exist", () => {
     const sha = blameCommit(repoDir, headSha, "nope.txt", 1);
     expect(sha).toBeNull();
+  });
+});
+
+describe("getGitUserIdentity", () => {
+  const originalHome = process.env.HOME;
+  let tmpHome: string;
+
+  afterEach(() => {
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (tmpHome) {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  test("reads name and email from a global .gitconfig", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reviewer-gitconfig-test-"));
+    fs.writeFileSync(
+      path.join(tmpHome, ".gitconfig"),
+      "[user]\n\tname = Test User\n\temail = test@example.com\n"
+    );
+    process.env.HOME = tmpHome;
+
+    const identity = getGitUserIdentity();
+    expect(identity.name).toBe("Test User");
+    expect(identity.email).toBe("test@example.com");
+  });
+
+  test("returns nulls when no global git config exists", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reviewer-gitconfig-test-"));
+    process.env.HOME = tmpHome;
+
+    const identity = getGitUserIdentity();
+    expect(identity.name).toBeNull();
+    expect(identity.email).toBeNull();
   });
 });
