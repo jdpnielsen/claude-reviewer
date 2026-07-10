@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { getGitUserIdentity } from './git';
 
 // Types
 export interface PullRequest {
@@ -59,6 +60,15 @@ export interface CommentReply {
   created_at: string;
 }
 
+export interface Author {
+  id: number;
+  kind: 'human' | 'agent';
+  name: string;
+  email: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Repo-level conversations (independent of PRs)
 export interface RepoConversation {
   id: number;
@@ -92,9 +102,19 @@ export interface RepoConversationWithMessages {
   message_count: number;
 }
 
-// Database path - shared with Python CLI
-const DB_DIR = process.env.DATABASE_DIR || path.join(os.homedir(), '.claude-reviewer');
-const DB_PATH = process.env.DATABASE_PATH || path.join(DB_DIR, 'data.db');
+// Database path - shared with Python CLI.
+// Resolved lazily (not as a module-level const) because ESM import hoisting
+// means any code that sets process.env.DATABASE_DIR/DATABASE_PATH before an
+// `import ... from './database'` statement runs AFTER this module's top-level
+// code has already executed - a frozen top-level const would permanently miss
+// that override and silently fall back to the real ~/.claude-reviewer path.
+function getDbDir(): string {
+  return process.env.DATABASE_DIR || path.join(os.homedir(), '.claude-reviewer');
+}
+
+function getDbPath(): string {
+  return process.env.DATABASE_PATH || path.join(getDbDir(), 'data.db');
+}
 
 // Database instance with modification tracking
 let db: Database.Database | null = null;
@@ -106,12 +126,12 @@ let dbMtime: number = 0;
  */
 export function getDatabase(): Database.Database {
   // Ensure directory exists
-  fs.mkdirSync(DB_DIR, { recursive: true });
+  fs.mkdirSync(getDbDir(), { recursive: true });
 
   // Check if database file was modified externally
   let currentMtime = 0;
   try {
-    const stats = fs.statSync(DB_PATH);
+    const stats = fs.statSync(getDbPath());
     currentMtime = stats.mtimeMs;
   } catch {
     // File doesn't exist yet, will be created
@@ -127,7 +147,7 @@ export function getDatabase(): Database.Database {
       }
     }
 
-    db = new Database(DB_PATH);
+    db = new Database(getDbPath());
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.pragma('busy_timeout = 5000');
@@ -152,6 +172,8 @@ function checkpoint(): void {
 }
 
 function initSchema(db: Database.Database): void {
+  rebuildReplyTablesIfPreAuthors(db);
+
   db.exec(`
     -- Pull Requests table
     CREATE TABLE IF NOT EXISTS pull_requests (
@@ -215,12 +237,31 @@ function initSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_reviews_pr ON reviews(pr_id);
 
+    -- Authors table (human + agent identities)
+    CREATE TABLE IF NOT EXISTS authors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL CHECK (kind IN ('human', 'agent')),
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        email TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_authors_kind ON authors(kind);
+
+    -- Settings table (default-author pointers only, not a generic KV store)
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Comment replies table
     CREATE TABLE IF NOT EXISTS comment_replies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         uuid TEXT UNIQUE NOT NULL,
         comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-        author TEXT NOT NULL DEFAULT 'user',
+        author_id INTEGER NOT NULL REFERENCES authors(id),
         content TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -255,7 +296,7 @@ function initSchema(db: Database.Database): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         uuid TEXT UNIQUE NOT NULL,
         conversation_id INTEGER NOT NULL REFERENCES repo_conversations(id) ON DELETE CASCADE,
-        author TEXT NOT NULL DEFAULT 'user',
+        author_id INTEGER NOT NULL REFERENCES authors(id),
         content TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -264,8 +305,55 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_rcm_uuid ON repo_conversation_messages(uuid);
   `);
 
+  seedAuthors(db);
   migrateCommentsEndLine(db);
   migrateCommentsCommitSha(db);
+}
+
+// A database created before the authors table existed has comment_replies/
+// repo_conversation_messages in the old author-TEXT-column shape. Rather than
+// backfill (existing reply data is not preserved - see the design spec),
+// drop and let the CREATE TABLE IF NOT EXISTS block below recreate both
+// tables in the new author_id-based shape.
+function rebuildReplyTablesIfPreAuthors(db: Database.Database): void {
+  const authorsExists = db.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'authors'`
+  ).get();
+  if (!authorsExists) {
+    db.exec('DROP TABLE IF EXISTS comment_replies');
+    db.exec('DROP TABLE IF EXISTS repo_conversation_messages');
+  }
+}
+
+// Seeds the one-time default agent ('claude') and default human (from git
+// config, if available) rows, plus the settings pointers to them. Guarded so
+// it only inserts rows/pointers that don't exist yet - safe to call on every
+// getDatabase() reconnect.
+function seedAuthors(db: Database.Database): void {
+  let agent = db.prepare(`SELECT id FROM authors WHERE kind = 'agent'`).get() as { id: number } | undefined;
+  if (!agent) {
+    const result = db.prepare(`INSERT INTO authors (kind, name) VALUES ('agent', 'claude')`).run();
+    agent = { id: result.lastInsertRowid as number };
+  }
+
+  let human = db.prepare(`SELECT id FROM authors WHERE kind = 'human'`).get() as { id: number } | undefined;
+  if (!human) {
+    const identity = getGitUserIdentity();
+    const result = db.prepare(
+      `INSERT INTO authors (kind, name, email) VALUES ('human', ?, ?)`
+    ).run(identity.name || 'reviewer', identity.email);
+    human = { id: result.lastInsertRowid as number };
+  }
+
+  const hasDefaultAgent = db.prepare(`SELECT 1 FROM settings WHERE key = 'default_agent_author_id'`).get();
+  if (!hasDefaultAgent) {
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_agent_author_id', ?)`).run(String(agent.id));
+  }
+
+  const hasDefaultHuman = db.prepare(`SELECT 1 FROM settings WHERE key = 'default_human_author_id'`).get();
+  if (!hasDefaultHuman) {
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_human_author_id', ?)`).run(String(human.id));
+  }
 }
 
 // Backfills end_line_number for databases created before multi-line comments
@@ -820,6 +908,122 @@ export function deleteRepoConversation(uuid: string): boolean {
   const result = db.prepare('DELETE FROM repo_conversations WHERE uuid = ?').run(uuid);
   checkpoint();
   return result.changes > 0;
+}
+
+// =============================================================================
+// Author Operations
+// =============================================================================
+
+export function getSetting(key: string): string | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  const db = getDatabase();
+  db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `).run(key, value);
+  checkpoint();
+}
+
+export function listAuthors(): Author[] {
+  const db = getDatabase();
+  return db.prepare('SELECT * FROM authors ORDER BY kind, name').all() as Author[];
+}
+
+export function getAuthorById(id: number): Author | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT * FROM authors WHERE id = ?').get(id);
+  return row as Author | null;
+}
+
+export function getAuthorByName(name: string): Author | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT * FROM authors WHERE name = ? COLLATE NOCASE').get(name);
+  return row as Author | null;
+}
+
+export function getDefaultHumanAuthor(): Author {
+  const id = getSetting('default_human_author_id');
+  const author = id ? getAuthorById(Number(id)) : null;
+  if (!author) throw new Error('No default human author configured');
+  return author;
+}
+
+export function getDefaultAgentAuthor(): Author {
+  const id = getSetting('default_agent_author_id');
+  const author = id ? getAuthorById(Number(id)) : null;
+  if (!author) throw new Error('No default agent author configured');
+  return author;
+}
+
+export function createAuthor(kind: 'human' | 'agent', name: string, email: string | null = null): Author {
+  const db = getDatabase();
+  try {
+    const result = db.prepare(
+      'INSERT INTO authors (kind, name, email) VALUES (?, ?, ?)'
+    ).run(kind, name, email);
+    checkpoint();
+    return getAuthorById(result.lastInsertRowid as number)!;
+  } catch (e) {
+    if (e instanceof Error && /UNIQUE constraint failed/i.test(e.message)) {
+      throw new Error(`An author named "${name}" already exists`);
+    }
+    throw e;
+  }
+}
+
+export function updateAuthor(id: number, updates: { name?: string; email?: string | null }): Author {
+  const db = getDatabase();
+  const existing = getAuthorById(id);
+  if (!existing) throw new Error(`Author ${id} not found`);
+
+  const name = updates.name ?? existing.name;
+  const email = updates.email !== undefined ? updates.email : existing.email;
+
+  try {
+    db.prepare(
+      'UPDATE authors SET name = ?, email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(name, email, id);
+    checkpoint();
+  } catch (e) {
+    if (e instanceof Error && /UNIQUE constraint failed/i.test(e.message)) {
+      throw new Error(`An author named "${name}" already exists`);
+    }
+    throw e;
+  }
+  return getAuthorById(id)!;
+}
+
+export function deleteAuthor(id: number): void {
+  const db = getDatabase();
+  const author = getAuthorById(id);
+  if (!author) throw new Error(`Author ${id} not found`);
+
+  const replyCount = (db.prepare('SELECT COUNT(*) as count FROM comment_replies WHERE author_id = ?').get(id) as { count: number }).count;
+  const messageCount = (db.prepare('SELECT COUNT(*) as count FROM repo_conversation_messages WHERE author_id = ?').get(id) as { count: number }).count;
+  const totalReferences = replyCount + messageCount;
+  if (totalReferences > 0) {
+    throw new Error(`Cannot delete "${author.name}" - referenced by ${totalReferences} repl${totalReferences === 1 ? 'y' : 'ies'}`);
+  }
+
+  const defaultKey = author.kind === 'human' ? 'default_human_author_id' : 'default_agent_author_id';
+  if (getSetting(defaultKey) === String(id)) {
+    throw new Error(`Cannot delete "${author.name}" - it's the current default ${author.kind}. Set a different default first.`);
+  }
+
+  db.prepare('DELETE FROM authors WHERE id = ?').run(id);
+  checkpoint();
+}
+
+export function setDefaultAuthor(id: number): void {
+  const author = getAuthorById(id);
+  if (!author) throw new Error(`Author ${id} not found`);
+  const key = author.kind === 'human' ? 'default_human_author_id' : 'default_agent_author_id';
+  setSetting(key, String(id));
 }
 
 // =============================================================================
