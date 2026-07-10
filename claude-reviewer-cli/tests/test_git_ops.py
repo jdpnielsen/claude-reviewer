@@ -18,6 +18,10 @@ def temp_git_repo() -> Path:
         repo_path = Path(tmpdir)
         repo = Repo.init(repo_path)
 
+        # Configure git user for this repo
+        repo.config_writer().set_value("user", "name", "Test User").release()
+        repo.config_writer().set_value("user", "email", "test@example.com").release()
+
         # Create an initial commit
         test_file = repo_path / "test.txt"
         test_file.write_text("initial content")
