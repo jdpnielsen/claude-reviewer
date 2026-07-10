@@ -96,7 +96,6 @@ export async function GET(req: NextRequest) {
     }
 
     let content: string;
-    let totalLines: number;
 
     try {
       // Try to get file from git
@@ -121,7 +120,7 @@ export async function GET(req: NextRequest) {
     }
 
     const allLines = content.split('\n');
-    totalLines = allLines.length;
+    const totalLines = allLines.length;
 
     // Apply line range
     const startIdx = Math.max(0, start - 1);
