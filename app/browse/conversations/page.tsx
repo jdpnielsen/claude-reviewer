@@ -17,7 +17,9 @@ import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 
 import { useConfirm } from '@/components/ConfirmDialog';
+import RepoPathPicker from '@/components/browse/RepoPathPicker';
 import { AuthorKind, ConversationStatus } from '@/lib/enum';
+import { getRecentRepos, saveRecentRepo } from '@/lib/recent-repos';
 
 interface ConversationMessage {
   uuid: string;
@@ -45,30 +47,6 @@ interface Conversation {
 interface ConversationWithMessages {
   conversation: Conversation;
   messages: ConversationMessage[];
-}
-
-const RECENT_REPOS_KEY = 'claude-reviewer-recent-repos';
-const MAX_RECENT_REPOS = 5;
-
-function getRecentRepos(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(RECENT_REPOS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentRepo(path: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const recent = getRecentRepos().filter((p) => p !== path);
-    recent.unshift(path);
-    localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT_REPOS)));
-  } catch {
-    // Ignore localStorage errors
-  }
 }
 
 export default function ConversationsListPage() {
@@ -342,37 +320,15 @@ export default function ConversationsListPage() {
     <main className="container conversations-list-page">
       {/* Repo Path Input */}
       {!repoPath && (
-        <div className="repo-input-section">
-          <h1>All Conversations</h1>
-          <p>Enter the path to a repository to view all conversations.</p>
-          <div className="repo-input-form">
-            <input
-              type="text"
-              placeholder="/path/to/your/repo"
-              value={inputPath}
-              onChange={(e) => setInputPath(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSetRepo()}
-            />
-            <button onClick={() => handleSetRepo()}>View Conversations</button>
-          </div>
-          {recentRepos.length > 0 && (
-            <div className="recent-repos">
-              <p className="recent-repos-label">Recent repositories:</p>
-              <div className="recent-repos-list">
-                {recentRepos.map((path) => (
-                  <button
-                    key={path}
-                    className="recent-repo-btn"
-                    onClick={() => handleSetRepo(path)}
-                  >
-                    {path.split('/').pop()}
-                    <span className="recent-repo-path">{path}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <RepoPathPicker
+          heading="All Conversations"
+          description="Enter the path to a repository to view all conversations."
+          submitLabel="View Conversations"
+          inputPath={inputPath}
+          onInputPathChange={setInputPath}
+          onSubmit={handleSetRepo}
+          recentRepos={recentRepos}
+        />
       )}
 
       {repoPath && (
