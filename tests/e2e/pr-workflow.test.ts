@@ -15,6 +15,7 @@ process.env.DATABASE_PATH = `${global.__TEST_DB_DIR__}/test.db`;
 import {
   createPR,
   addComment,
+  addReply,
   closeDatabase,
 } from "../../lib/database";
 
@@ -27,6 +28,14 @@ describe("PR Workflow E2E Tests", () => {
   let page: Page;
   let testPRUuid: string;
   let testRepoDir: string;
+
+  // Jest's reporter buffers a file's results and only prints them once the
+  // whole file finishes, even with verbose: true; plain console.log calls
+  // bypass that buffering and print immediately, giving real-time progress
+  // for this suite's ~60-100s runtime.
+  beforeEach(() => {
+    console.log(`▶ ${expect.getState().currentTestName}`);
+  });
 
   beforeAll(async () => {
     browser = await puppeteer.launch({
@@ -126,7 +135,7 @@ describe("PR Workflow E2E Tests", () => {
 
   describe("PR Review Page", () => {
     test("displays PR details", async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector("body");
 
       // Wait for content to load
@@ -142,7 +151,7 @@ describe("PR Workflow E2E Tests", () => {
     });
 
     test("shows diff content", async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector("body");
 
       // Wait for diff to load
@@ -160,7 +169,7 @@ describe("PR Workflow E2E Tests", () => {
     });
 
     test("displays existing comments", async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector("body");
 
       // Wait for comments to potentially load
@@ -172,7 +181,7 @@ describe("PR Workflow E2E Tests", () => {
     });
 
     test("has review action buttons", async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector("body");
 
       // Wait for page to load
@@ -185,6 +194,116 @@ describe("PR Workflow E2E Tests", () => {
       // Should have approve/request changes buttons or text
       expect(content.toLowerCase()).toMatch(/approve|request changes|review/);
     });
+  });
+
+  describe("Comment Deletion", () => {
+    let replyCommentUuid: string;
+
+    beforeAll(() => {
+      replyCommentUuid = addComment(testPRUuid, "test.ts", 3, "This needs a reply-count test");
+      addReply(replyCommentUuid, "Good catch");
+    });
+
+    async function clickDeleteButtonForComment(commentText: string) {
+      const handle = await page.evaluateHandle((text) => {
+        const comments = Array.from(document.querySelectorAll(".inline-comment"));
+        return comments.find((el) => el.textContent?.includes(text)) ?? null;
+      }, commentText);
+      const el = handle.asElement();
+      if (!el) throw new Error(`Comment containing "${commentText}" not found`);
+      const deleteBtn = await el.$(".delete-btn");
+      if (!deleteBtn) throw new Error("Delete button not found");
+
+      // Don't await the click alongside the dialog promise: window.confirm()
+      // blocks the page's JS thread, so the click's own CDP round-trip can't
+      // resolve until the dialog is dismissed, which happens after this
+      // function returns. Awaiting both together deadlocks. Instead, keep the
+      // click's promise and hand it back so the caller can drain it after
+      // resolving the dialog - leaving it truly unawaited seems to leave a
+      // pending CDP command that blocks later commands (e.g. navigation) on
+      // the same session.
+      const dialogPromise = new Promise<import("puppeteer").Dialog>((resolve) => page.once("dialog", resolve));
+      const clickPromise = deleteBtn.click();
+      const dialog = await dialogPromise;
+      return { dialog, clickPromise };
+    }
+
+    // The first page.goto() issued anywhere after Puppeteer resolves a native
+    // JS dialog (confirm/alert/prompt) via CDP reliably times out, even though
+    // Chrome finishes the navigation shortly after; a fresh goto() call right
+    // afterward succeeds normally. Since this file's only dialogs come from
+    // comment deletion, only navigations near a delete need this retry. The
+    // first attempt is expected to fail, so it uses a short timeout rather
+    // than waiting out Puppeteer's full default.
+    async function gotoAfterDialog(url: string, options: Parameters<Page['goto']>[1]) {
+      try {
+        await page.goto(url, { ...options, timeout: 3000 });
+      } catch (e) {
+        if (!(e instanceof Error) || !e.message.includes('Navigation timeout')) throw e;
+        await page.goto(url, options);
+      }
+    }
+
+    test("shows a confirm dialog and removes a comment with no replies", async () => {
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => document.body.textContent?.includes("Please add documentation for this constant"),
+        { timeout: 20000 }
+      );
+
+      const { dialog, clickPromise } = await clickDeleteButtonForComment("Please add documentation for this constant");
+      expect(dialog.message()).toBe("Delete this comment?");
+      await dialog.accept();
+      await clickPromise;
+
+      await page.waitForFunction(
+        () => !document.body.textContent?.includes("Please add documentation for this constant"),
+        { timeout: 10000 }
+      );
+
+      await gotoAfterDialog(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const content = await page.content();
+      expect(content).not.toContain("Please add documentation for this constant");
+    }, 60000);
+
+    test("mentions the reply count and removes both comment and reply", async () => {
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => document.body.textContent?.includes("This needs a reply-count test"),
+        { timeout: 20000 }
+      );
+
+      const { dialog, clickPromise } = await clickDeleteButtonForComment("This needs a reply-count test");
+      expect(dialog.message()).toBe("Delete this comment and its 1 reply?");
+      await dialog.accept();
+      await clickPromise;
+
+      await page.waitForFunction(
+        () => !document.body.textContent?.includes("This needs a reply-count test"),
+        { timeout: 10000 }
+      );
+
+      const content = await page.content();
+      expect(content).not.toContain("Good catch");
+    }, 60000);
+
+    test("keeps the comment when the confirm dialog is cancelled", async () => {
+      addComment(testPRUuid, "test.ts", 4, "Do not delete me");
+      await gotoAfterDialog(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => document.body.textContent?.includes("Do not delete me"),
+        { timeout: 20000 }
+      );
+
+      const { dialog, clickPromise } = await clickDeleteButtonForComment("Do not delete me");
+      await dialog.dismiss();
+      await clickPromise;
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const content = await page.content();
+      expect(content).toContain("Do not delete me");
+    }, 60000);
   });
 
   describe("Navigation", () => {

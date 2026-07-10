@@ -658,6 +658,35 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
+  const deleteComment = async (commentUuid: string, replyCount: number) => {
+    if (!data) return;
+
+    const message = replyCount > 0
+      ? `Delete this comment and its ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}?`
+      : 'Delete this comment?';
+    if (!confirm(message)) return;
+
+    const originalCommentWithReplies = data.comments.find((c) => c.comment.uuid === commentUuid);
+
+    // Optimistically remove from local state
+    setData({
+      ...data,
+      comments: data.comments.filter((c) => c.comment.uuid !== commentUuid),
+    });
+
+    try {
+      await fetch(`/api/prs/${id}/comments?uuid=${commentUuid}`, { method: 'DELETE' });
+    } catch (e) {
+      alert('Error deleting comment');
+      // Revert on error
+      if (originalCommentWithReplies) {
+        setData((prev) =>
+          prev ? { ...prev, comments: [...prev.comments, originalCommentWithReplies] } : prev
+        );
+      }
+    }
+  };
+
   const submitReview = async (action: 'approve' | 'request_changes') => {
     setSubmitting(true);
     try {
@@ -1269,6 +1298,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                         onClick={() => resolveComment(c.uuid, !c.resolved)}
                                       >
                                         {c.resolved ? 'Unresolve' : 'Resolve'}
+                                      </button>
+                                      <button
+                                        className="delete-btn"
+                                        onClick={() => deleteComment(c.uuid, replies.length)}
+                                      >
+                                        Delete
                                       </button>
                                     </div>
                                     {/* Replies */}
