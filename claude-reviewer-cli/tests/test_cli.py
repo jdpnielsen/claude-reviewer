@@ -117,6 +117,67 @@ class TestServeCheck:
         assert result.exit_code != 0
 
 
+class TestOpenCommand:
+    """Tests for the `open` CLI command."""
+
+    def test_opens_the_dashboard_without_starting_when_already_running(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If the web UI is already reachable, `open` just opens the browser."""
+        monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: True)
+        opened_urls: list[str] = []
+        monkeypatch.setattr("webbrowser.open", opened_urls.append)
+        monkeypatch.setattr(
+            "claude_reviewer.cli.serve",
+            lambda **kwargs: pytest.fail("should not try to start an already-running web UI"),
+        )
+
+        result = CliRunner().invoke(main, ["open"])
+
+        assert result.exit_code == 0
+        assert opened_urls == ["http://localhost:41729"]
+
+    def test_opens_a_specific_pr_review_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A PR id argument opens that PR's review page instead of the dashboard."""
+        monkeypatch.setattr("claude_reviewer.database.get_pr_by_uuid", lambda pr_id: object())
+        monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: True)
+        opened_urls: list[str] = []
+        monkeypatch.setattr("webbrowser.open", opened_urls.append)
+
+        result = CliRunner().invoke(main, ["open", "abc12345"])
+
+        assert result.exit_code == 0
+        assert opened_urls == ["http://localhost:41729/prs/abc12345"]
+
+    def test_rejects_an_unknown_pr_id_without_opening_anything(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An invalid PR id fails loudly instead of falling back to the dashboard."""
+        monkeypatch.setattr("claude_reviewer.database.get_pr_by_uuid", lambda pr_id: None)
+        opened_urls: list[str] = []
+        monkeypatch.setattr("webbrowser.open", opened_urls.append)
+
+        result = CliRunner().invoke(main, ["open", "not-a-real-pr"])
+
+        assert result.exit_code != 0
+        assert opened_urls == []
+
+    def test_starts_the_web_ui_first_when_not_running(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If nothing is listening, `open` starts the web UI before opening the browser."""
+        monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: False)
+        monkeypatch.setattr("claude_reviewer.cli.is_port_in_use", lambda port: True)
+        started: list[dict[str, object]] = []
+        monkeypatch.setattr("claude_reviewer.cli.serve", lambda **kwargs: started.append(kwargs))
+        monkeypatch.setattr("webbrowser.open", lambda url: None)
+
+        result = CliRunner().invoke(main, ["open"])
+
+        assert result.exit_code == 0
+        assert started
+
+
 class TestSkillsCommand:
     """Tests for `skills list` and `skills install`."""
 

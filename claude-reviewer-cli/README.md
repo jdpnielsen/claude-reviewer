@@ -79,6 +79,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `serve` | Start the web UI |
 | `serve --check` | Report whether the web UI is reachable; starts nothing |
 | `stop` | Stop the web UI |
+| `open [id]` | Open the dashboard (or a specific PR) in your browser, starting the web UI first if needed |
 | `skills install` / `skills list` | Install/list the bundled Claude Code skills (see below) |
 
 ## CLI Reference
