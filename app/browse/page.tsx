@@ -2,7 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-import type { Conversation, ConversationMessage, ConversationWithMessages, TreeNode } from './types';
+import type {
+  Conversation,
+  ConversationMessage,
+  ConversationWithMessages,
+  TreeNode,
+} from './types';
 import BrowseSidebar from '@/components/browse/BrowseSidebar';
 import FileViewer from '@/components/browse/FileViewer';
 import RepoPathPicker from '@/components/browse/RepoPathPicker';
