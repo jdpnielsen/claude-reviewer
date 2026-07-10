@@ -37,6 +37,7 @@ Three rounds of brainstorming, each changing the shape of the solution:
 - **`kind` replaces every `=== 'claude'` check that currently drives behavior**, including the non-cosmetic one (`browse/page.tsx:186`'s auto-trigger guard), and generalizes it: any row with `kind='agent'` (not just one literally named "claude") gets agent treatment — future-proofing for more than one registered agent identity.
 - **Deletion is block-only, no override.** Refuses if the author is referenced by any existing reply/message, or if it's a current default — full stop, no cascade-delete and no "detach" escape hatch. The only way to remove a referenced or default author is to first make sure nothing points at it (there's no bulk-reassign tool in this pass; removing a default requires `set-default` to another row first).
 - **`kind` is immutable after creation.** Only `name`/`email` are editable. Fixing a mis-registered kind means delete (if unblocked) + recreate.
+- **No backward-compatible legacy column.** This is pre-1.0 local dev tooling — the user explicitly confirmed existing `comment_replies`/`repo_conversation_messages` data can be discarded rather than preserved through a careful additive migration. `author_id` is `NOT NULL` from the start (no nullable FK, no legacy `author` TEXT fallback column, no heuristic `author_kind` fallback in the read path). This meaningfully simplifies the schema, the migration, and every query that reads a reply/message.
 - **The settings page's old standalone "Reviewer Identity" form is gone**, folded into a single "Authors" roster table — editing the row that happens to be the default human *is* "editing your identity," so a separate form would just be a redundant view over the same data.
 - **No `configured` flag.** Rather than tracking "has this ever been explicitly saved" to decide when to show a git-config hint, the settings page always shows a live "git config says X — use this?" suggestion next to the default human row whenever the current live git value differs from what's stored, computed fresh on every page load. Simpler than a boolean, and doesn't need a migration if git config changes later.
 
@@ -70,35 +71,34 @@ SELECT 'agent', 'claude' WHERE NOT EXISTS (SELECT 1 FROM authors WHERE kind = 'a
 ```
 and, for the human row, a conditional (JS/Python, not pure SQL) that shells out to `git config --global --get user.name`/`user.email` if no human row exists yet, inserting `(kind='human', name=<git name or 'reviewer'>, email=<git email or NULL>)`. Immediately after, if `settings` has no `default_human_author_id`/`default_agent_author_id` yet, set them to the two newly-seeded rows' ids (guarded the same way, so re-running never clobbers a `set-default` choice made later).
 
-**Migration of existing tables** (new function, e.g. `migrateReplyAuthorId(db)` / `_migrate_reply_author_id(conn)`, following the exact guarded-`ALTER`-plus-"duplicate column"-catch shape as `migrateCommentsEndLine`): both `comment_replies` and `repo_conversation_messages` get a nullable `author_id INTEGER REFERENCES authors(id)` column. One-time backfill, run after the column exists and authors/settings are seeded:
+**Rebuilding `comment_replies` and `repo_conversation_messages`**: both tables' schema definitions change from `author TEXT NOT NULL DEFAULT 'user'` to `author_id INTEGER NOT NULL REFERENCES authors(id)` — no legacy text column at all. Existing data in these two tables predates the `authors` table and has no `author_id` to backfill from, and the user has confirmed it's fine to discard it rather than build a careful backfill (this is pre-1.0 local dev tooling, not a production migration). The migration (new function, e.g. `rebuildReplyTables(db)` / `_rebuild_reply_tables(conn)`, called once at the top of `initSchema()`/`init_db()`, **before** the main `CREATE TABLE IF NOT EXISTS` block runs) detects a pre-this-feature database by checking whether `authors` exists yet:
 
 ```sql
-UPDATE comment_replies SET author_id = (SELECT value FROM settings WHERE key = 'default_agent_author_id')
-WHERE author_id IS NULL AND author = 'claude';
-UPDATE comment_replies SET author_id = (SELECT value FROM settings WHERE key = 'default_human_author_id')
-WHERE author_id IS NULL;
--- (same two statements for repo_conversation_messages)
+-- Only runs once: if `authors` doesn't exist yet, this DB predates the
+-- author_id column, so drop the two tables and let the normal
+-- `CREATE TABLE IF NOT EXISTS` block below recreate them in the new shape.
+DROP TABLE IF EXISTS comment_replies;
+DROP TABLE IF EXISTS repo_conversation_messages;
 ```
-The existing `author` TEXT NOT NULL column on both tables is **not dropped** — every insert still populates it (mirroring the resolved name, redundant but harmless, keeps the `NOT NULL` constraint trivially satisfied without a table rebuild) and it remains the sole source of truth for the small number of pre-migration rows that might not cleanly backfill.
+Both tables' `CREATE TABLE IF NOT EXISTS` statements in the main schema block are updated to the new `author_id INTEGER NOT NULL REFERENCES authors(id)` column in place of `author TEXT NOT NULL DEFAULT 'user'`. Since `authors` is seeded immediately after this same schema-init pass, `author_id` can be `NOT NULL` from the very first insert.
 
 ## Read path
 
-Every place that assembles a reply/message row — `getCommentsWithReplies` and `getRepoConversationWithMessages`/`listRepoConversations`'s `latest_message` subquery in `lib/database.ts`, and the Python equivalents feeding `get_unanswered_pr_comments`, the CLI's `comments` command, and `get_unanswered_conversations` in `database.py` — `LEFT JOIN authors ON authors.id = <table>.author_id` and expose:
+Every place that assembles a reply/message row — `getCommentsWithReplies` and `getRepoConversationWithMessages`/`listRepoConversations`'s `latest_message` subquery in `lib/database.ts`, and the Python equivalents feeding `get_unanswered_pr_comments`, the CLI's `comments` command, and `get_unanswered_conversations` in `database.py` — `JOIN authors ON authors.id = <table>.author_id` (a plain inner join — `author_id` is `NOT NULL`, so every row always matches) and expose:
 
 ```ts
 export interface CommentReply {
   id: number;
   uuid: string;
   comment_id: number;
-  author: string;                  // COALESCE(authors.name, legacy author text) — live, reflects renames
-  author_kind: 'human' | 'agent';  // authors.kind, or a heuristic fallback for pre-migration rows only
+  author_id: number;
+  author: string;                  // authors.name via JOIN — live, reflects renames
+  author_kind: 'human' | 'agent';  // authors.kind via JOIN
   content: string;
   created_at: string;
 }
 ```
-(mirrored for `RepoConversationMessage`, and for the Python dataclasses in `models.py:74-80,110-118`, plus a new `Author` dataclass: `id`, `kind`, `name`, `email`.)
-
-Because `--author` is now locked to the roster (see below), **every reply created after this migration always has a real `author_id`** — the `'agent' if legacy_text == 'claude' else 'human'` heuristic fallback only ever applies to the small number of rows that predate this feature and didn't cleanly backfill (in practice, none should exist, since the backfill above covers every legacy row) — it's a defensive fallback, not an expected runtime path.
+(mirrored for `RepoConversationMessage`, and for the Python dataclasses in `models.py:74-80,110-118`, plus a new `Author` dataclass: `id`, `kind`, `name`, `email`.) No fallback/heuristic branch is needed anywhere in the read path — every row has a real, resolvable `author_id`.
 
 ## Write path
 
@@ -154,12 +154,12 @@ All in a new `app/api/authors/route.ts` + `app/api/authors/[id]/route.ts` + `app
 - **Deleting a referenced author**: blocked with the reference count; no bulk-reassign tool exists in this pass.
 - **Deleting a current default**: blocked; `set-default` to a different row of the same kind first.
 - **Duplicate name on add/rename**: blocked by the `UNIQUE COLLATE NOCASE` constraint, surfaced as a friendly error (not a raw SQLite exception).
-- **Migration on a database with pre-existing replies**: every existing row backfills to either the (newly seeded, and therefore also currently-default) agent or human id — no data loss, no row left with `author_id IS NULL` after migration.
+- **Upgrading a database with pre-existing replies**: `comment_replies`/`repo_conversation_messages` are dropped and recreated in the new `author_id NOT NULL` shape — existing reply/message content is discarded, not migrated. Explicitly accepted (pre-1.0 local tooling); the rest of the database (PRs, comments, reviews) is untouched.
 - **Concurrent web + CLI writes to `authors`/`settings`**: same WAL + `busy_timeout` concurrency handling already relied on for every other shared table.
 
 ## Testing / verification
 
-- Vitest: CRUD functions (`createAuthor`/`updateAuthor`/`deleteAuthor`/`setDefaultAuthor`/`listAuthors`), including both delete-blocking cases and the duplicate-name error; the seeding function (with and without git config reachable); the `author_id` backfill migration against a fixture DB pre-populated with legacy `'ben'`/`'user'`/`'claude'` rows. Following `__tests__/database.test.ts`'s direct-function-call pattern and `__tests__/git.test.ts`'s temp-repo-with-`git config` convention.
-- Python: mirrored tests in `test_database.py` (seeding, migration/backfill, CRUD, delete-blocking, sentinel resolution) and `test_cli.py` (`authors` subcommands, `--author me`/`--author claude`/`--author <registered name>`/`--author <unregistered name>` error), plus a `get_global_git_user()`-equivalent test in `test_git_ops.py`.
+- Vitest: CRUD functions (`createAuthor`/`updateAuthor`/`deleteAuthor`/`setDefaultAuthor`/`listAuthors`), including both delete-blocking cases and the duplicate-name error; the seeding function (with and without git config reachable); `rebuildReplyTables` against a fixture DB pre-populated with legacy `'ben'`/`'user'`/`'claude'` rows in the old schema — confirm both tables end up empty but present in the new `author_id NOT NULL` shape, and that unrelated tables (`pull_requests`, `comments`) are untouched. Following `__tests__/database.test.ts`'s direct-function-call pattern and `__tests__/git.test.ts`'s temp-repo-with-`git config` convention.
+- Python: mirrored tests in `test_database.py` (seeding, table rebuild, CRUD, delete-blocking, sentinel resolution) and `test_cli.py` (`authors` subcommands, `--author me`/`--author claude`/`--author <registered name>`/`--author <unregistered name>` error), plus a `get_global_git_user()`-equivalent test in `test_git_ops.py`.
 - `npx tsc --noEmit`.
-- Manual pass: on a database with existing PR comment replies/repo-conversation messages from before this change, confirm they still render with the correct name and `reply-human`/`reply-claude` styling after migration. Visit `/settings`, confirm the Authors table lists both seeded rows with correct default badges; with `git config user.name` set differently from the stored default-human name, confirm the "use this" chip appears; add a second human author via the CLI, confirm it shows up in the web table; try deleting a default or referenced author from both surfaces, confirm both refuse with the same reason; `set-default` to the new author, confirm the badge moves and new replies now use it. Post a new PR comment reply and a repo-conversation reply/comment — confirm the default human's name appears. From a terminal, `claude-reviewer reply <pr> <comment> "msg" --author me` and `--author claude` — confirm correct resolution; run the documented Claude workflow's `claude-reviewer reply` with no `--author` — confirm it's still attributed to the default agent and still triggers `reply-claude`/green coloring. In the browse view, confirm Claude's auto-response guard (`browse/page.tsx:186`) still skips re-triggering after Claude's own message.
+- Manual pass: on a database with existing PR comment replies/repo-conversation messages from before this change, confirm the app starts cleanly after upgrade and those old replies/messages are gone (not erroring, not half-migrated) while PRs/comments remain intact. Visit `/settings`, confirm the Authors table lists both seeded rows with correct default badges; with `git config user.name` set differently from the stored default-human name, confirm the "use this" chip appears; add a second human author via the CLI, confirm it shows up in the web table; try deleting a default or referenced author from both surfaces, confirm both refuse with the same reason; `set-default` to the new author, confirm the badge moves and new replies now use it. Post a new PR comment reply and a repo-conversation reply/comment — confirm the default human's name appears. From a terminal, `claude-reviewer reply <pr> <comment> "msg" --author me` and `--author claude` — confirm correct resolution; run the documented Claude workflow's `claude-reviewer reply` with no `--author` — confirm it's still attributed to the default agent and still triggers `reply-claude`/green coloring. In the browse view, confirm Claude's auto-response guard (`browse/page.tsx:186`) still skips re-triggering after Claude's own message.
