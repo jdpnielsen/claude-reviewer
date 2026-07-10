@@ -105,7 +105,7 @@ class TestServeCheck:
         assert "not running" in result.output.lower()
 
     def test_does_not_attempt_to_start_anything(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """--check never touches docker or npm, regardless of whether the UI is up."""
+        """--check never touches docker or pnpm, regardless of whether the UI is up."""
         monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: False)
         monkeypatch.setattr(
             subprocess,

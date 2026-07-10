@@ -42,7 +42,10 @@ async function waitForServer(url: string, timeout = 30000): Promise<void> {
 beforeAll(async () => {
   // Start the Next.js server
   console.log('Starting Next.js server...');
-  global.__SERVER__ = spawn('npm', ['run', 'dev', '--', '-p', PORT.toString()], {
+  // Unlike npm, pnpm forwards script args as-is without stripping a `--`
+  // separator, so passing one here would literally reach `next dev` as an
+  // argument (breaking its CLI parsing) instead of being consumed by pnpm.
+  global.__SERVER__ = spawn('pnpm', ['run', 'dev', '-p', PORT.toString()], {
     cwd: process.cwd(),
     stdio: 'pipe',
     detached: true,
@@ -70,8 +73,8 @@ beforeAll(async () => {
   console.log('Server ready');
 }, 60000);
 
-// npm run dev spawns next dev, which spawns next-server (and Turbopack
-// workers); killing only the npm process orphans the rest, which keep the
+// pnpm run dev spawns next dev, which spawns next-server (and Turbopack
+// workers); killing only the pnpm process orphans the rest, which keep the
 // inherited stdout/stderr pipes open and block Jest from exiting. Since the
 // server was spawned with detached: true, its pid is also its process group
 // id, so killing -pid kills the whole tree.

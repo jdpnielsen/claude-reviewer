@@ -1,10 +1,11 @@
 FROM node:20-alpine AS builder
 RUN apk add --no-cache python3 make g++ git
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache python3 make g++ git
