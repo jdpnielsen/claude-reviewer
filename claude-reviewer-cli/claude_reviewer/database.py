@@ -725,10 +725,29 @@ def _row_to_reply(row: sqlite3.Row) -> CommentReply:
         id=row["id"],
         uuid=row["uuid"],
         comment_id=row["comment_id"],
+        author_id=row["author_id"],
         author=row["author"],
+        author_kind=row["author_kind"],
         content=row["content"],
         created_at=row["created_at"],
     )
+
+
+def _resolve_author_id(author: str) -> int:
+    """Resolve a CLI --author value (or an internal call's literal) to an
+    author_id. "me" and "claude" are pointer-based sentinels; anything else
+    must be an exact (case-insensitive) registered author name."""
+    if author == "me":
+        return get_default_human_author().id
+    if author == "claude":
+        return get_default_agent_author().id
+    found = get_author_by_name(author)
+    if not found:
+        raise ValueError(
+            f"Unknown author '{author}'. Run 'claude-reviewer authors list' to see "
+            "registered authors, or 'claude-reviewer authors add' to register a new one."
+        )
+    return found.id
 
 
 def add_reply(
@@ -738,6 +757,7 @@ def add_reply(
 ) -> str:
     """Add a reply to a comment and return its UUID."""
     reply_uuid = generate_uuid()
+    author_id = _resolve_author_id(author)
 
     with get_connection() as conn:
         comment = conn.execute(
@@ -750,10 +770,10 @@ def add_reply(
 
         conn.execute(
             """
-            INSERT INTO comment_replies (uuid, comment_id, author, content)
+            INSERT INTO comment_replies (uuid, comment_id, author_id, content)
             VALUES (?, ?, ?, ?)
             """,
-            (reply_uuid, comment["id"], author, content),
+            (reply_uuid, comment["id"], author_id, content),
         )
 
         # Update PR timestamp
@@ -778,7 +798,11 @@ def get_replies(comment_uuid: str) -> list[CommentReply]:
 
         rows = conn.execute(
             """
-            SELECT * FROM comment_replies WHERE comment_id = ? ORDER BY created_at
+            SELECT cr.id, cr.uuid, cr.comment_id, cr.author_id,
+                   a.name AS author, a.kind AS author_kind, cr.content, cr.created_at
+            FROM comment_replies cr
+            JOIN authors a ON a.id = cr.author_id
+            WHERE cr.comment_id = ? ORDER BY cr.created_at
             """,
             (comment["id"],),
         ).fetchall()
@@ -1081,7 +1105,7 @@ def get_unanswered_pr_comments(
             # Comment needs response if:
             # 1. No replies at all, OR
             # 2. Last reply is not from Claude
-            if not replies or replies[-1].author != "claude":
+            if not replies or replies[-1].author_kind != "agent":
                 unanswered.append((pr, comment, replies))
 
     return unanswered
