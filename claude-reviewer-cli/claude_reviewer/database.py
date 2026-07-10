@@ -35,7 +35,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .git_ops import get_global_git_user
 from .models import (
+    Author,
     Comment,
     CommentReply,
     PRStatus,
@@ -124,12 +126,31 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 CREATE INDEX IF NOT EXISTS idx_reviews_pr ON reviews(pr_id);
 
+-- Authors table (human + agent identities)
+CREATE TABLE IF NOT EXISTS authors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('human', 'agent')),
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    email TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_authors_kind ON authors(kind);
+
+-- Settings table (default-author pointers only, not a generic KV store)
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Comment replies table
 CREATE TABLE IF NOT EXISTS comment_replies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     uuid TEXT UNIQUE NOT NULL,
     comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-    author TEXT NOT NULL DEFAULT 'user',
+    author_id INTEGER NOT NULL REFERENCES authors(id),
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -164,7 +185,7 @@ CREATE TABLE IF NOT EXISTS repo_conversation_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     uuid TEXT UNIQUE NOT NULL,
     conversation_id INTEGER NOT NULL REFERENCES repo_conversations(id) ON DELETE CASCADE,
-    author TEXT NOT NULL DEFAULT 'user',
+    author_id INTEGER NOT NULL REFERENCES authors(id),
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -210,9 +231,69 @@ def get_connection(db_path: Path | None = None) -> Generator[sqlite3.Connection,
 def init_db(db_path: Path | None = None) -> None:
     """Initialize database schema and apply any pending migrations."""
     with get_connection(db_path) as conn:
+        _rebuild_reply_tables_if_pre_authors(conn)
         conn.executescript(SCHEMA_SQL)
+        _seed_authors(conn)
         _migrate_comments_end_line(conn)
         _migrate_comments_commit_sha(conn)
+
+
+def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
+    """A database created before the authors table existed has
+    comment_replies/repo_conversation_messages in the old author-TEXT-column
+    shape. Rather than backfill (existing reply data is not preserved - see
+    the design spec), drop and let SCHEMA_SQL recreate both tables in the
+    new author_id-based shape.
+    """
+    authors_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='authors'"
+    ).fetchone()
+    if not authors_exists:
+        conn.execute("DROP TABLE IF EXISTS comment_replies")
+        conn.execute("DROP TABLE IF EXISTS repo_conversation_messages")
+
+
+def _seed_authors(conn: sqlite3.Connection) -> None:
+    """Seeds the one-time default agent ('claude') and default human (from
+    git config, if available) rows, plus the settings pointers to them.
+    Guarded so it only inserts rows/pointers that don't exist yet - safe to
+    call on every init_db() call.
+    """
+    agent_row = conn.execute("SELECT id FROM authors WHERE kind = 'agent'").fetchone()
+    if agent_row:
+        agent_id = agent_row["id"]
+    else:
+        cursor = conn.execute("INSERT INTO authors (kind, name) VALUES ('agent', 'claude')")
+        agent_id = cursor.lastrowid
+
+    human_row = conn.execute("SELECT id FROM authors WHERE kind = 'human'").fetchone()
+    if human_row:
+        human_id = human_row["id"]
+    else:
+        name, email = get_global_git_user()
+        cursor = conn.execute(
+            "INSERT INTO authors (kind, name, email) VALUES ('human', ?, ?)",
+            (name or "reviewer", email),
+        )
+        human_id = cursor.lastrowid
+
+    has_default_agent = conn.execute(
+        "SELECT 1 FROM settings WHERE key = 'default_agent_author_id'"
+    ).fetchone()
+    if not has_default_agent:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('default_agent_author_id', ?)",
+            (str(agent_id),),
+        )
+
+    has_default_human = conn.execute(
+        "SELECT 1 FROM settings WHERE key = 'default_human_author_id'"
+    ).fetchone()
+    if not has_default_human:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('default_human_author_id', ?)",
+            (str(human_id),),
+        )
 
 
 def _migrate_comments_end_line(conn: sqlite3.Connection) -> None:
@@ -276,6 +357,18 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         content=row["content"],
         resolved=bool(row["resolved"]),
         created_at=row["created_at"],
+    )
+
+
+def _row_to_author(row: sqlite3.Row) -> Author:
+    """Convert a database row to an Author object."""
+    return Author(
+        id=row["id"],
+        kind=row["kind"],
+        name=row["name"],
+        email=row["email"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
@@ -992,3 +1085,152 @@ def get_unanswered_pr_comments(
                 unanswered.append((pr, comment, replies))
 
     return unanswered
+
+
+# =============================================================================
+# Author Operations
+# =============================================================================
+
+
+def get_setting(key: str) -> str | None:
+    """Get a setting value by key, or None if unset."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+
+def set_setting(key: str, value: str) -> None:
+    """Upsert a setting value."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, value),
+        )
+
+
+def list_authors() -> list[Author]:
+    """List all registered authors, ordered by kind then name."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM authors ORDER BY kind, name").fetchall()
+        return [_row_to_author(row) for row in rows]
+
+
+def get_author_by_id(author_id: int) -> Author | None:
+    """Get an author by id."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM authors WHERE id = ?", (author_id,)).fetchone()
+        return _row_to_author(row) if row else None
+
+
+def get_author_by_name(name: str) -> Author | None:
+    """Get an author by name, case-insensitive."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM authors WHERE name = ? COLLATE NOCASE", (name,)
+        ).fetchone()
+        return _row_to_author(row) if row else None
+
+
+def get_default_human_author() -> Author:
+    """Get the current default human author. Raises if none is configured."""
+    author_id = get_setting("default_human_author_id")
+    author = get_author_by_id(int(author_id)) if author_id else None
+    if not author:
+        raise ValueError("No default human author configured")
+    return author
+
+
+def get_default_agent_author() -> Author:
+    """Get the current default agent author. Raises if none is configured."""
+    author_id = get_setting("default_agent_author_id")
+    author = get_author_by_id(int(author_id)) if author_id else None
+    if not author:
+        raise ValueError("No default agent author configured")
+    return author
+
+
+def create_author(kind: str, name: str, email: str | None = None) -> Author:
+    """Create a new author. Raises ValueError on a duplicate (case-insensitive) name."""
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO authors (kind, name, email) VALUES (?, ?, ?)",
+                (kind, name, email),
+            )
+            author_id = cursor.lastrowid
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e):
+                raise ValueError(f'An author named "{name}" already exists') from e
+            raise
+        row = conn.execute("SELECT * FROM authors WHERE id = ?", (author_id,)).fetchone()
+        return _row_to_author(row)
+
+
+def update_author(author_id: int, name: str | None = None, email: str | None = None) -> Author:
+    """Update an author's name/email. kind is never editable."""
+    with get_connection() as conn:
+        existing = conn.execute("SELECT * FROM authors WHERE id = ?", (author_id,)).fetchone()
+        if not existing:
+            raise ValueError(f"Author {author_id} not found")
+
+        new_name = name if name is not None else existing["name"]
+        new_email = email if email is not None else existing["email"]
+
+        try:
+            conn.execute(
+                "UPDATE authors SET name = ?, email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (new_name, new_email, author_id),
+            )
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e):
+                raise ValueError(f'An author named "{new_name}" already exists') from e
+            raise
+
+        row = conn.execute("SELECT * FROM authors WHERE id = ?", (author_id,)).fetchone()
+        return _row_to_author(row)
+
+
+def delete_author(author_id: int) -> None:
+    """Delete an author. Raises ValueError if referenced by any reply/message
+    or if it's the current default for its kind."""
+    with get_connection() as conn:
+        author_row = conn.execute("SELECT * FROM authors WHERE id = ?", (author_id,)).fetchone()
+        if not author_row:
+            raise ValueError(f"Author {author_id} not found")
+        author = _row_to_author(author_row)
+
+        reply_count = conn.execute(
+            "SELECT COUNT(*) as count FROM comment_replies WHERE author_id = ?", (author_id,)
+        ).fetchone()["count"]
+        message_count = conn.execute(
+            "SELECT COUNT(*) as count FROM repo_conversation_messages WHERE author_id = ?",
+            (author_id,),
+        ).fetchone()["count"]
+        total_references = reply_count + message_count
+        if total_references > 0:
+            plural = "reply" if total_references == 1 else "replies"
+            raise ValueError(f'Cannot delete "{author.name}" - referenced by {total_references} {plural}')
+
+        default_key = "default_human_author_id" if author.kind == "human" else "default_agent_author_id"
+        current_default = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (default_key,)
+        ).fetchone()
+        if current_default and current_default["value"] == str(author_id):
+            raise ValueError(
+                f'Cannot delete "{author.name}" - it\'s the current default {author.kind}. '
+                "Set a different default first."
+            )
+
+        conn.execute("DELETE FROM authors WHERE id = ?", (author_id,))
+
+
+def set_default_author(author_id: int) -> None:
+    """Make this author the default for its kind."""
+    author = get_author_by_id(author_id)
+    if not author:
+        raise ValueError(f"Author {author_id} not found")
+    key = "default_human_author_id" if author.kind == "human" else "default_agent_author_id"
+    set_setting(key, str(author_id))

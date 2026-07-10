@@ -80,6 +80,16 @@ class CommentReply:
     created_at: Optional[datetime] = None
 
 
+@dataclass
+class Author:
+    id: int
+    kind: str  # "human" | "agent"
+    name: str
+    email: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class RepoConversationStatus(str, Enum):
     ACTIVE = "active"
     ORPHANED = "orphaned"
