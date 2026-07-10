@@ -6,6 +6,7 @@ import {
   getDefaultAgentAuthor,
   createAuthor,
 } from '@/lib/database';
+import { AuthorKind } from '@/lib/enum';
 import { getGitUserIdentity } from '@/lib/git';
 
 // GET /api/authors - List all authors, annotated with default status
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
     if (!name || typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
-    if (kind !== 'human' && kind !== 'agent') {
+    if (kind !== AuthorKind.Human && kind !== AuthorKind.Agent) {
       return NextResponse.json({ error: "kind must be 'human' or 'agent'" }, { status: 400 });
     }
 

@@ -7,6 +7,7 @@ import {
   commitChanges,
 } from '@/lib/claude';
 import { getRepoConversationWithMessages, addRepoConversationMessage } from '@/lib/database';
+import { AuthorKind } from '@/lib/enum';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
             });
 
             if (!result.error) {
-              addRepoConversationMessage(conversationUuid, result.response, 'claude');
+              addRepoConversationMessage(conversationUuid, result.response, AuthorKind.Agent);
 
               if (autoCommit && result.hasChanges) {
                 await commitChanges({
@@ -94,7 +95,11 @@ export async function POST(req: NextRequest) {
       }
 
       // Save Claude's response to the database
-      const messageUuid = addRepoConversationMessage(conversationUuid, result.response, 'claude');
+      const messageUuid = addRepoConversationMessage(
+        conversationUuid,
+        result.response,
+        AuthorKind.Agent,
+      );
 
       // Auto-commit if requested and there are changes
       let commitResult = null;

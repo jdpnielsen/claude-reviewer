@@ -232,13 +232,13 @@ git commit -m "feat: add get_global_git_user to read global git config"
 **Interfaces:**
 - Consumes: `getGitUserIdentity()` from Task 1.
 - Produces:
-  - `interface Author { id: number; kind: 'human' | 'agent'; name: string; email: string | null; created_at: string; updated_at: string; }`
+  - `interface Author { id: number; kind: AuthorKind; name: string; email: string | null; created_at: string; updated_at: string; }`
   - `getSetting(key: string): string | null`, `setSetting(key: string, value: string): void`
   - `listAuthors(): Author[]`
   - `getAuthorById(id: number): Author | null`
   - `getAuthorByName(name: string): Author | null`
   - `getDefaultHumanAuthor(): Author`, `getDefaultAgentAuthor(): Author`
-  - `createAuthor(kind: 'human' | 'agent', name: string, email?: string | null): Author`
+  - `createAuthor(kind: AuthorKind, name: string, email?: string | null): Author`
   - `updateAuthor(id: number, updates: { name?: string; email?: string | null }): Author`
   - `deleteAuthor(id: number): void`
   - `setDefaultAuthor(id: number): void`
@@ -382,7 +382,7 @@ Add the `Author` interface after the `CommentReply` interface (after line 60):
 ```ts
 export interface Author {
   id: number;
-  kind: 'human' | 'agent';
+  kind: AuthorKind;
   name: string;
   email: string | null;
   created_at: string;
@@ -580,7 +580,7 @@ export function getDefaultAgentAuthor(): Author {
   return author;
 }
 
-export function createAuthor(kind: 'human' | 'agent', name: string, email: string | null = null): Author {
+export function createAuthor(kind: AuthorKind, name: string, email: string | null = null): Author {
   const db = getDatabase();
   try {
     const result = db.prepare(
@@ -1150,7 +1150,7 @@ git commit -m "feat: add authors/settings schema, seeding, and CRUD (Python)"
 
 **Interfaces:**
 - Consumes: `getDefaultHumanAuthor()`, `getAuthorById()` from Task 3.
-- Produces: `CommentReply` interface gains `author_id: number` and `author_kind: 'human' | 'agent'`. `addReply(commentUuid: string, content: string): string` (no more `author` param). Consumed by Task 10 (API route) and Task 12 (frontend wiring).
+- Produces: `CommentReply` interface gains `author_id: number` and `author_kind: AuthorKind`. `addReply(commentUuid: string, content: string): string` (no more `author` param). Consumed by Task 10 (API route) and Task 12 (frontend wiring).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1218,7 +1218,7 @@ export interface CommentReply {
   comment_id: number;
   author_id: number;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -1550,7 +1550,7 @@ git commit -m "feat: rewire comment-reply write/read path onto authors table (Py
 
 **Interfaces:**
 - Consumes: `getDefaultHumanAuthor()`, `getDefaultAgentAuthor()` from Task 3.
-- Produces: `RepoConversationMessage` gains `author_id: number` and `author_kind: 'human' | 'agent'`. `createRepoConversation(repoPath, filePath, lineNumber, content, authorHint?: 'human' | 'claude', anchor?)` and `addRepoConversationMessage(conversationUuid, content, authorHint?: 'human' | 'claude')` - `authorHint` defaults to `'human'`. Consumed by Task 10 (API routes) and Task 13/14 (frontend wiring); `app/api/claude/route.ts` already passes the literal `'claude'` and needs no changes.
+- Produces: `RepoConversationMessage` gains `author_id: number` and `author_kind: AuthorKind`. `createRepoConversation(repoPath, filePath, lineNumber, content, authorHint?: 'human' | 'claude', anchor?)` and `addRepoConversationMessage(conversationUuid, content, authorHint?: 'human' | 'claude')` - `authorHint` defaults to `'human'`. Consumed by Task 10 (API routes) and Task 13/14 (frontend wiring); `app/api/claude/route.ts` already passes the literal `'claude'` and needs no changes.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1614,7 +1614,7 @@ export interface RepoConversationMessage {
   conversation_id: number;
   author_id: number;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -2300,7 +2300,7 @@ import { Trash2, Star, Pencil } from 'lucide-react';
 
 interface Author {
   id: number;
-  kind: 'human' | 'agent';
+  kind: AuthorKind;
   name: string;
   email: string | null;
   isDefaultHuman: boolean;
@@ -2323,7 +2323,7 @@ export default function SettingsPage() {
   const [editEmail, setEditEmail] = useState('');
 
   const [newName, setNewName] = useState('');
-  const [newKind, setNewKind] = useState<'human' | 'agent'>('human');
+  const [newKind, setNewKind] = useState<AuthorKind>('human');
   const [newEmail, setNewEmail] = useState('');
 
   const load = async () => {
@@ -2495,7 +2495,7 @@ export default function SettingsPage() {
 
         <div className="add-author-form">
           <input placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <select value={newKind} onChange={(e) => setNewKind(e.target.value as 'human' | 'agent')}>
+          <select value={newKind} onChange={(e) => setNewKind(e.target.value as AuthorKind)}>
             <option value="human">human</option>
             <option value="agent">agent</option>
           </select>
@@ -2550,7 +2550,7 @@ interface CommentReply {
   id: number;
   uuid: string;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -2702,7 +2702,7 @@ Update the local `ConversationMessage` interface (lines 27-32):
 interface ConversationMessage {
   uuid: string;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -2811,7 +2811,7 @@ git commit -m "fix: use the default human author for browse conversations, not '
 
 - [ ] **Step 1: Add author_kind to the local ConversationMessage interface**
 
-Find and update the local `ConversationMessage` interface (around line 20) the same way as Task 13's Step 1 - add `author_kind: 'human' | 'agent';` after `author: string;`.
+Find and update the local `ConversationMessage` interface (around line 20) the same way as Task 13's Step 1 - add `author_kind: AuthorKind;` after `author: string;`.
 
 - [ ] **Step 2: Stop hardcoding 'user' in addReply**
 

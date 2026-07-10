@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, getComments, submitReview, getReviews } from '@/lib/database';
+import { PullRequestStatus, ReviewAction } from '@/lib/enum';
 import { inferPreferences, appendToClaudeMd } from '@/lib/preferences';
 
 interface RouteParams {
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const body = await req.json();
     const { action, summary } = body;
 
-    if (!action || !['approve', 'request_changes'].includes(action)) {
+    if (!action || ![ReviewAction.Approve, ReviewAction.RequestChanges].includes(action)) {
       return NextResponse.json(
         { error: 'Invalid action. Must be "approve" or "request_changes"' },
         { status: 400 },
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     submitReview(id, action, summary);
 
     // If changes were requested, try to infer preferences from comments
-    if (action === 'request_changes') {
+    if (action === ReviewAction.RequestChanges) {
       const comments = getComments(id, { unresolvedOnly: true });
 
       if (comments.length > 0) {
@@ -66,7 +67,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const newStatus = action === 'approve' ? 'approved' : 'changes_requested';
+    const newStatus =
+      action === ReviewAction.Approve
+        ? PullRequestStatus.Approved
+        : PullRequestStatus.ChangesRequested;
 
     return NextResponse.json({
       success: true,

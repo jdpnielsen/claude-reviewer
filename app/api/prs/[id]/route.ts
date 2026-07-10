@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, getLatestDiff, updatePRStatus, getCommentsWithReplies } from '@/lib/database';
+import { ChangeType } from '@/lib/enum';
 import { listCommits, getCommitDiff } from '@/lib/git';
 
 interface RouteParams {
@@ -77,14 +78,14 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 function parseDiffFiles(diff: string): Array<{
   path: string;
   oldPath?: string;
-  changeType: 'added' | 'modified' | 'deleted' | 'renamed';
+  changeType: ChangeType;
   additions: number;
   deletions: number;
 }> {
   const files: Array<{
     path: string;
     oldPath?: string;
-    changeType: 'added' | 'modified' | 'deleted' | 'renamed';
+    changeType: ChangeType;
     additions: number;
     deletions: number;
   }> = [];
@@ -104,13 +105,13 @@ function parseDiffFiles(diff: string): Array<{
     const newPath = pathMatch[2];
 
     // Determine change type
-    let changeType: 'added' | 'modified' | 'deleted' | 'renamed' = 'modified';
+    let changeType: ChangeType = ChangeType.Modified;
     if (part.includes('new file mode')) {
-      changeType = 'added';
+      changeType = ChangeType.Added;
     } else if (part.includes('deleted file mode')) {
-      changeType = 'deleted';
+      changeType = ChangeType.Deleted;
     } else if (oldPath !== newPath) {
-      changeType = 'renamed';
+      changeType = ChangeType.Renamed;
     }
 
     // Count additions and deletions
@@ -126,7 +127,7 @@ function parseDiffFiles(diff: string): Array<{
 
     files.push({
       path: newPath,
-      oldPath: changeType === 'renamed' ? oldPath : undefined,
+      oldPath: changeType === ChangeType.Renamed ? oldPath : undefined,
       changeType,
       additions,
       deletions,

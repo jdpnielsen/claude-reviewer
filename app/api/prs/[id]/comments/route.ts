@@ -9,6 +9,7 @@ import {
   deleteComment,
   addReply,
 } from '@/lib/database';
+import { LineType } from '@/lib/enum';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const VALID_LINE_TYPES = ['old', 'new', 'context'];
+    const VALID_LINE_TYPES = Object.values(LineType);
     if (lineType !== undefined && !VALID_LINE_TYPES.includes(lineType)) {
       return NextResponse.json({ error: 'Invalid lineType' }, { status: 400 });
     }
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       filePath,
       lineNumber,
       content,
-      lineType || 'new',
+      lineType || LineType.New,
       endLineNumber,
       typeof commitSha === 'string' ? commitSha : null,
     );

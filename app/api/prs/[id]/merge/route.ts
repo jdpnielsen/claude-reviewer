@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, updatePRStatus } from '@/lib/database';
+import { PullRequestStatus } from '@/lib/enum';
 import { GitManager } from '@/lib/git';
 
 interface RouteParams {
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    if (pr.status !== 'approved') {
+    if (pr.status !== PullRequestStatus.Approved) {
       return NextResponse.json(
         { error: `PR is not approved (current status: ${pr.status})` },
         { status: 400 },
@@ -64,12 +65,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // Update PR status
-    updatePRStatus(id, 'merged');
+    updatePRStatus(id, PullRequestStatus.Merged);
 
     return NextResponse.json({
       success: true,
       message: results.join('. '),
-      status: 'merged',
+      status: PullRequestStatus.Merged,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

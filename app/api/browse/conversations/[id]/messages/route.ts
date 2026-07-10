@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getRepoConversationWithMessages, addRepoConversationMessage } from '@/lib/database';
+import { AuthorKind } from '@/lib/enum';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'content is required' }, { status: 400 });
     }
 
-    const messageUuid = addRepoConversationMessage(id, content, 'human');
+    const messageUuid = addRepoConversationMessage(id, content, AuthorKind.Human);
     return NextResponse.json({ uuid: messageUuid, success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
