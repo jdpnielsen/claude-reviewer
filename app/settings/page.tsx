@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Trash2, Star, Pencil } from 'lucide-react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface Author {
   id: number;
@@ -30,6 +31,7 @@ export default function SettingsPage() {
   const [newName, setNewName] = useState('');
   const [newKind, setNewKind] = useState<'human' | 'agent'>('human');
   const [newEmail, setNewEmail] = useState('');
+  const confirm = useConfirm();
 
   const load = async () => {
     setLoading(true);
