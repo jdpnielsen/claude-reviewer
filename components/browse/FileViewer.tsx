@@ -3,8 +3,8 @@
 import { AlertCircle, CheckCircle, File, Loader2, MessageSquare, Send } from 'lucide-react';
 import { Highlight, themes } from 'prism-react-renderer';
 
-import { getLanguage, githubDarkTheme } from '@/app/browse/utils';
 import type { Conversation, ConversationMessage } from '@/app/browse/types';
+import { getLanguage, githubDarkTheme } from '@/app/browse/utils';
 import { AuthorKind, ConversationStatus } from '@/lib/enum';
 
 interface FileViewerProps {

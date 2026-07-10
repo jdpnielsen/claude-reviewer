@@ -1,7 +1,7 @@
 'use client';
 
-import FileTree from '@/components/browse/FileTree';
 import type { TreeNode } from '@/app/browse/types';
+import FileTree from '@/components/browse/FileTree';
 
 interface BrowseSidebarProps {
   repoPath: string;

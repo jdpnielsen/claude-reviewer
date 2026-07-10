@@ -5,10 +5,10 @@ import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 
 import type { Conversation, ConversationMessage, ConversationWithMessages } from './types';
-import { useConfirm } from '@/components/ConfirmDialog';
 import ConversationGroups from '@/components/browse/ConversationGroups';
 import ConversationsHeader from '@/components/browse/ConversationsHeader';
 import RepoPathPicker from '@/components/browse/RepoPathPicker';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { ConversationStatus } from '@/lib/enum';
 import { getRecentRepos, saveRecentRepo } from '@/lib/recent-repos';
 

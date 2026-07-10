@@ -2,8 +2,8 @@
 
 import { File } from 'lucide-react';
 
-import ConversationItem from '@/components/browse/ConversationItem';
 import type { Conversation, ConversationMessage } from '@/app/browse/conversations/types';
+import ConversationItem from '@/components/browse/ConversationItem';
 
 interface ConversationGroupsProps {
   groupedConversations: Record<string, Conversation[]>;

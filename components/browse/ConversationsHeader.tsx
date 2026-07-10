@@ -34,7 +34,9 @@ export default function ConversationsHeader({
             onClick={() => onFilterChange(f)}
           >
             {f.charAt(0).toUpperCase() + f.slice(1)}
-            {f === 'all' && conversationsCount > 0 && <span className="count">{conversationsCount}</span>}
+            {f === 'all' && conversationsCount > 0 && (
+              <span className="count">{conversationsCount}</span>
+            )}
           </button>
         ))}
       </div>
