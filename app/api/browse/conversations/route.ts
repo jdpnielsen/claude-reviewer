@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import fs from 'fs';
+import { NextRequest, NextResponse } from 'next/server';
+
 import {
   createRepoConversation,
   listRepoConversations,
   updateRepoConversationStatus,
-  deleteRepoConversation
+  deleteRepoConversation,
 } from '@/lib/database';
 
 // GET /api/browse/conversations - List conversations
@@ -14,7 +15,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const repoPath = searchParams.get('repo');
     const filePath = searchParams.get('file') || undefined;
-    const status = (searchParams.get('status') || 'all') as 'active' | 'orphaned' | 'resolved' | 'all';
+    const status = (searchParams.get('status') || 'all') as
+      | 'active'
+      | 'orphaned'
+      | 'resolved'
+      | 'all';
     const limit = parseInt(searchParams.get('limit') || '100', 10);
 
     if (!repoPath) {
@@ -25,7 +30,7 @@ export async function GET(req: NextRequest) {
       repoPath,
       filePath,
       status,
-      limit
+      limit,
     });
 
     return NextResponse.json({ conversations });
@@ -44,17 +49,19 @@ export async function POST(req: NextRequest) {
     if (!repo || !filePath || lineNumber === undefined || !content) {
       return NextResponse.json(
         { error: 'repo, filePath, lineNumber, and content are required' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Get anchor context (3 lines before and after)
-    let anchor: {
-      content: string;
-      contextBefore: string;
-      contextAfter: string;
-      commit: string;
-    } | undefined;
+    let anchor:
+      | {
+          content: string;
+          contextBefore: string;
+          contextAfter: string;
+          commit: string;
+        }
+      | undefined;
 
     try {
       // Read file content
@@ -65,7 +72,7 @@ export async function POST(req: NextRequest) {
         fileContent = execSync(`git show HEAD:${filePath}`, {
           cwd: repo,
           encoding: 'utf-8',
-          maxBuffer: 10 * 1024 * 1024
+          maxBuffer: 10 * 1024 * 1024,
         });
       } catch {
         // Fallback to filesystem
@@ -89,7 +96,7 @@ export async function POST(req: NextRequest) {
           try {
             commit = execSync('git rev-parse HEAD', {
               cwd: repo,
-              encoding: 'utf-8'
+              encoding: 'utf-8',
             }).trim();
           } catch {
             // Ignore
@@ -99,7 +106,7 @@ export async function POST(req: NextRequest) {
             content: anchorContent,
             contextBefore,
             contextAfter,
-            commit
+            commit,
           };
         }
       }
@@ -107,14 +114,7 @@ export async function POST(req: NextRequest) {
       // Continue without anchor if we can't read the file
     }
 
-    const uuid = createRepoConversation(
-      repo,
-      filePath,
-      lineNumber,
-      content,
-      'human',
-      anchor
-    );
+    const uuid = createRepoConversation(repo, filePath, lineNumber, content, 'human', anchor);
 
     return NextResponse.json({ uuid, success: true });
   } catch (error: unknown) {

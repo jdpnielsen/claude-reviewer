@@ -1,7 +1,7 @@
-import { spawn, ChildProcess } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
+import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // Global test state
 declare global {
@@ -11,8 +11,8 @@ declare global {
 }
 
 // Create a temp directory for the test database
-const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-reviewer-e2e-"));
-const testDbPath = path.join(testDbDir, "test.db");
+const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-e2e-'));
+const testDbPath = path.join(testDbDir, 'test.db');
 
 // Set environment variables for tests
 process.env.DATABASE_DIR = testDbDir;
@@ -41,10 +41,10 @@ async function waitForServer(url: string, timeout = 30000): Promise<void> {
 
 beforeAll(async () => {
   // Start the Next.js server
-  console.log("Starting Next.js server...");
-  global.__SERVER__ = spawn("npm", ["run", "dev", "--", "-p", PORT.toString()], {
+  console.log('Starting Next.js server...');
+  global.__SERVER__ = spawn('npm', ['run', 'dev', '--', '-p', PORT.toString()], {
     cwd: process.cwd(),
-    stdio: "pipe",
+    stdio: 'pipe',
     detached: true,
     env: {
       ...process.env,
@@ -53,13 +53,13 @@ beforeAll(async () => {
     },
   });
 
-  global.__SERVER__.stdout?.on("data", (data) => {
+  global.__SERVER__.stdout?.on('data', (data) => {
     if (process.env.DEBUG) {
       console.log(`[server] ${data.toString()}`);
     }
   });
 
-  global.__SERVER__.stderr?.on("data", (data) => {
+  global.__SERVER__.stderr?.on('data', (data) => {
     if (process.env.DEBUG) {
       console.error(`[server] ${data.toString()}`);
     }
@@ -67,7 +67,7 @@ beforeAll(async () => {
 
   // Wait for server to be ready
   await waitForServer(global.__BASE_URL__);
-  console.log("Server ready");
+  console.log('Server ready');
 }, 60000);
 
 // npm run dev spawns next dev, which spawns next-server (and Turbopack
@@ -77,20 +77,20 @@ beforeAll(async () => {
 // id, so killing -pid kills the whole tree.
 function killServerGroup(server: ChildProcess) {
   if (!server.pid) {
-    server.kill("SIGKILL");
+    server.kill('SIGKILL');
     return;
   }
   try {
-    process.kill(-server.pid, "SIGKILL");
+    process.kill(-server.pid, 'SIGKILL');
   } catch {
-    server.kill("SIGKILL");
+    server.kill('SIGKILL');
   }
 }
 
 afterAll(async () => {
   // Stop the server
   if (global.__SERVER__) {
-    console.log("Stopping server...");
+    console.log('Stopping server...');
     killServerGroup(global.__SERVER__);
 
     // Wait for process to exit
@@ -103,7 +103,7 @@ afterAll(async () => {
       }, 3000);
 
       if (global.__SERVER__) {
-        global.__SERVER__.on("exit", () => {
+        global.__SERVER__.on('exit', () => {
           clearTimeout(timeout);
           resolve();
         });

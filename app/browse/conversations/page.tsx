@@ -1,8 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useConfirm } from '@/components/ConfirmDialog';
 import {
   MessageSquare,
   File,
@@ -14,8 +11,12 @@ import {
   Trash2,
   Bot,
   Loader2,
-  GitCommit
+  GitCommit,
 } from 'lucide-react';
+import Link from 'next/link';
+import { useState, useEffect } from 'react';
+
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface ConversationMessage {
   uuid: string;
@@ -61,7 +62,7 @@ function getRecentRepos(): string[] {
 function saveRecentRepo(path: string): void {
   if (typeof window === 'undefined') return;
   try {
-    const recent = getRecentRepos().filter(p => p !== path);
+    const recent = getRecentRepos().filter((p) => p !== path);
     recent.unshift(path);
     localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT_REPOS)));
   } catch {
@@ -78,7 +79,9 @@ export default function ConversationsListPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'orphaned' | 'resolved'>('all');
   const [expandedConversation, setExpandedConversation] = useState<string | null>(null);
-  const [conversationMessages, setConversationMessages] = useState<Record<string, ConversationMessage[]>>({});
+  const [conversationMessages, setConversationMessages] = useState<
+    Record<string, ConversationMessage[]>
+  >({});
   const [replyContent, setReplyContent] = useState('');
   const [claudeResponding, setClaudeResponding] = useState<string | null>(null);
   const [claudeError, setClaudeError] = useState<string | null>(null);
@@ -109,11 +112,14 @@ export default function ConversationsListPage() {
         if (res.ok) {
           const data = await res.json();
           // Transform nested API response to flat conversation objects
-          const flatConversations = (data.conversations || []).map((item: ConversationWithMessages & { message_count?: number }) => ({
-            ...item.conversation,
-            message_count: item.message_count || item.messages?.length || 0,
-            latest_message: item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null
-          }));
+          const flatConversations = (data.conversations || []).map(
+            (item: ConversationWithMessages & { message_count?: number }) => ({
+              ...item.conversation,
+              message_count: item.message_count || item.messages?.length || 0,
+              latest_message:
+                item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null,
+            }),
+          );
           setConversations(flatConversations);
         }
 
@@ -122,9 +128,9 @@ export default function ConversationsListPage() {
           const msgRes = await fetch(`/api/browse/conversations/${expandedConversation}/messages`);
           if (msgRes.ok) {
             const msgData = await msgRes.json();
-            setConversationMessages(prev => ({
+            setConversationMessages((prev) => ({
               ...prev,
-              [expandedConversation]: msgData.messages
+              [expandedConversation]: msgData.messages,
             }));
           }
         }
@@ -149,11 +155,14 @@ export default function ConversationsListPage() {
       if (!res.ok) throw new Error('Failed to load conversations');
       const data = await res.json();
       // Transform nested API response to flat conversation objects
-      const flatConversations = (data.conversations || []).map((item: ConversationWithMessages & { message_count?: number }) => ({
-        ...item.conversation,
-        message_count: item.message_count || item.messages?.length || 0,
-        latest_message: item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null
-      }));
+      const flatConversations = (data.conversations || []).map(
+        (item: ConversationWithMessages & { message_count?: number }) => ({
+          ...item.conversation,
+          message_count: item.message_count || item.messages?.length || 0,
+          latest_message:
+            item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null,
+        }),
+      );
       setConversations(flatConversations);
       setError(null);
     } catch (e) {
@@ -168,9 +177,9 @@ export default function ConversationsListPage() {
       const res = await fetch(`/api/browse/conversations/${uuid}/messages`);
       if (!res.ok) throw new Error('Failed to load conversation');
       const data: ConversationWithMessages = await res.json();
-      setConversationMessages(prev => ({
+      setConversationMessages((prev) => ({
         ...prev,
-        [uuid]: data.messages
+        [uuid]: data.messages,
       }));
     } catch (e) {
       console.error('Error loading conversation:', e);
@@ -192,7 +201,7 @@ export default function ConversationsListPage() {
       const res = await fetch('/api/browse/conversations', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, status: 'resolved' })
+        body: JSON.stringify({ uuid, status: 'resolved' }),
       });
       if (!res.ok) throw new Error('Failed to resolve conversation');
       await loadConversations();
@@ -202,11 +211,12 @@ export default function ConversationsListPage() {
   };
 
   const deleteConversation = async (uuid: string) => {
-    if (!(await confirm('Are you sure you want to delete this conversation?', { danger: true }))) return;
+    if (!(await confirm('Are you sure you want to delete this conversation?', { danger: true })))
+      return;
 
     try {
       const res = await fetch(`/api/browse/conversations?uuid=${uuid}`, {
-        method: 'DELETE'
+        method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete conversation');
       await loadConversations();
@@ -228,8 +238,8 @@ export default function ConversationsListPage() {
           conversationUuid,
           allowEdits: true,
           autoCommit,
-          push: false
-        })
+          push: false,
+        }),
       });
 
       const data = await res.json();
@@ -243,7 +253,9 @@ export default function ConversationsListPage() {
 
       // Show commit info if changes were made
       if (data.hasChanges && !autoCommit) {
-        setClaudeError(`Claude made changes. Use "Respond & Commit" to auto-commit, or commit manually.`);
+        setClaudeError(
+          `Claude made changes. Use "Respond & Commit" to auto-commit, or commit manually.`,
+        );
       } else if (data.commit?.success) {
         setClaudeError(`Changes committed: ${data.commit.commitHash?.slice(0, 7)}`);
       }
@@ -263,8 +275,8 @@ export default function ConversationsListPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: replyContent
-        })
+          content: replyContent,
+        }),
       });
 
       if (!res.ok) throw new Error('Failed to add reply');
@@ -309,18 +321,21 @@ export default function ConversationsListPage() {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
-  const groupedConversations = conversations.reduce((acc, conv) => {
-    const filePath = conv.file_path;
-    if (!acc[filePath]) {
-      acc[filePath] = [];
-    }
-    acc[filePath].push(conv);
-    return acc;
-  }, {} as Record<string, Conversation[]>);
+  const groupedConversations = conversations.reduce(
+    (acc, conv) => {
+      const filePath = conv.file_path;
+      if (!acc[filePath]) {
+        acc[filePath] = [];
+      }
+      acc[filePath].push(conv);
+      return acc;
+    },
+    {} as Record<string, Conversation[]>,
+  );
 
   return (
     <main className="container conversations-list-page">
@@ -377,7 +392,7 @@ export default function ConversationsListPage() {
               </button>
             </div>
             <div className="filter-tabs">
-              {(['all', 'active', 'orphaned', 'resolved'] as const).map(f => (
+              {(['all', 'active', 'orphaned', 'resolved'] as const).map((f) => (
                 <button
                   key={f}
                   className={`filter-tab ${filter === f ? 'active' : ''}`}
@@ -412,11 +427,16 @@ export default function ConversationsListPage() {
                   <div className="file-group-header">
                     <File size={14} />
                     <span className="file-path">{filePath}</span>
-                    <span className="conv-count">{convs.length} conversation{convs.length !== 1 ? 's' : ''}</span>
+                    <span className="conv-count">
+                      {convs.length} conversation{convs.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
                   <div className="file-conversations">
                     {convs.map((conv, idx) => (
-                      <div key={`${conv.uuid}-${idx}`} className={`conversation-item ${conv.status} ${expandedConversation === conv.uuid ? 'expanded' : ''}`}>
+                      <div
+                        key={`${conv.uuid}-${idx}`}
+                        className={`conversation-item ${conv.status} ${expandedConversation === conv.uuid ? 'expanded' : ''}`}
+                      >
                         <div
                           className="conversation-summary"
                           onClick={() => toggleConversation(conv.uuid)}
@@ -431,11 +451,10 @@ export default function ConversationsListPage() {
                             <span className="line-number">
                               Line {conv.current_line_number || conv.line_number}
                             </span>
-                            {conv.current_line_number && conv.current_line_number !== conv.line_number && (
-                              <span className="line-moved">
-                                (was {conv.line_number})
-                              </span>
-                            )}
+                            {conv.current_line_number &&
+                              conv.current_line_number !== conv.line_number && (
+                                <span className="line-moved">(was {conv.line_number})</span>
+                              )}
                           </div>
                           <div className="summary-right">
                             <span className="message-count">
@@ -455,7 +474,7 @@ export default function ConversationsListPage() {
 
                         {expandedConversation === conv.uuid && conversationMessages[conv.uuid] && (
                           <div className="conversation-messages">
-                            {conversationMessages[conv.uuid].map(msg => (
+                            {conversationMessages[conv.uuid].map((msg) => (
                               <div
                                 key={msg.uuid}
                                 className={`message ${msg.author_kind === 'agent' ? 'message-claude' : 'message-user'}`}
@@ -491,9 +510,7 @@ export default function ConversationsListPage() {
                               </div>
                             )}
                             {claudeError && expandedConversation === conv.uuid && (
-                              <div className="claude-status-message">
-                                {claudeError}
-                              </div>
+                              <div className="claude-status-message">{claudeError}</div>
                             )}
                             <div className="conversation-actions">
                               {conv.status !== 'resolved' && conv.file_exists && (

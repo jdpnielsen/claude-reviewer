@@ -1,7 +1,8 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import os from 'os';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import Database from 'better-sqlite3';
+
 import { getGitUserIdentity } from './git';
 
 // Types
@@ -320,9 +321,9 @@ function initSchema(db: Database.Database): void {
 // drop and let the CREATE TABLE IF NOT EXISTS block below recreate both
 // tables in the new author_id-based shape.
 function rebuildReplyTablesIfPreAuthors(db: Database.Database): void {
-  const authorsExists = db.prepare(
-    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'authors'`
-  ).get();
+  const authorsExists = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'authors'`)
+    .get();
   if (!authorsExists) {
     db.exec('DROP TABLE IF EXISTS comment_replies');
     db.exec('DROP TABLE IF EXISTS repo_conversation_messages');
@@ -334,29 +335,41 @@ function rebuildReplyTablesIfPreAuthors(db: Database.Database): void {
 // it only inserts rows/pointers that don't exist yet - safe to call on every
 // getDatabase() reconnect.
 function seedAuthors(db: Database.Database): void {
-  let agent = db.prepare(`SELECT id FROM authors WHERE kind = 'agent'`).get() as { id: number } | undefined;
+  let agent = db.prepare(`SELECT id FROM authors WHERE kind = 'agent'`).get() as
+    | { id: number }
+    | undefined;
   if (!agent) {
     const result = db.prepare(`INSERT INTO authors (kind, name) VALUES ('agent', 'claude')`).run();
     agent = { id: result.lastInsertRowid as number };
   }
 
-  let human = db.prepare(`SELECT id FROM authors WHERE kind = 'human'`).get() as { id: number } | undefined;
+  let human = db.prepare(`SELECT id FROM authors WHERE kind = 'human'`).get() as
+    | { id: number }
+    | undefined;
   if (!human) {
     const identity = getGitUserIdentity();
-    const result = db.prepare(
-      `INSERT INTO authors (kind, name, email) VALUES ('human', ?, ?)`
-    ).run(identity.name || 'reviewer', identity.email);
+    const result = db
+      .prepare(`INSERT INTO authors (kind, name, email) VALUES ('human', ?, ?)`)
+      .run(identity.name || 'reviewer', identity.email);
     human = { id: result.lastInsertRowid as number };
   }
 
-  const hasDefaultAgent = db.prepare(`SELECT 1 FROM settings WHERE key = 'default_agent_author_id'`).get();
+  const hasDefaultAgent = db
+    .prepare(`SELECT 1 FROM settings WHERE key = 'default_agent_author_id'`)
+    .get();
   if (!hasDefaultAgent) {
-    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_agent_author_id', ?)`).run(String(agent.id));
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_agent_author_id', ?)`).run(
+      String(agent.id),
+    );
   }
 
-  const hasDefaultHuman = db.prepare(`SELECT 1 FROM settings WHERE key = 'default_human_author_id'`).get();
+  const hasDefaultHuman = db
+    .prepare(`SELECT 1 FROM settings WHERE key = 'default_human_author_id'`)
+    .get();
   if (!hasDefaultHuman) {
-    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_human_author_id', ?)`).run(String(human.id));
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_human_author_id', ?)`).run(
+      String(human.id),
+    );
   }
 }
 
@@ -412,7 +425,7 @@ export function createPR(
   baseCommit: string,
   headCommit: string,
   diff: string,
-  description: string = ''
+  description: string = '',
 ): string {
   const db = getDatabase();
   const uuid = generateUuid();
@@ -429,7 +442,16 @@ export function createPR(
   `);
 
   const transaction = db.transaction(() => {
-    const result = insertPR.run(uuid, repoPath, title, description, baseRef, headRef, baseCommit, headCommit);
+    const result = insertPR.run(
+      uuid,
+      repoPath,
+      title,
+      description,
+      baseRef,
+      headRef,
+      baseCommit,
+      headCommit,
+    );
     insertDiff.run(result.lastInsertRowid, diff, headCommit);
   });
 
@@ -450,11 +472,13 @@ export function getPRById(id: number): PullRequest | null {
   return row as PullRequest | null;
 }
 
-export function listPRs(options: {
-  repoPath?: string;
-  status?: string;
-  limit?: number;
-} = {}): PullRequest[] {
+export function listPRs(
+  options: {
+    repoPath?: string;
+    status?: string;
+    limit?: number;
+  } = {},
+): PullRequest[] {
   const db = getDatabase();
   const { repoPath, status, limit = 50 } = options;
 
@@ -479,24 +503,30 @@ export function listPRs(options: {
 
 export function updatePRStatus(uuid: string, status: PullRequest['status']): boolean {
   const db = getDatabase();
-  const result = db.prepare(`
+  const result = db
+    .prepare(`
     UPDATE pull_requests
     SET status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE uuid = ?
-  `).run(status, uuid);
+  `)
+    .run(status, uuid);
   checkpoint();
   return result.changes > 0;
 }
 
 export function getLatestDiff(uuid: string): string | null {
   const db = getDatabase();
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as { id: number } | undefined;
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as
+    | { id: number }
+    | undefined;
   if (!pr) return null;
 
-  const row = db.prepare(`
+  const row = db
+    .prepare(`
     SELECT diff_content FROM diff_snapshots
     WHERE pr_id = ? ORDER BY revision DESC LIMIT 1
-  `).get(pr.id) as { diff_content: string } | undefined;
+  `)
+    .get(pr.id) as { diff_content: string } | undefined;
 
   return row?.diff_content || null;
 }
@@ -504,12 +534,14 @@ export function getLatestDiff(uuid: string): string | null {
 export function updatePRDiff(uuid: string, diff: string, headCommit: string): number {
   const db = getDatabase();
 
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as { id: number } | undefined;
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as
+    | { id: number }
+    | undefined;
   if (!pr) throw new Error(`PR ${uuid} not found`);
 
-  const maxRev = db.prepare(
-    'SELECT MAX(revision) as max_rev FROM diff_snapshots WHERE pr_id = ?'
-  ).get(pr.id) as { max_rev: number | null };
+  const maxRev = db
+    .prepare('SELECT MAX(revision) as max_rev FROM diff_snapshots WHERE pr_id = ?')
+    .get(pr.id) as { max_rev: number | null };
 
   const newRevision = (maxRev?.max_rev || 0) + 1;
 
@@ -542,12 +574,14 @@ export function addComment(
   content: string,
   lineType: 'old' | 'new' | 'context' = 'new',
   endLineNumber: number = lineNumber,
-  commitSha: string | null = null
+  commitSha: string | null = null,
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
 
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as { id: number } | undefined;
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
   if (!pr) throw new Error(`PR ${prUuid} not found`);
 
   const transaction = db.transaction(() => {
@@ -556,9 +590,7 @@ export function addComment(
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(commentUuid, pr.id, filePath, lineNumber, endLineNumber, commitSha, lineType, content);
 
-    db.prepare(
-      'UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(pr.id);
+    db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);
   });
 
   transaction();
@@ -568,12 +600,14 @@ export function addComment(
 
 export function getComments(
   prUuid: string,
-  options: { unresolvedOnly?: boolean; filePath?: string } = {}
+  options: { unresolvedOnly?: boolean; filePath?: string } = {},
 ): Comment[] {
   const db = getDatabase();
   const { unresolvedOnly, filePath } = options;
 
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as { id: number } | undefined;
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
   if (!pr) return [];
 
   let query = 'SELECT * FROM comments WHERE pr_id = ?';
@@ -595,14 +629,18 @@ export function getComments(
 
 export function resolveComment(commentUuid: string, resolved: boolean = true): boolean {
   const db = getDatabase();
-  const result = db.prepare('UPDATE comments SET resolved = ? WHERE uuid = ?').run(resolved ? 1 : 0, commentUuid);
+  const result = db
+    .prepare('UPDATE comments SET resolved = ? WHERE uuid = ?')
+    .run(resolved ? 1 : 0, commentUuid);
   checkpoint();
   return result.changes > 0;
 }
 
 export function updateCommentContent(commentUuid: string, content: string): boolean {
   const db = getDatabase();
-  const result = db.prepare('UPDATE comments SET content = ? WHERE uuid = ?').run(content, commentUuid);
+  const result = db
+    .prepare('UPDATE comments SET content = ? WHERE uuid = ?')
+    .run(content, commentUuid);
   checkpoint();
   return result.changes > 0;
 }
@@ -621,11 +659,13 @@ export function deleteComment(commentUuid: string): boolean {
 export function submitReview(
   prUuid: string,
   action: 'approve' | 'request_changes',
-  summary?: string
+  summary?: string,
 ): boolean {
   const db = getDatabase();
 
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as { id: number } | undefined;
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
   if (!pr) throw new Error(`PR ${prUuid} not found`);
 
   const newStatus = action === 'approve' ? 'approved' : 'changes_requested';
@@ -651,12 +691,16 @@ export function submitReview(
 export function getReviews(prUuid: string): Review[] {
   const db = getDatabase();
 
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as { id: number } | undefined;
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
   if (!pr) return [];
 
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT * FROM reviews WHERE pr_id = ? ORDER BY created_at DESC
-  `).all(pr.id) as Review[];
+  `)
+    .all(pr.id) as Review[];
 }
 
 // =============================================================================
@@ -668,7 +712,9 @@ export function addReply(commentUuid: string, content: string): string {
   const replyUuid = generateUuid();
   const authorId = getDefaultHumanAuthor().id;
 
-  const comment = db.prepare('SELECT id, pr_id FROM comments WHERE uuid = ?').get(commentUuid) as { id: number; pr_id: number } | undefined;
+  const comment = db.prepare('SELECT id, pr_id FROM comments WHERE uuid = ?').get(commentUuid) as
+    | { id: number; pr_id: number }
+    | undefined;
   if (!comment) throw new Error(`Comment ${commentUuid} not found`);
 
   const transaction = db.transaction(() => {
@@ -677,9 +723,9 @@ export function addReply(commentUuid: string, content: string): string {
       VALUES (?, ?, ?, ?)
     `).run(replyUuid, comment.id, authorId, content);
 
-    db.prepare(
-      'UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(comment.pr_id);
+    db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
+      comment.pr_id,
+    );
   });
 
   transaction();
@@ -690,16 +736,20 @@ export function addReply(commentUuid: string, content: string): string {
 export function getReplies(commentUuid: string): CommentReply[] {
   const db = getDatabase();
 
-  const comment = db.prepare('SELECT id FROM comments WHERE uuid = ?').get(commentUuid) as { id: number } | undefined;
+  const comment = db.prepare('SELECT id FROM comments WHERE uuid = ?').get(commentUuid) as
+    | { id: number }
+    | undefined;
   if (!comment) return [];
 
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT cr.id, cr.uuid, cr.comment_id, cr.author_id, a.name AS author, a.kind AS author_kind, cr.content, cr.created_at
     FROM comment_replies cr
     JOIN authors a ON a.id = cr.author_id
     WHERE cr.comment_id = ?
     ORDER BY cr.created_at
-  `).all(comment.id) as CommentReply[];
+  `)
+    .all(comment.id) as CommentReply[];
 }
 
 export function getCommentByUuid(commentUuid: string): Comment | null {
@@ -708,11 +758,14 @@ export function getCommentByUuid(commentUuid: string): Comment | null {
   return row as Comment | null;
 }
 
-export function getCommentsWithReplies(prUuid: string, unresolvedOnly: boolean = false): Array<{ comment: Comment; replies: CommentReply[] }> {
+export function getCommentsWithReplies(
+  prUuid: string,
+  unresolvedOnly: boolean = false,
+): Array<{ comment: Comment; replies: CommentReply[] }> {
   const comments = getComments(prUuid, { unresolvedOnly });
-  return comments.map(comment => ({
+  return comments.map((comment) => ({
     comment,
-    replies: getReplies(comment.uuid)
+    replies: getReplies(comment.uuid),
   }));
 }
 
@@ -731,7 +784,7 @@ export function createRepoConversation(
     contextBefore: string;
     contextAfter: string;
     commit: string;
-  }
+  },
 ): string {
   const db = getDatabase();
   const conversationUuid = generateUuid();
@@ -753,11 +806,13 @@ export function createRepoConversation(
       anchor?.contextBefore || null,
       anchor?.contextAfter || null,
       anchor?.commit || null,
-      lineNumber
+      lineNumber,
     );
 
     // Get the conversation id
-    const conv = db.prepare('SELECT id FROM repo_conversations WHERE uuid = ?').get(conversationUuid) as { id: number };
+    const conv = db
+      .prepare('SELECT id FROM repo_conversations WHERE uuid = ?')
+      .get(conversationUuid) as { id: number };
 
     // Create first message
     db.prepare(`
@@ -777,12 +832,14 @@ export function getRepoConversation(uuid: string): RepoConversation | null {
   return row as RepoConversation | null;
 }
 
-export function listRepoConversations(options: {
-  repoPath: string;
-  filePath?: string;
-  status?: 'active' | 'orphaned' | 'resolved' | 'all';
-  limit?: number;
-} = { repoPath: '' }): RepoConversationWithMessages[] {
+export function listRepoConversations(
+  options: {
+    repoPath: string;
+    filePath?: string;
+    status?: 'active' | 'orphaned' | 'resolved' | 'all';
+    limit?: number;
+  } = { repoPath: '' },
+): RepoConversationWithMessages[] {
   const db = getDatabase();
   const { repoPath, filePath, status = 'all', limit = 100 } = options;
 
@@ -804,53 +861,61 @@ export function listRepoConversations(options: {
 
   const conversations = db.prepare(query).all(...params) as RepoConversation[];
 
-  return conversations.map(conv => {
-    const messages = db.prepare(`
+  return conversations.map((conv) => {
+    const messages = db
+      .prepare(`
       SELECT rcm.id, rcm.uuid, rcm.conversation_id, rcm.author_id, a.name AS author, a.kind AS author_kind, rcm.content, rcm.created_at
       FROM repo_conversation_messages rcm
       JOIN authors a ON a.id = rcm.author_id
       WHERE rcm.conversation_id = ?
       ORDER BY rcm.created_at ASC
-    `).all(conv.id) as RepoConversationMessage[];
+    `)
+      .all(conv.id) as RepoConversationMessage[];
 
     return {
       conversation: conv,
       messages,
-      message_count: messages.length
+      message_count: messages.length,
     };
   });
 }
 
 export function getRepoConversationWithMessages(uuid: string): RepoConversationWithMessages | null {
   const db = getDatabase();
-  const conv = db.prepare('SELECT * FROM repo_conversations WHERE uuid = ?').get(uuid) as RepoConversation | undefined;
+  const conv = db.prepare('SELECT * FROM repo_conversations WHERE uuid = ?').get(uuid) as
+    | RepoConversation
+    | undefined;
   if (!conv) return null;
 
-  const messages = db.prepare(`
+  const messages = db
+    .prepare(`
     SELECT rcm.id, rcm.uuid, rcm.conversation_id, rcm.author_id, a.name AS author, a.kind AS author_kind, rcm.content, rcm.created_at
     FROM repo_conversation_messages rcm
     JOIN authors a ON a.id = rcm.author_id
     WHERE rcm.conversation_id = ?
     ORDER BY rcm.created_at ASC
-  `).all(conv.id) as RepoConversationMessage[];
+  `)
+    .all(conv.id) as RepoConversationMessage[];
 
   return {
     conversation: conv,
     messages,
-    message_count: messages.length
+    message_count: messages.length,
   };
 }
 
 export function addRepoConversationMessage(
   conversationUuid: string,
   content: string,
-  authorHint: 'human' | 'claude' = 'human'
+  authorHint: 'human' | 'claude' = 'human',
 ): string {
   const db = getDatabase();
   const messageUuid = generateUuid();
   const authorId = (authorHint === 'claude' ? getDefaultAgentAuthor() : getDefaultHumanAuthor()).id;
 
-  const conv = db.prepare('SELECT id FROM repo_conversations WHERE uuid = ?').get(conversationUuid) as { id: number } | undefined;
+  const conv = db
+    .prepare('SELECT id FROM repo_conversations WHERE uuid = ?')
+    .get(conversationUuid) as { id: number } | undefined;
   if (!conv) throw new Error(`Conversation ${conversationUuid} not found`);
 
   const transaction = db.transaction(() => {
@@ -871,14 +936,16 @@ export function addRepoConversationMessage(
 
 export function updateRepoConversationStatus(
   uuid: string,
-  status: 'active' | 'orphaned' | 'resolved'
+  status: 'active' | 'orphaned' | 'resolved',
 ): boolean {
   const db = getDatabase();
-  const result = db.prepare(`
+  const result = db
+    .prepare(`
     UPDATE repo_conversations
     SET status = ?, updated_at = CURRENT_TIMESTAMP
     WHERE uuid = ?
-  `).run(status, uuid);
+  `)
+    .run(status, uuid);
   checkpoint();
   return result.changes > 0;
 }
@@ -886,26 +953,30 @@ export function updateRepoConversationStatus(
 export function updateRepoConversationAnchor(
   uuid: string,
   currentLineNumber: number | null,
-  fileExists: boolean = true
+  fileExists: boolean = true,
 ): boolean {
   const db = getDatabase();
-  const result = db.prepare(`
+  const result = db
+    .prepare(`
     UPDATE repo_conversations
     SET current_line_number = ?, file_exists = ?, updated_at = CURRENT_TIMESTAMP
     WHERE uuid = ?
-  `).run(currentLineNumber, fileExists ? 1 : 0, uuid);
+  `)
+    .run(currentLineNumber, fileExists ? 1 : 0, uuid);
   checkpoint();
   return result.changes > 0;
 }
 
 export function getConversationCountsByFile(repoPath: string): Record<string, number> {
   const db = getDatabase();
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(`
     SELECT file_path, COUNT(*) as count
     FROM repo_conversations
     WHERE repo_path = ? AND status != 'resolved'
     GROUP BY file_path
-  `).all(repoPath) as Array<{ file_path: string; count: number }>;
+  `)
+    .all(repoPath) as Array<{ file_path: string; count: number }>;
 
   const counts: Record<string, number> = {};
   for (const row of rows) {
@@ -927,7 +998,9 @@ export function deleteRepoConversation(uuid: string): boolean {
 
 export function getSetting(key: string): string | null {
   const db = getDatabase();
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
   return row?.value ?? null;
 }
 
@@ -971,12 +1044,16 @@ export function getDefaultAgentAuthor(): Author {
   return author;
 }
 
-export function createAuthor(kind: 'human' | 'agent', name: string, email: string | null = null): Author {
+export function createAuthor(
+  kind: 'human' | 'agent',
+  name: string,
+  email: string | null = null,
+): Author {
   const db = getDatabase();
   try {
-    const result = db.prepare(
-      'INSERT INTO authors (kind, name, email) VALUES (?, ?, ?)'
-    ).run(kind, name, email);
+    const result = db
+      .prepare('INSERT INTO authors (kind, name, email) VALUES (?, ?, ?)')
+      .run(kind, name, email);
     checkpoint();
     return getAuthorById(result.lastInsertRowid as number)!;
   } catch (e) {
@@ -987,7 +1064,10 @@ export function createAuthor(kind: 'human' | 'agent', name: string, email: strin
   }
 }
 
-export function updateAuthor(id: number, updates: { name?: string; email?: string | null }): Author {
+export function updateAuthor(
+  id: number,
+  updates: { name?: string; email?: string | null },
+): Author {
   const db = getDatabase();
   const existing = getAuthorById(id);
   if (!existing) throw new Error(`Author ${id} not found`);
@@ -997,7 +1077,7 @@ export function updateAuthor(id: number, updates: { name?: string; email?: strin
 
   try {
     db.prepare(
-      'UPDATE authors SET name = ?, email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      'UPDATE authors SET name = ?, email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     ).run(name, email, id);
     checkpoint();
   } catch (e) {
@@ -1014,16 +1094,29 @@ export function deleteAuthor(id: number): void {
   const author = getAuthorById(id);
   if (!author) throw new Error(`Author ${id} not found`);
 
-  const replyCount = (db.prepare('SELECT COUNT(*) as count FROM comment_replies WHERE author_id = ?').get(id) as { count: number }).count;
-  const messageCount = (db.prepare('SELECT COUNT(*) as count FROM repo_conversation_messages WHERE author_id = ?').get(id) as { count: number }).count;
+  const replyCount = (
+    db.prepare('SELECT COUNT(*) as count FROM comment_replies WHERE author_id = ?').get(id) as {
+      count: number;
+    }
+  ).count;
+  const messageCount = (
+    db
+      .prepare('SELECT COUNT(*) as count FROM repo_conversation_messages WHERE author_id = ?')
+      .get(id) as { count: number }
+  ).count;
   const totalReferences = replyCount + messageCount;
   if (totalReferences > 0) {
-    throw new Error(`Cannot delete "${author.name}" - referenced by ${totalReferences} repl${totalReferences === 1 ? 'y' : 'ies'}`);
+    throw new Error(
+      `Cannot delete "${author.name}" - referenced by ${totalReferences} repl${totalReferences === 1 ? 'y' : 'ies'}`,
+    );
   }
 
-  const defaultKey = author.kind === 'human' ? 'default_human_author_id' : 'default_agent_author_id';
+  const defaultKey =
+    author.kind === 'human' ? 'default_human_author_id' : 'default_agent_author_id';
   if (getSetting(defaultKey) === String(id)) {
-    throw new Error(`Cannot delete "${author.name}" - it's the current default ${author.kind}. Set a different default first.`);
+    throw new Error(
+      `Cannot delete "${author.name}" - it's the current default ${author.kind}. Set a different default first.`,
+    );
   }
 
   db.prepare('DELETE FROM authors WHERE id = ?').run(id);

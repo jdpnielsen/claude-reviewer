@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { getPRByUuid, getComments, submitReview, getReviews } from '@/lib/database';
 import { inferPreferences, appendToClaudeMd } from '@/lib/preferences';
 
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!action || !['approve', 'request_changes'].includes(action)) {
       return NextResponse.json(
         { error: 'Invalid action. Must be "approve" or "request_changes"' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 

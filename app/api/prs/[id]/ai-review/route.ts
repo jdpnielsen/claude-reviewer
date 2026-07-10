@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
+import { NextRequest, NextResponse } from 'next/server';
+
 import { getPRByUuid, addComment, getLatestDiff } from '@/lib/database';
 import { listCommits, blameCommit } from '@/lib/git';
 
@@ -19,7 +20,7 @@ async function runClaudeWithContext(prompt: string, cwd: string): Promise<string
     const child = spawn('claude', ['-p', '--allowedTools', 'Read,Grep,Glob,Bash'], {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env }
+      env: { ...process.env },
     });
 
     let stdout = '';
@@ -111,10 +112,13 @@ Do NOT include explanatory text outside the JSON array.`;
     } catch (parseError) {
       console.error('Failed to parse AI review response:', parseError);
       console.error('Raw response:', response);
-      return NextResponse.json({
-        error: 'Failed to parse AI review response',
-        raw: response
-      }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: 'Failed to parse AI review response',
+          raw: response,
+        },
+        { status: 500 },
+      );
     }
 
     // Attribute each comment to whichever commit last touched that line,
@@ -126,7 +130,12 @@ Do NOT include explanatory text outside the JSON array.`;
     const addedComments: string[] = [];
     for (const comment of comments) {
       if (comment.file_path && comment.line_number && comment.content) {
-        const blamedSha = blameCommit(pr.repo_path, pr.head_commit, comment.file_path, comment.line_number);
+        const blamedSha = blameCommit(
+          pr.repo_path,
+          pr.head_commit,
+          comment.file_path,
+          comment.line_number,
+        );
         const commitSha = blamedSha && commitShas.has(blamedSha) ? blamedSha : null;
         const uuid = addComment(
           id,
@@ -135,7 +144,7 @@ Do NOT include explanatory text outside the JSON array.`;
           comment.content,
           'new',
           comment.line_number,
-          commitSha
+          commitSha,
         );
         addedComments.push(uuid);
       }
@@ -144,7 +153,7 @@ Do NOT include explanatory text outside the JSON array.`;
     return NextResponse.json({
       success: true,
       comments_added: addedComments.length,
-      comment_uuids: addedComments
+      comment_uuids: addedComments,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getPRByUuid } from '@/lib/database';
-import { resolveRepoPath } from '@/lib/git';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { NextRequest, NextResponse } from 'next/server';
+
+import { getPRByUuid } from '@/lib/database';
+import { resolveRepoPath } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -33,19 +34,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     // Use git show to get file content at the specific commit
     try {
-      const content = execSync(
-        `git show ${commit}:${filePath}`,
-        {
-          cwd: repoPath,
-          encoding: 'utf-8',
-          maxBuffer: 10 * 1024 * 1024 // 10MB
-        }
-      );
+      const content = execSync(`git show ${commit}:${filePath}`, {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024, // 10MB
+      });
 
       const lines = content.split('\n');
       const requestedLines = lines.slice(
         Math.max(0, startLine - 1),
-        Math.min(lines.length, endLine)
+        Math.min(lines.length, endLine),
       );
 
       return NextResponse.json({
@@ -62,7 +60,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         const lines = content.split('\n');
         const requestedLines = lines.slice(
           Math.max(0, startLine - 1),
-          Math.min(lines.length, endLine)
+          Math.min(lines.length, endLine),
         );
 
         return NextResponse.json({

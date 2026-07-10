@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { Trash2, Star, Pencil } from 'lucide-react';
+import { useState, useEffect } from 'react';
+
 import { useConfirm } from '@/components/ConfirmDialog';
 
 interface Author {
@@ -110,7 +111,11 @@ export default function SettingsPage() {
       const res = await fetch('/api/authors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), kind: newKind, email: newEmail.trim() || null }),
+        body: JSON.stringify({
+          name: newName.trim(),
+          kind: newKind,
+          email: newEmail.trim() || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add author');
@@ -122,7 +127,12 @@ export default function SettingsPage() {
     }
   };
 
-  if (loading) return <div className="settings-page"><p>Loading...</p></div>;
+  if (loading)
+    return (
+      <div className="settings-page">
+        <p>Loading...</p>
+      </div>
+    );
 
   return (
     <div className="settings-page">
@@ -142,12 +152,14 @@ export default function SettingsPage() {
           </thead>
           <tbody>
             {authors.map((author) => {
-              const isDefault = author.kind === 'human' ? author.isDefaultHuman : author.isDefaultAgent;
+              const isDefault =
+                author.kind === 'human' ? author.isDefaultHuman : author.isDefaultAgent;
               const showGitHint =
                 isDefault &&
                 author.kind === 'human' &&
                 gitSuggestion &&
-                (gitSuggestion.name !== author.name || (gitSuggestion.email || null) !== author.email);
+                (gitSuggestion.name !== author.name ||
+                  (gitSuggestion.email || null) !== author.email);
 
               return (
                 <tr key={author.id}>
@@ -176,7 +188,9 @@ export default function SettingsPage() {
                           </button>
                         )}
                         <button onClick={() => saveEdit(author.id)}>Save</button>
-                        <button onClick={() => setEditingId(null)} className="cancel">Cancel</button>
+                        <button onClick={() => setEditingId(null)} className="cancel">
+                          Cancel
+                        </button>
                       </>
                     ) : (
                       <>
@@ -188,7 +202,11 @@ export default function SettingsPage() {
                             <Star size={14} />
                           </button>
                         )}
-                        <button onClick={() => deleteAuthor(author.id)} className="delete-btn" title="Delete">
+                        <button
+                          onClick={() => deleteAuthor(author.id)}
+                          className="delete-btn"
+                          title="Delete"
+                        >
                           <Trash2 size={14} />
                         </button>
                       </>
@@ -206,8 +224,14 @@ export default function SettingsPage() {
             <option value="human">human</option>
             <option value="agent">agent</option>
           </select>
-          <input placeholder="Email (optional)" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
-          <button onClick={addAuthor} className="primary">Add Author</button>
+          <input
+            placeholder="Email (optional)"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+          />
+          <button onClick={addAuthor} className="primary">
+            Add Author
+          </button>
         </div>
       </section>
     </div>

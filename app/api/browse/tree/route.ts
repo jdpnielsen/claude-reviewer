@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { NextRequest, NextResponse } from 'next/server';
+
 import { getConversationCountsByFile } from '@/lib/database';
 
 interface TreeNode {
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       tree,
       repoPath,
-      currentPath: subPath
+      currentPath: subPath,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -57,7 +58,7 @@ function buildTree(
   fullPath: string,
   relativePath: string,
   depth: number,
-  conversationCounts: Record<string, number>
+  conversationCounts: Record<string, number>,
 ): TreeNode {
   const stats = fs.statSync(fullPath);
   const name = path.basename(fullPath) || path.basename(repoPath);
@@ -67,14 +68,14 @@ function buildTree(
       name,
       path: relativePath,
       type: 'file',
-      conversationCount: conversationCounts[relativePath] || 0
+      conversationCount: conversationCounts[relativePath] || 0,
     };
   }
 
   const node: TreeNode = {
     name,
     path: relativePath,
-    type: 'directory'
+    type: 'directory',
   };
 
   if (depth > 0) {
@@ -92,12 +93,14 @@ function buildTree(
 
       for (const entry of entries) {
         // Skip hidden files and common ignore patterns
-        if (entry.name.startsWith('.') ||
-            entry.name === 'node_modules' ||
-            entry.name === '__pycache__' ||
-            entry.name === '.next' ||
-            entry.name === 'dist' ||
-            entry.name === 'build') {
+        if (
+          entry.name.startsWith('.') ||
+          entry.name === 'node_modules' ||
+          entry.name === '__pycache__' ||
+          entry.name === '.next' ||
+          entry.name === 'dist' ||
+          entry.name === 'build'
+        ) {
           continue;
         }
 
@@ -105,7 +108,7 @@ function buildTree(
         const childFullPath = path.join(fullPath, entry.name);
 
         children.push(
-          buildTree(repoPath, childFullPath, childRelativePath, depth - 1, conversationCounts)
+          buildTree(repoPath, childFullPath, childRelativePath, depth - 1, conversationCounts),
         );
       }
     } catch {

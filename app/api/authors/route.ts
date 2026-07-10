@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listAuthors, getDefaultHumanAuthor, getDefaultAgentAuthor, createAuthor } from '@/lib/database';
+
+import {
+  listAuthors,
+  getDefaultHumanAuthor,
+  getDefaultAgentAuthor,
+  createAuthor,
+} from '@/lib/database';
 import { getGitUserIdentity } from '@/lib/git';
 
 // GET /api/authors - List all authors, annotated with default status

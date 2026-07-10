@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { getPRByUuid, updatePRStatus } from '@/lib/database';
 import { GitManager } from '@/lib/git';
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (pr.status !== 'approved') {
       return NextResponse.json(
         { error: `PR is not approved (current status: ${pr.status})` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -32,17 +33,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (isDirty) {
       return NextResponse.json(
         { error: 'Repository has uncommitted changes. Commit or stash them first.' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Perform merge
     const mergeResult = await git.merge(pr.head_ref, pr.base_ref);
     if (!mergeResult.success) {
-      return NextResponse.json(
-        { error: `Merge failed: ${mergeResult.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Merge failed: ${mergeResult.message}` }, { status: 500 });
     }
 
     const results: string[] = [mergeResult.message];

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { updateAuthor, deleteAuthor } from '@/lib/database';
 
 interface RouteParams {

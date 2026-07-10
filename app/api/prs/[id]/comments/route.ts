@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPRByUuid, getCommentsWithReplies, addComment, resolveComment, updateCommentContent, deleteComment, addReply } from '@/lib/database';
+
+import {
+  getPRByUuid,
+  getCommentsWithReplies,
+  addComment,
+  resolveComment,
+  updateCommentContent,
+  deleteComment,
+  addReply,
+} from '@/lib/database';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -41,23 +50,23 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // If commentUuid is provided, this is a reply
     if (commentUuid) {
       if (!content) {
-        return NextResponse.json(
-          { error: 'Missing required field: content' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Missing required field: content' }, { status: 400 });
       }
       const replyUuid = addReply(commentUuid, content);
-      return NextResponse.json({
-        uuid: replyUuid,
-        message: 'Reply added',
-      }, { status: 201 });
+      return NextResponse.json(
+        {
+          uuid: replyUuid,
+          message: 'Reply added',
+        },
+        { status: 201 },
+      );
     }
 
     // Otherwise, this is a new comment
     if (!filePath || lineNumber === undefined || !content) {
       return NextResponse.json(
         { error: 'Missing required fields: filePath, lineNumber, content' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -77,13 +86,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       content,
       lineType || 'new',
       endLineNumber,
-      typeof commitSha === 'string' ? commitSha : null
+      typeof commitSha === 'string' ? commitSha : null,
     );
 
-    return NextResponse.json({
-      uuid: newCommentUuid,
-      message: 'Comment added',
-    }, { status: 201 });
+    return NextResponse.json(
+      {
+        uuid: newCommentUuid,
+        message: 'Comment added',
+      },
+      { status: 201 },
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -97,10 +109,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const { commentUuid, resolved, content } = body;
 
     if (!commentUuid) {
-      return NextResponse.json(
-        { error: 'Missing required field: commentUuid' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required field: commentUuid' }, { status: 400 });
     }
 
     let success = false;

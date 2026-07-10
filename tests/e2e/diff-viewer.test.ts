@@ -68,13 +68,13 @@ describe('Diff Viewer E2E Tests', () => {
 
       // Get all diff line contents
       const lineContents = await page.$$eval('.line-content', (elements) =>
-        elements.map((el) => el.textContent || '')
+        elements.map((el) => el.textContent || ''),
       );
 
       // Check that added/deleted lines don't start with +/-
       // (Context lines and hunk headers are allowed to have special chars)
       const diffLines = lineContents.filter(
-        (line) => !line.startsWith('@@') && line.trim().length > 0
+        (line) => !line.startsWith('@@') && line.trim().length > 0,
       );
 
       for (const line of diffLines) {
@@ -108,7 +108,7 @@ describe('Diff Viewer E2E Tests', () => {
         elements.map((el) => ({
           tagName: el.tagName.toLowerCase(),
           href: el.getAttribute('href'),
-        }))
+        })),
       );
 
       expect(fileLinks.length).toBeGreaterThan(0);
@@ -133,12 +133,12 @@ describe('Diff Viewer E2E Tests', () => {
 
       // Get all file link hrefs
       const linkHrefs = await page.$$eval('.file-item', (elements) =>
-        elements.map((el) => el.getAttribute('href')?.replace('#', ''))
+        elements.map((el) => el.getAttribute('href')?.replace('#', '')),
       );
 
       // Get all file diff IDs
       const fileDiffIds = await page.$$eval('.file-diff', (elements) =>
-        elements.map((el) => el.id)
+        elements.map((el) => el.id),
       );
 
       // Each link should have a corresponding file diff
@@ -222,7 +222,7 @@ describe('Diff Viewer E2E Tests', () => {
       await page.waitForSelector('.line-num', { timeout: 10000 });
 
       const lineNumbers = await page.$$eval('.line-num', (elements) =>
-        elements.map((el) => el.textContent?.trim()).filter((text) => text && /^\d+$/.test(text))
+        elements.map((el) => el.textContent?.trim()).filter((text) => text && /^\d+$/.test(text)),
       );
 
       expect(lineNumbers.length).toBeGreaterThan(0);

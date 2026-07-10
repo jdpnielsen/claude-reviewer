@@ -1,11 +1,5 @@
 'use client';
 
-import { useState, useEffect, useRef, use } from 'react';
-import Link from 'next/link';
-import { Highlight, themes } from 'prism-react-renderer';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { useConfirm } from '@/components/ConfirmDialog';
 import {
   ArrowLeft,
   GitPullRequest,
@@ -32,6 +26,13 @@ import {
   GitCommit,
   Layers,
 } from 'lucide-react';
+import Link from 'next/link';
+import { Highlight, themes } from 'prism-react-renderer';
+import { useState, useEffect, useRef, use } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+import { useConfirm } from '@/components/ConfirmDialog';
 
 // Map file extensions to Prism language identifiers
 const getLanguage = (filePath: string): string => {
@@ -156,7 +157,7 @@ function buildFolderTree(files: FileInfo[]): FolderNode {
           name: folderName,
           path: folderPath,
           files: [],
-          children: new Map()
+          children: new Map(),
         });
       }
       current = current.children.get(folderName)!;
@@ -188,8 +189,14 @@ const githubDarkTheme = {
     { types: ['comment', 'prolog', 'doctype', 'cdata'], style: { color: '#8b949e' } },
     { types: ['punctuation'], style: { color: '#e6edf3' } },
     { types: ['namespace'], style: { opacity: 0.7 } },
-    { types: ['property', 'tag', 'boolean', 'number', 'constant', 'symbol', 'deleted'], style: { color: '#79c0ff' } },
-    { types: ['selector', 'attr-name', 'char', 'builtin', 'inserted'], style: { color: '#a5d6ff' } },
+    {
+      types: ['property', 'tag', 'boolean', 'number', 'constant', 'symbol', 'deleted'],
+      style: { color: '#79c0ff' },
+    },
+    {
+      types: ['selector', 'attr-name', 'char', 'builtin', 'inserted'],
+      style: { color: '#a5d6ff' },
+    },
     { types: ['operator', 'entity', 'url'], style: { color: '#e6edf3' } },
     { types: ['atrule', 'attr-value', 'keyword'], style: { color: '#ff7b72' } },
     { types: ['function', 'class-name'], style: { color: '#d2a8ff' } },
@@ -226,13 +233,21 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [commentingAt, setCommentingAt] = useState<{
-    file: string; startLine: number; endLine: number; lineType: 'old' | 'new';
+    file: string;
+    startLine: number;
+    endLine: number;
+    lineType: 'old' | 'new';
   } | null>(null);
   const [lastClickedLine, setLastClickedLine] = useState<{
-    file: string; hunkIndex: number; line: number; lineType: 'old' | 'new';
+    file: string;
+    hunkIndex: number;
+    line: number;
+    lineType: 'old' | 'new';
   } | null>(null);
   const [newComment, setNewComment] = useState('');
-  const [editingComment, setEditingComment] = useState<{ uuid: string; content: string } | null>(null);
+  const [editingComment, setEditingComment] = useState<{ uuid: string; content: string } | null>(
+    null,
+  );
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const [defaultAuthorName, setDefaultAuthorName] = useState('reviewer');
@@ -255,15 +270,22 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   // already reflect a later click than the one this response belongs to.
   const latestRequestRef = useRef(0);
 
-  const fetchContext = async (filePath: string, startLine: number, endLine: number, key: string) => {
+  const fetchContext = async (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    key: string,
+  ) => {
     if (loadingContext.has(key)) return;
 
-    setLoadingContext(prev => new Set(prev).add(key));
+    setLoadingContext((prev) => new Set(prev).add(key));
     try {
-      const res = await fetch(`/api/prs/${id}/context?file=${encodeURIComponent(filePath)}&start=${startLine}&end=${endLine}`);
+      const res = await fetch(
+        `/api/prs/${id}/context?file=${encodeURIComponent(filePath)}&start=${startLine}&end=${endLine}`,
+      );
       if (res.ok) {
         const data = await res.json();
-        setExpandedContext(prev => {
+        setExpandedContext((prev) => {
           const next = new Map(prev);
           const existing = next.get(key) || [];
           next.set(key, [...existing, ...data.lines]);
@@ -273,7 +295,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     } catch (e) {
       console.error('Failed to fetch context:', e);
     } finally {
-      setLoadingContext(prev => {
+      setLoadingContext((prev) => {
         const next = new Set(prev);
         next.delete(key);
         return next;
@@ -299,7 +321,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   // Extract full file content from diff for markdown preview
   const getFileContentFromDiff = (diffContent: string, filePath: string): string => {
     const fileMatch = diffContent.match(
-      new RegExp(`diff --git a/${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} b/${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?(?=diff --git|$)`)
+      new RegExp(
+        `diff --git a/${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} b/${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?(?=diff --git|$)`,
+      ),
     );
     if (!fileMatch) return '';
 
@@ -307,8 +331,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     const contentLines: string[] = [];
 
     for (const line of lines) {
-      if (line.startsWith('diff --git') || line.startsWith('index ') ||
-        line.startsWith('---') || line.startsWith('+++') || line.startsWith('@@')) {
+      if (
+        line.startsWith('diff --git') ||
+        line.startsWith('index ') ||
+        line.startsWith('---') ||
+        line.startsWith('+++') ||
+        line.startsWith('@@')
+      ) {
         continue;
       }
       if (line.startsWith('-')) continue; // Skip deleted lines
@@ -324,20 +353,39 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   };
 
   // Custom code block renderer for markdown with syntax highlighting
-  const CodeBlock = ({ className, children, ...props }: { className?: string; children?: React.ReactNode }) => {
+  const CodeBlock = ({
+    className,
+    children,
+    ...props
+  }: {
+    className?: string;
+    children?: React.ReactNode;
+  }) => {
     const match = /language-(\w+)/.exec(className || '');
     const language = match ? match[1] : '';
     const code = String(children).replace(/\n$/, '');
 
     if (!className) {
       // Inline code
-      return <code className="inline-code" {...props}>{children}</code>;
+      return (
+        <code className="inline-code" {...props}>
+          {children}
+        </code>
+      );
     }
 
     return (
       <Highlight theme={githubDarkTheme} code={code} language={language || 'plaintext'}>
         {({ style, tokens, getLineProps, getTokenProps }) => (
-          <pre style={{ ...style, background: '#161b22', padding: '16px', borderRadius: '6px', overflow: 'auto' }}>
+          <pre
+            style={{
+              ...style,
+              background: '#161b22',
+              padding: '16px',
+              borderRadius: '6px',
+              overflow: 'auto',
+            }}
+          >
             {tokens.map((line, i) => (
               <div key={i} {...getLineProps({ line })}>
                 {line.map((token, key) => (
@@ -358,14 +406,18 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     const interval = setInterval(() => {
       // Only fetch comments, not the full PR data (to preserve UI state)
       fetch(`/api/prs/${id}`)
-        .then(res => res.ok ? res.json() : null)
-        .then(prData => {
+        .then((res) => (res.ok ? res.json() : null))
+        .then((prData) => {
           if (prData) {
-            setData(prev => prev ? {
-              ...prev,
-              comments: prData.comments,
-              pr: { ...prev.pr, status: prData.pr.status }
-            } : prData);
+            setData((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    comments: prData.comments,
+                    pr: { ...prev.pr, status: prData.pr.status },
+                  }
+                : prData,
+            );
           }
         })
         .catch(() => {}); // Silently ignore polling errors
@@ -378,7 +430,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     fetch('/api/authors')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        const defaultHuman = data?.authors?.find((a: { isDefaultHuman: boolean; name: string }) => a.isDefaultHuman);
+        const defaultHuman = data?.authors?.find(
+          (a: { isDefaultHuman: boolean; name: string }) => a.isDefaultHuman,
+        );
         if (defaultHuman) setDefaultAuthorName(defaultHuman.name);
       })
       .catch(() => {
@@ -415,9 +469,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       // For smaller PRs, expand all
       const files = prData.files as FileInfo[];
       if (files.length > 10) {
-        setExpandedFiles(new Set(files.slice(0, 3).map(f => f.path)));
+        setExpandedFiles(new Set(files.slice(0, 3).map((f) => f.path)));
       } else {
-        setExpandedFiles(new Set(files.map(f => f.path)));
+        setExpandedFiles(new Set(files.map((f) => f.path)));
       }
     } catch (e) {
       if (latestRequestRef.current === requestId) {
@@ -453,7 +507,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
   const expandAll = () => {
     if (!data) return;
-    setExpandedFiles(new Set(data.files.map(f => f.path)));
+    setExpandedFiles(new Set(data.files.map((f) => f.path)));
   };
 
   const collapseAll = () => {
@@ -519,24 +573,32 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       setData((prev) =>
         prev
           ? {
-            ...prev,
-            comments: prev.comments.map((c) =>
-              c.comment.uuid === tempUuid ? { ...c, comment: { ...c.comment, uuid: result.uuid } } : c
-            ),
-          }
-          : prev
+              ...prev,
+              comments: prev.comments.map((c) =>
+                c.comment.uuid === tempUuid
+                  ? { ...c, comment: { ...c.comment, uuid: result.uuid } }
+                  : c,
+              ),
+            }
+          : prev,
       );
     } catch (e) {
       alert('Error adding comment');
       // Revert on error
-      setData((prev) => (prev ? { ...prev, comments: prev.comments.filter((c) => c.comment.uuid !== tempUuid) } : prev));
+      setData((prev) =>
+        prev
+          ? { ...prev, comments: prev.comments.filter((c) => c.comment.uuid !== tempUuid) }
+          : prev,
+      );
     }
   };
 
   const editComment = async () => {
     if (!editingComment || !editingComment.content.trim() || !data) return;
 
-    const originalCommentWithReplies = data.comments.find((c) => c.comment.uuid === editingComment.uuid);
+    const originalCommentWithReplies = data.comments.find(
+      (c) => c.comment.uuid === editingComment.uuid,
+    );
 
     // Optimistically update local state
     setData({
@@ -544,7 +606,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       comments: data.comments.map((c) =>
         c.comment.uuid === editingComment.uuid
           ? { ...c, comment: { ...c.comment, content: editingComment.content } }
-          : c
+          : c,
       ),
     });
     setEditingComment(null);
@@ -564,8 +626,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       if (originalCommentWithReplies) {
         setData((prev) =>
           prev
-            ? { ...prev, comments: prev.comments.map((c) => (c.comment.uuid === editingComment.uuid ? originalCommentWithReplies : c)) }
-            : prev
+            ? {
+                ...prev,
+                comments: prev.comments.map((c) =>
+                  c.comment.uuid === editingComment.uuid ? originalCommentWithReplies : c,
+                ),
+              }
+            : prev,
         );
       }
     }
@@ -587,9 +654,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     setData({
       ...data,
       comments: data.comments.map((c) =>
-        c.comment.uuid === commentUuid
-          ? { ...c, replies: [...c.replies, tempReply] }
-          : c
+        c.comment.uuid === commentUuid ? { ...c, replies: [...c.replies, tempReply] } : c,
       ),
     });
     setReplyContent('');
@@ -609,19 +674,19 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       setData((prev) =>
         prev
           ? {
-            ...prev,
-            comments: prev.comments.map((c) =>
-              c.comment.uuid === commentUuid
-                ? {
-                  ...c,
-                  replies: c.replies.map((r) =>
-                    r.uuid === tempReply.uuid ? { ...r, uuid: result.uuid } : r
-                  ),
-                }
-                : c
-            ),
-          }
-          : prev
+              ...prev,
+              comments: prev.comments.map((c) =>
+                c.comment.uuid === commentUuid
+                  ? {
+                      ...c,
+                      replies: c.replies.map((r) =>
+                        r.uuid === tempReply.uuid ? { ...r, uuid: result.uuid } : r,
+                      ),
+                    }
+                  : c,
+              ),
+            }
+          : prev,
       );
     } catch (e) {
       alert('Error adding reply');
@@ -629,14 +694,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       setData((prev) =>
         prev
           ? {
-            ...prev,
-            comments: prev.comments.map((c) =>
-              c.comment.uuid === commentUuid
-                ? { ...c, replies: c.replies.filter((r) => r.uuid !== tempReply.uuid) }
-                : c
-            ),
-          }
-          : prev
+              ...prev,
+              comments: prev.comments.map((c) =>
+                c.comment.uuid === commentUuid
+                  ? { ...c, replies: c.replies.filter((r) => r.uuid !== tempReply.uuid) }
+                  : c,
+              ),
+            }
+          : prev,
       );
     }
   };
@@ -648,7 +713,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     setData({
       ...data,
       comments: data.comments.map((c) =>
-        c.comment.uuid === commentUuid ? { ...c, comment: { ...c.comment, resolved } } : c
+        c.comment.uuid === commentUuid ? { ...c, comment: { ...c.comment, resolved } } : c,
       ),
     });
 
@@ -664,12 +729,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       setData((prev) =>
         prev
           ? {
-            ...prev,
-            comments: prev.comments.map((c) =>
-              c.comment.uuid === commentUuid ? { ...c, comment: { ...c.comment, resolved: !resolved } } : c
-            ),
-          }
-          : prev
+              ...prev,
+              comments: prev.comments.map((c) =>
+                c.comment.uuid === commentUuid
+                  ? { ...c, comment: { ...c.comment, resolved: !resolved } }
+                  : c,
+              ),
+            }
+          : prev,
       );
     }
   };
@@ -677,9 +744,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const deleteComment = async (commentUuid: string, replyCount: number) => {
     if (!data) return;
 
-    const message = replyCount > 0
-      ? `Delete this comment and its ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}?`
-      : 'Delete this comment?';
+    const message =
+      replyCount > 0
+        ? `Delete this comment and its ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}?`
+        : 'Delete this comment?';
     if (!(await confirm(message, { danger: true }))) return;
 
     const originalCommentWithReplies = data.comments.find((c) => c.comment.uuid === commentUuid);
@@ -697,7 +765,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       // Revert on error
       if (originalCommentWithReplies) {
         setData((prev) =>
-          prev ? { ...prev, comments: [...prev.comments, originalCommentWithReplies] } : prev
+          prev ? { ...prev, comments: [...prev.comments, originalCommentWithReplies] } : prev,
         );
       }
     }
@@ -741,17 +809,22 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
-
   // Parse diff into file chunks
   const parseFileDiff = (diff: string, filePath: string): string[] => {
     const fileMatch = diff.match(
-      new RegExp(`diff --git a/${escapeRegex(filePath)} b/${escapeRegex(filePath)}[\\s\\S]*?(?=diff --git|$)`)
+      new RegExp(
+        `diff --git a/${escapeRegex(filePath)} b/${escapeRegex(filePath)}[\\s\\S]*?(?=diff --git|$)`,
+      ),
     );
     if (!fileMatch) return [];
 
     const lines = fileMatch[0].split('\n');
     return lines.filter(
-      (l) => !l.startsWith('diff --git') && !l.startsWith('index ') && !l.startsWith('---') && !l.startsWith('+++')
+      (l) =>
+        !l.startsWith('diff --git') &&
+        !l.startsWith('index ') &&
+        !l.startsWith('---') &&
+        !l.startsWith('+++'),
     );
   };
 
@@ -761,7 +834,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const getFileComments = (filePath: string): CommentWithReplies[] => {
     if (!data) return [];
     return data.comments.filter(
-      (c) => c.comment.file_path === filePath && c.comment.commit_sha === selectedCommit
+      (c) => c.comment.file_path === filePath && c.comment.commit_sha === selectedCommit,
     );
   };
 
@@ -813,7 +886,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.25rem'
+                gap: '0.25rem',
               }}
             >
               <Maximize2 size={12} />
@@ -832,7 +905,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.25rem'
+                gap: '0.25rem',
               }}
             >
               <Minimize2 size={12} />
@@ -853,10 +926,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.25rem',
-                opacity: requestingAI ? 0.7 : 1
+                opacity: requestingAI ? 0.7 : 1,
               }}
             >
-              {requestingAI ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {requestingAI ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Sparkles size={12} />
+              )}
               {requestingAI ? 'Reviewing...' : 'AI Review'}
             </button>
           </div>
@@ -886,7 +963,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
               {(() => {
                 const tree = buildFolderTree(files);
                 const toggleFolder = (path: string) => {
-                  setCollapsedFolders(prev => {
+                  setCollapsedFolders((prev) => {
                     const next = new Set(prev);
                     if (next.has(path)) {
                       next.delete(path);
@@ -902,7 +979,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                   const indent = depth * 12;
 
                   // Render child folders first
-                  const sortedFolders = Array.from(node.children.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                  const sortedFolders = Array.from(node.children.entries()).sort((a, b) =>
+                    a[0].localeCompare(b[0]),
+                  );
                   for (const [, childNode] of sortedFolders) {
                     const isCollapsed = collapsedFolders.has(childNode.path);
                     items.push(
@@ -915,7 +994,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                         <ChevronDown size={12} className="folder-icon" />
                         {isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
                         <span>{childNode.name}</span>
-                      </button>
+                      </button>,
                     );
                     if (!isCollapsed) {
                       items.push(...renderNode(childNode, depth + 1));
@@ -944,7 +1023,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                           <span className="additions">+{file.additions}</span>
                           <span className="deletions">-{file.deletions}</span>
                         </span>
-                      </button>
+                      </button>,
                     );
                   }
 
@@ -1052,13 +1131,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
             const fileComments = getFileComments(file.path);
             const diffLines = parseFileDiff(diff, file.path);
 
-
-
             const isPreview = previewMode.has(file.path);
             const isMd = isMarkdownFile(file.path);
 
             return (
-              <div key={file.path} id={`file-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}`} className="file-diff">
+              <div
+                key={file.path}
+                id={`file-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}`}
+                className="file-diff"
+              >
                 <div className="file-header">
                   <div className="file-header-left" onClick={() => toggleFile(file.path)}>
                     {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -1111,325 +1192,441 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                       // Limit lines for large diffs unless "show all" is enabled
                       const isLargeDiff = diffLines.length > MAX_LINES_DEFAULT;
                       const shouldLimit = isLargeDiff && !showAllLines.has(file.path);
-                      const linesToRender = shouldLimit ? diffLines.slice(0, MAX_LINES_DEFAULT) : diffLines;
+                      const linesToRender = shouldLimit
+                        ? diffLines.slice(0, MAX_LINES_DEFAULT)
+                        : diffLines;
 
                       return (
                         <>
                           {linesToRender.map((line, idx) => {
-                        // Parse hunk header for line numbers
-                        if (line.startsWith('@@')) {
-                          hunkIndex++;
-                          const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
-                          if (match) {
-                            oldLineNum = parseInt(match[1]) - 1;
-                            newLineNum = parseInt(match[2]) - 1;
-                            hunkStartLine = newLineNum + 1;
-                          }
-                        }
+                            // Parse hunk header for line numbers
+                            if (line.startsWith('@@')) {
+                              hunkIndex++;
+                              const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+                              if (match) {
+                                oldLineNum = parseInt(match[1]) - 1;
+                                newLineNum = parseInt(match[2]) - 1;
+                                hunkStartLine = newLineNum + 1;
+                              }
+                            }
 
-                        // Track line numbers based on line type
-                        let displayOldLine = '';
-                        let displayNewLine = '';
-                        let indicator = ' ';
+                            // Track line numbers based on line type
+                            let displayOldLine = '';
+                            let displayNewLine = '';
+                            let indicator = ' ';
 
-                        if (line.startsWith('@@')) {
-                          // Hunk header - no line numbers
-                        } else if (line.startsWith('+')) {
-                          newLineNum++;
-                          displayNewLine = String(newLineNum);
-                          indicator = '+';
-                        } else if (line.startsWith('-')) {
-                          oldLineNum++;
-                          displayOldLine = String(oldLineNum);
-                          indicator = '-';
-                        } else {
-                          // Context line
-                          oldLineNum++;
-                          newLineNum++;
-                          displayOldLine = String(oldLineNum);
-                          displayNewLine = String(newLineNum);
-                        }
+                            if (line.startsWith('@@')) {
+                              // Hunk header - no line numbers
+                            } else if (line.startsWith('+')) {
+                              newLineNum++;
+                              displayNewLine = String(newLineNum);
+                              indicator = '+';
+                            } else if (line.startsWith('-')) {
+                              oldLineNum++;
+                              displayOldLine = String(oldLineNum);
+                              indicator = '-';
+                            } else {
+                              // Context line
+                              oldLineNum++;
+                              newLineNum++;
+                              displayOldLine = String(oldLineNum);
+                              displayNewLine = String(newLineNum);
+                            }
 
-                        const currentLine = newLineNum;
-                        const anchorLine = line.startsWith('-') ? oldLineNum : newLineNum;
-                        const anchorLineType: 'old' | 'new' = line.startsWith('-') ? 'old' : 'new';
-                        // Frozen per-iteration snapshot — hunkIndex itself is a single mutable
-                        // binding shared across the whole render pass, so closures (e.g. the
-                        // click handler below) must not capture it directly.
-                        const currentHunkIndex = hunkIndex;
+                            const currentLine = newLineNum;
+                            const anchorLine = line.startsWith('-') ? oldLineNum : newLineNum;
+                            const anchorLineType: 'old' | 'new' = line.startsWith('-')
+                              ? 'old'
+                              : 'new';
+                            // Frozen per-iteration snapshot — hunkIndex itself is a single mutable
+                            // binding shared across the whole render pass, so closures (e.g. the
+                            // click handler below) must not capture it directly.
+                            const currentHunkIndex = hunkIndex;
 
-                        // Renders the comment thread once, at the range's end line
-                        const lineComments = fileComments.filter((c) => {
-                          if (line.startsWith('@@')) return false;
-                          const sideMatches = line.startsWith('-') ? c.comment.line_type === 'old' : c.comment.line_type !== 'old';
-                          return sideMatches && anchorLine === c.comment.end_line_number;
-                        });
+                            // Renders the comment thread once, at the range's end line
+                            const lineComments = fileComments.filter((c) => {
+                              if (line.startsWith('@@')) return false;
+                              const sideMatches = line.startsWith('-')
+                                ? c.comment.line_type === 'old'
+                                : c.comment.line_type !== 'old';
+                              return sideMatches && anchorLine === c.comment.end_line_number;
+                            });
 
-                        // Persistent highlight for every line within a saved comment's range
-                        const isInSavedCommentRange = fileComments.some((c) => {
-                          if (line.startsWith('@@')) return false;
-                          const sideMatches = line.startsWith('-') ? c.comment.line_type === 'old' : c.comment.line_type !== 'old';
-                          return sideMatches && anchorLine >= c.comment.line_number && anchorLine <= c.comment.end_line_number;
-                        });
-
-                        // Persistent highlight for the in-progress (not yet submitted) selection
-                        const isInPendingSelection =
-                          !!commentingAt &&
-                          commentingAt.file === file.path &&
-                          commentingAt.lineType === anchorLineType &&
-                          anchorLine >= commentingAt.startLine &&
-                          anchorLine <= commentingAt.endLine;
-
-                        const rangeClass = isInPendingSelection ? 'line-selecting' : isInSavedCommentRange ? 'line-in-comment-range' : '';
-                        const lineClasses = [
-                          line.startsWith('+')
-                            ? 'line-add'
-                            : line.startsWith('-')
-                              ? 'line-del'
-                              : line.startsWith('@@')
-                                ? 'line-hunk'
-                                : 'line-ctx',
-                          rangeClass,
-                        ].filter(Boolean).join(' ');
-
-                        // Check if this is the last line before next hunk or end of file
-                        const nextHunkIdx = hunkStarts[hunkIndex + 1];
-                        const isLastLineOfHunk = nextHunkIdx !== undefined
-                          ? idx === nextHunkIdx - 1
-                          : idx === diffLines.length - 1;
-
-                        // Context expansion keys
-                        const expandUpKey = `${file.path}:${hunkIndex}:up`;
-                        const expandDownKey = `${file.path}:${hunkIndex}:down`;
-                        const expandedUpLines = expandedContext.get(expandUpKey) || [];
-                        const expandedDownLines = expandedContext.get(expandDownKey) || [];
-
-                        // Calculate how many more lines we've already expanded
-                        const expandedUpCount = expandedUpLines.length;
-                        const expandedDownCount = expandedDownLines.length;
-
-                        return (
-                          <div key={idx}>
-                            {/* Hide @@ header, just show expand buttons */}
-                            {!line.startsWith('@@') && (
-                              <div className={`diff-line ${lineClasses}`}>
-                                <span className={`line-num line-num-old ${lineClasses}`}>{displayOldLine}</span>
-                                <span className={`line-num line-num-new ${lineClasses}`}>{displayNewLine}</span>
-                                <span className={`line-indicator ${lineClasses}`}>{indicator}</span>
-                                <span
-                                  className={`line-content ${lineClasses}`}
-                                  onClick={(e) => {
-                                    if (
-                                      e.shiftKey &&
-                                      lastClickedLine &&
-                                      lastClickedLine.file === file.path &&
-                                      lastClickedLine.hunkIndex === currentHunkIndex &&
-                                      lastClickedLine.lineType === anchorLineType
-                                    ) {
-                                      setCommentingAt({
-                                        file: file.path,
-                                        startLine: Math.min(lastClickedLine.line, anchorLine),
-                                        endLine: Math.max(lastClickedLine.line, anchorLine),
-                                        lineType: anchorLineType,
-                                      });
-                                      // Intentionally do not update lastClickedLine, so repeated
-                                      // shift-clicks keep extending from the original anchor.
-                                    } else {
-                                      setCommentingAt({ file: file.path, startLine: anchorLine, endLine: anchorLine, lineType: anchorLineType });
-                                      setLastClickedLine({ file: file.path, hunkIndex: currentHunkIndex, line: anchorLine, lineType: anchorLineType });
-                                    }
-                                  }}
-                                >
-                                  <SyntaxLine
-                                    code={line.startsWith('+') || line.startsWith('-') ? line.slice(1) : line}
-                                    language={getLanguage(file.path)}
-                                  />
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Expand up button - inside hunk, right after @@ header */}
-                            {line.startsWith('@@') && hunkStartLine > 1 && hunkStartLine - expandedUpCount > 1 && (
-                              <div className="expand-context-divider inside-hunk">
-                                <button
-                                  className="expand-context-btn expand-up"
-                                  onClick={() => {
-                                    const linesToFetch = 10;
-                                    const end = hunkStartLine - expandedUpCount - 1;
-                                    const start = Math.max(1, end - linesToFetch + 1);
-                                    fetchContext(file.path, start, end, expandUpKey);
-                                  }}
-                                  title={`Show ${Math.min(10, hunkStartLine - expandedUpCount - 1)} more lines above`}
-                                >
-                                  {loadingContext.has(expandUpKey) ? <MoreHorizontal size={10} /> : <Plus size={10} />}
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Show already expanded lines above (after @@ header) */}
-                            {line.startsWith('@@') && expandedUpLines.length > 0 && expandedUpLines.map((expandedLine, i) => {
-                              const lineNum = hunkStartLine - expandedUpLines.length + i;
+                            // Persistent highlight for every line within a saved comment's range
+                            const isInSavedCommentRange = fileComments.some((c) => {
+                              if (line.startsWith('@@')) return false;
+                              const sideMatches = line.startsWith('-')
+                                ? c.comment.line_type === 'old'
+                                : c.comment.line_type !== 'old';
                               return (
-                                <div key={`expanded-up-${i}`} className="diff-line line-ctx expanded-context">
-                                  <span className="line-num line-num-old line-ctx">{lineNum}</span>
-                                  <span className="line-num line-num-new line-ctx">{lineNum}</span>
-                                  <span className="line-indicator line-ctx"> </span>
-                                  <span className="line-content line-ctx">
-                                    <SyntaxLine code={expandedLine} language={getLanguage(file.path)} />
-                                  </span>
-                                </div>
+                                sideMatches &&
+                                anchorLine >= c.comment.line_number &&
+                                anchorLine <= c.comment.end_line_number
                               );
-                            })}
+                            });
 
-                            {/* Inline comments with replies */}
-                            {lineComments.map(({ comment: c, replies }) => (
-                              <div key={c.uuid} className={`inline-comment ${c.resolved ? 'resolved' : ''}`}>
-                                {editingComment?.uuid === c.uuid ? (
-                                  <div className="edit-comment-form">
-                                    <textarea
-                                      autoFocus
-                                      value={editingComment.content}
-                                      onChange={(e) => setEditingComment({ ...editingComment, content: e.target.value })}
-                                      rows={3}
-                                    />
-                                    <div className="comment-actions">
-                                      <button onClick={editComment}>Save</button>
-                                      <button className="cancel" onClick={() => setEditingComment(null)}>Cancel</button>
-                                    </div>
+                            // Persistent highlight for the in-progress (not yet submitted) selection
+                            const isInPendingSelection =
+                              !!commentingAt &&
+                              commentingAt.file === file.path &&
+                              commentingAt.lineType === anchorLineType &&
+                              anchorLine >= commentingAt.startLine &&
+                              anchorLine <= commentingAt.endLine;
+
+                            const rangeClass = isInPendingSelection
+                              ? 'line-selecting'
+                              : isInSavedCommentRange
+                                ? 'line-in-comment-range'
+                                : '';
+                            const lineClasses = [
+                              line.startsWith('+')
+                                ? 'line-add'
+                                : line.startsWith('-')
+                                  ? 'line-del'
+                                  : line.startsWith('@@')
+                                    ? 'line-hunk'
+                                    : 'line-ctx',
+                              rangeClass,
+                            ]
+                              .filter(Boolean)
+                              .join(' ');
+
+                            // Check if this is the last line before next hunk or end of file
+                            const nextHunkIdx = hunkStarts[hunkIndex + 1];
+                            const isLastLineOfHunk =
+                              nextHunkIdx !== undefined
+                                ? idx === nextHunkIdx - 1
+                                : idx === diffLines.length - 1;
+
+                            // Context expansion keys
+                            const expandUpKey = `${file.path}:${hunkIndex}:up`;
+                            const expandDownKey = `${file.path}:${hunkIndex}:down`;
+                            const expandedUpLines = expandedContext.get(expandUpKey) || [];
+                            const expandedDownLines = expandedContext.get(expandDownKey) || [];
+
+                            // Calculate how many more lines we've already expanded
+                            const expandedUpCount = expandedUpLines.length;
+                            const expandedDownCount = expandedDownLines.length;
+
+                            return (
+                              <div key={idx}>
+                                {/* Hide @@ header, just show expand buttons */}
+                                {!line.startsWith('@@') && (
+                                  <div className={`diff-line ${lineClasses}`}>
+                                    <span className={`line-num line-num-old ${lineClasses}`}>
+                                      {displayOldLine}
+                                    </span>
+                                    <span className={`line-num line-num-new ${lineClasses}`}>
+                                      {displayNewLine}
+                                    </span>
+                                    <span className={`line-indicator ${lineClasses}`}>
+                                      {indicator}
+                                    </span>
+                                    <span
+                                      className={`line-content ${lineClasses}`}
+                                      onClick={(e) => {
+                                        if (
+                                          e.shiftKey &&
+                                          lastClickedLine &&
+                                          lastClickedLine.file === file.path &&
+                                          lastClickedLine.hunkIndex === currentHunkIndex &&
+                                          lastClickedLine.lineType === anchorLineType
+                                        ) {
+                                          setCommentingAt({
+                                            file: file.path,
+                                            startLine: Math.min(lastClickedLine.line, anchorLine),
+                                            endLine: Math.max(lastClickedLine.line, anchorLine),
+                                            lineType: anchorLineType,
+                                          });
+                                          // Intentionally do not update lastClickedLine, so repeated
+                                          // shift-clicks keep extending from the original anchor.
+                                        } else {
+                                          setCommentingAt({
+                                            file: file.path,
+                                            startLine: anchorLine,
+                                            endLine: anchorLine,
+                                            lineType: anchorLineType,
+                                          });
+                                          setLastClickedLine({
+                                            file: file.path,
+                                            hunkIndex: currentHunkIndex,
+                                            line: anchorLine,
+                                            lineType: anchorLineType,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <SyntaxLine
+                                        code={
+                                          line.startsWith('+') || line.startsWith('-')
+                                            ? line.slice(1)
+                                            : line
+                                        }
+                                        language={getLanguage(file.path)}
+                                      />
+                                    </span>
                                   </div>
-                                ) : (
-                                  <>
-                                    <div className="comment-content">{c.content}</div>
-                                    <div className="comment-buttons">
-                                      {replies.length === 0 && (
-                                        <button
-                                          className="edit-btn"
-                                          onClick={() => setEditingComment({ uuid: c.uuid, content: c.content })}
-                                        >
-                                          Edit
-                                        </button>
-                                      )}
+                                )}
+
+                                {/* Expand up button - inside hunk, right after @@ header */}
+                                {line.startsWith('@@') &&
+                                  hunkStartLine > 1 &&
+                                  hunkStartLine - expandedUpCount > 1 && (
+                                    <div className="expand-context-divider inside-hunk">
                                       <button
-                                        className="resolve-btn"
-                                        onClick={() => resolveComment(c.uuid, !c.resolved)}
+                                        className="expand-context-btn expand-up"
+                                        onClick={() => {
+                                          const linesToFetch = 10;
+                                          const end = hunkStartLine - expandedUpCount - 1;
+                                          const start = Math.max(1, end - linesToFetch + 1);
+                                          fetchContext(file.path, start, end, expandUpKey);
+                                        }}
+                                        title={`Show ${Math.min(10, hunkStartLine - expandedUpCount - 1)} more lines above`}
                                       >
-                                        {c.resolved ? 'Unresolve' : 'Resolve'}
-                                      </button>
-                                      <button
-                                        className="delete-btn"
-                                        onClick={() => deleteComment(c.uuid, replies.length)}
-                                      >
-                                        Delete
+                                        {loadingContext.has(expandUpKey) ? (
+                                          <MoreHorizontal size={10} />
+                                        ) : (
+                                          <Plus size={10} />
+                                        )}
                                       </button>
                                     </div>
-                                    {/* Replies */}
-                                    {replies.length > 0 && (
-                                      <div className="comment-replies">
-                                        {replies.map((r) => (
-                                          <div key={r.uuid} className={`comment-reply ${r.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}>
-                                            <span className="reply-author">{r.author}:</span>
-                                            <span className="reply-content">{r.content}</span>
-                                          </div>
-                                        ))}
+                                  )}
+
+                                {/* Show already expanded lines above (after @@ header) */}
+                                {line.startsWith('@@') &&
+                                  expandedUpLines.length > 0 &&
+                                  expandedUpLines.map((expandedLine, i) => {
+                                    const lineNum = hunkStartLine - expandedUpLines.length + i;
+                                    return (
+                                      <div
+                                        key={`expanded-up-${i}`}
+                                        className="diff-line line-ctx expanded-context"
+                                      >
+                                        <span className="line-num line-num-old line-ctx">
+                                          {lineNum}
+                                        </span>
+                                        <span className="line-num line-num-new line-ctx">
+                                          {lineNum}
+                                        </span>
+                                        <span className="line-indicator line-ctx"> </span>
+                                        <span className="line-content line-ctx">
+                                          <SyntaxLine
+                                            code={expandedLine}
+                                            language={getLanguage(file.path)}
+                                          />
+                                        </span>
                                       </div>
-                                    )}
-                                    {/* Reply form */}
-                                    {replyingTo === c.uuid ? (
-                                      <div className="reply-form">
+                                    );
+                                  })}
+
+                                {/* Inline comments with replies */}
+                                {lineComments.map(({ comment: c, replies }) => (
+                                  <div
+                                    key={c.uuid}
+                                    className={`inline-comment ${c.resolved ? 'resolved' : ''}`}
+                                  >
+                                    {editingComment?.uuid === c.uuid ? (
+                                      <div className="edit-comment-form">
                                         <textarea
                                           autoFocus
-                                          placeholder="Write a reply..."
-                                          value={replyContent}
-                                          onChange={(e) => setReplyContent(e.target.value)}
-                                          rows={2}
+                                          value={editingComment.content}
+                                          onChange={(e) =>
+                                            setEditingComment({
+                                              ...editingComment,
+                                              content: e.target.value,
+                                            })
+                                          }
+                                          rows={3}
                                         />
                                         <div className="comment-actions">
-                                          <button onClick={() => addReply(c.uuid)}>Reply</button>
-                                          <button className="cancel" onClick={() => { setReplyingTo(null); setReplyContent(''); }}>Cancel</button>
+                                          <button onClick={editComment}>Save</button>
+                                          <button
+                                            className="cancel"
+                                            onClick={() => setEditingComment(null)}
+                                          >
+                                            Cancel
+                                          </button>
                                         </div>
                                       </div>
                                     ) : (
-                                      <button className="reply-btn" onClick={() => setReplyingTo(c.uuid)}>
-                                        Reply
-                                      </button>
+                                      <>
+                                        <div className="comment-content">{c.content}</div>
+                                        <div className="comment-buttons">
+                                          {replies.length === 0 && (
+                                            <button
+                                              className="edit-btn"
+                                              onClick={() =>
+                                                setEditingComment({
+                                                  uuid: c.uuid,
+                                                  content: c.content,
+                                                })
+                                              }
+                                            >
+                                              Edit
+                                            </button>
+                                          )}
+                                          <button
+                                            className="resolve-btn"
+                                            onClick={() => resolveComment(c.uuid, !c.resolved)}
+                                          >
+                                            {c.resolved ? 'Unresolve' : 'Resolve'}
+                                          </button>
+                                          <button
+                                            className="delete-btn"
+                                            onClick={() => deleteComment(c.uuid, replies.length)}
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                        {/* Replies */}
+                                        {replies.length > 0 && (
+                                          <div className="comment-replies">
+                                            {replies.map((r) => (
+                                              <div
+                                                key={r.uuid}
+                                                className={`comment-reply ${r.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}
+                                              >
+                                                <span className="reply-author">{r.author}:</span>
+                                                <span className="reply-content">{r.content}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {/* Reply form */}
+                                        {replyingTo === c.uuid ? (
+                                          <div className="reply-form">
+                                            <textarea
+                                              autoFocus
+                                              placeholder="Write a reply..."
+                                              value={replyContent}
+                                              onChange={(e) => setReplyContent(e.target.value)}
+                                              rows={2}
+                                            />
+                                            <div className="comment-actions">
+                                              <button onClick={() => addReply(c.uuid)}>
+                                                Reply
+                                              </button>
+                                              <button
+                                                className="cancel"
+                                                onClick={() => {
+                                                  setReplyingTo(null);
+                                                  setReplyContent('');
+                                                }}
+                                              >
+                                                Cancel
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            className="reply-btn"
+                                            onClick={() => setReplyingTo(c.uuid)}
+                                          >
+                                            Reply
+                                          </button>
+                                        )}
+                                      </>
                                     )}
+                                  </div>
+                                ))}
+
+                                {/* New comment form */}
+                                {commentingAt?.file === file.path &&
+                                  commentingAt?.lineType === anchorLineType &&
+                                  commentingAt?.endLine === anchorLine && (
+                                    <div className="new-comment-form">
+                                      {commentingAt.startLine !== commentingAt.endLine && (
+                                        <div className="comment-range-label">
+                                          Commenting on lines {commentingAt.startLine}–
+                                          {commentingAt.endLine}
+                                        </div>
+                                      )}
+                                      <textarea
+                                        autoFocus
+                                        placeholder="Write a comment..."
+                                        value={newComment}
+                                        onChange={(e) => setNewComment(e.target.value)}
+                                        rows={3}
+                                      />
+                                      <div className="comment-actions">
+                                        <button onClick={addComment}>Add Comment</button>
+                                        <button
+                                          className="cancel"
+                                          onClick={() => {
+                                            setCommentingAt(null);
+                                            setLastClickedLine(null);
+                                          }}
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                {/* Expand down button at end of hunk */}
+                                {isLastLineOfHunk && !line.startsWith('@@') && (
+                                  <>
+                                    {/* Show already expanded lines below */}
+                                    {expandedDownLines.map((expandedLine, i) => {
+                                      const lineNum = currentLine + i + 1;
+                                      return (
+                                        <div
+                                          key={`expanded-down-${i}`}
+                                          className="diff-line line-ctx expanded-context"
+                                        >
+                                          <span className="line-num line-num-old line-ctx">
+                                            {lineNum}
+                                          </span>
+                                          <span className="line-num line-num-new line-ctx">
+                                            {lineNum}
+                                          </span>
+                                          <span className="line-indicator line-ctx"> </span>
+                                          <span className="line-content line-ctx">
+                                            <SyntaxLine
+                                              code={expandedLine}
+                                              language={getLanguage(file.path)}
+                                            />
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                    {/* Expand down button - semicircle */}
+                                    <div className="expand-context-divider inside-hunk">
+                                      <button
+                                        className="expand-context-btn expand-down"
+                                        onClick={() => {
+                                          const linesToFetch = 10;
+                                          const start = currentLine + expandedDownCount + 1;
+                                          const end = start + linesToFetch - 1;
+                                          fetchContext(file.path, start, end, expandDownKey);
+                                        }}
+                                        title="Show 10 more lines below"
+                                      >
+                                        {loadingContext.has(expandDownKey) ? (
+                                          <MoreHorizontal size={10} />
+                                        ) : (
+                                          <Plus size={10} />
+                                        )}
+                                      </button>
+                                    </div>
                                   </>
                                 )}
                               </div>
-                            ))}
-
-                            {/* New comment form */}
-                            {commentingAt?.file === file.path && commentingAt?.lineType === anchorLineType && commentingAt?.endLine === anchorLine && (
-                              <div className="new-comment-form">
-                                {commentingAt.startLine !== commentingAt.endLine && (
-                                  <div className="comment-range-label">
-                                    Commenting on lines {commentingAt.startLine}–{commentingAt.endLine}
-                                  </div>
-                                )}
-                                <textarea
-                                  autoFocus
-                                  placeholder="Write a comment..."
-                                  value={newComment}
-                                  onChange={(e) => setNewComment(e.target.value)}
-                                  rows={3}
-                                />
-                                <div className="comment-actions">
-                                  <button onClick={addComment}>Add Comment</button>
-                                  <button className="cancel" onClick={() => { setCommentingAt(null); setLastClickedLine(null); }}>
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Expand down button at end of hunk */}
-                            {isLastLineOfHunk && !line.startsWith('@@') && (
-                              <>
-                                {/* Show already expanded lines below */}
-                                {expandedDownLines.map((expandedLine, i) => {
-                                  const lineNum = currentLine + i + 1;
-                                  return (
-                                    <div key={`expanded-down-${i}`} className="diff-line line-ctx expanded-context">
-                                      <span className="line-num line-num-old line-ctx">{lineNum}</span>
-                                      <span className="line-num line-num-new line-ctx">{lineNum}</span>
-                                      <span className="line-indicator line-ctx"> </span>
-                                      <span className="line-content line-ctx">
-                                        <SyntaxLine code={expandedLine} language={getLanguage(file.path)} />
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                                {/* Expand down button - semicircle */}
-                                <div className="expand-context-divider inside-hunk">
-                                  <button
-                                    className="expand-context-btn expand-down"
-                                    onClick={() => {
-                                      const linesToFetch = 10;
-                                      const start = currentLine + expandedDownCount + 1;
-                                      const end = start + linesToFetch - 1;
-                                      fetchContext(file.path, start, end, expandDownKey);
-                                    }}
-                                    title="Show 10 more lines below"
-                                  >
-                                    {loadingContext.has(expandDownKey) ? <MoreHorizontal size={10} /> : <Plus size={10} />}
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
+                            );
+                          })}
                           {shouldLimit && (
                             <div
                               style={{
                                 padding: '1rem',
                                 textAlign: 'center',
                                 background: '#161b22',
-                                borderTop: '1px solid #30363d'
+                                borderTop: '1px solid #30363d',
                               }}
                             >
                               <button
-                                onClick={() => setShowAllLines(prev => new Set(prev).add(file.path))}
+                                onClick={() =>
+                                  setShowAllLines((prev) => new Set(prev).add(file.path))
+                                }
                                 style={{
                                   padding: '0.5rem 1rem',
                                   background: '#21262d',
@@ -1437,10 +1634,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                   border: '1px solid #30363d',
                                   borderRadius: '6px',
                                   cursor: 'pointer',
-                                  fontSize: '0.875rem'
+                                  fontSize: '0.875rem',
                                 }}
                               >
-                                Show all {diffLines.length} lines ({diffLines.length - MAX_LINES_DEFAULT} more)
+                                Show all {diffLines.length} lines (
+                                {diffLines.length - MAX_LINES_DEFAULT} more)
                               </button>
                             </div>
                           )}
@@ -1454,7 +1652,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           })}
         </div>
       </div>
-
     </main>
   );
 }
