@@ -1,6 +1,5 @@
 'use client';
 
-import { GitBranch, MessageSquare, Send, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
 
 import DiffViewer from './DiffViewer';
@@ -46,7 +45,7 @@ export default function ReviewPage({ repoPath, baseRef, headRef, diff }: ReviewP
       });
       const data = await res.json();
       setPatch(data.patch);
-    } catch (e) {
+    } catch {
       alert('Error requesting fixes');
     } finally {
       setIsRequesting(false);
@@ -85,7 +84,7 @@ export default function ReviewPage({ repoPath, baseRef, headRef, diff }: ReviewP
       } else {
         alert('Error applying patch: ' + data.error);
       }
-    } catch (e) {
+    } catch {
       alert('Error applying patch');
     } finally {
       setIsApplying(false);
@@ -101,7 +100,7 @@ export default function ReviewPage({ repoPath, baseRef, headRef, diff }: ReviewP
       });
       const data = await res.json();
       setPrMetadata(data);
-    } catch (e) {
+    } catch {
       alert('Error generating PR info');
     }
   };

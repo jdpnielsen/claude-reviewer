@@ -103,7 +103,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 }
 
 // PATCH /api/prs/[id]/comments - Resolve/unresolve or edit a comment
-export async function PATCH(req: NextRequest, { params }: RouteParams) {
+export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const { commentUuid, resolved, content } = body;

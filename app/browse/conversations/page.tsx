@@ -14,7 +14,7 @@ import {
   GitCommit,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 import { useConfirm } from '@/components/ConfirmDialog';
 
@@ -92,11 +92,39 @@ export default function ConversationsListPage() {
     setRecentRepos(getRecentRepos());
   }, []);
 
+  const loadConversations = useCallback(async () => {
+    try {
+      setLoading(true);
+      let url = `/api/browse/conversations?repo=${encodeURIComponent(repoPath)}`;
+      if (filter !== 'all') {
+        url += `&status=${filter}`;
+      }
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to load conversations');
+      const data = await res.json();
+      // Transform nested API response to flat conversation objects
+      const flatConversations = (data.conversations || []).map(
+        (item: ConversationWithMessages & { message_count?: number }) => ({
+          ...item.conversation,
+          message_count: item.message_count || item.messages?.length || 0,
+          latest_message:
+            item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null,
+        }),
+      );
+      setConversations(flatConversations);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error loading conversations');
+    } finally {
+      setLoading(false);
+    }
+  }, [repoPath, filter]);
+
   useEffect(() => {
     if (repoPath) {
       loadConversations();
     }
-  }, [repoPath, filter]);
+  }, [repoPath, filter, loadConversations]);
 
   // Poll for conversation updates (every 2 seconds)
   useEffect(() => {
@@ -143,34 +171,6 @@ export default function ConversationsListPage() {
     const interval = setInterval(pollConversations, 2000);
     return () => clearInterval(interval);
   }, [repoPath, filter, expandedConversation]);
-
-  const loadConversations = async () => {
-    try {
-      setLoading(true);
-      let url = `/api/browse/conversations?repo=${encodeURIComponent(repoPath)}`;
-      if (filter !== 'all') {
-        url += `&status=${filter}`;
-      }
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to load conversations');
-      const data = await res.json();
-      // Transform nested API response to flat conversation objects
-      const flatConversations = (data.conversations || []).map(
-        (item: ConversationWithMessages & { message_count?: number }) => ({
-          ...item.conversation,
-          message_count: item.message_count || item.messages?.length || 0,
-          latest_message:
-            item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null,
-        }),
-      );
-      setConversations(flatConversations);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error loading conversations');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadConversationMessages = async (uuid: string) => {
     try {

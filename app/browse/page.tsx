@@ -7,13 +7,12 @@ import {
   ChevronDown,
   MessageSquare,
   Send,
-  X,
   CheckCircle,
   AlertCircle,
   Loader2,
 } from 'lucide-react';
 import { Highlight, themes } from 'prism-react-renderer';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // Types
 interface TreeNode {
@@ -156,12 +155,35 @@ export default function BrowsePage() {
   const [replyContent, setReplyContent] = useState('');
   const [claudeResponding, setClaudeResponding] = useState<Set<string>>(new Set());
 
+  const loadTree = useCallback(
+    async (subPath: string = '') => {
+      try {
+        setLoading(true);
+        const url = `/api/browse/tree?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(subPath)}&depth=2`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load tree');
+        const data = await res.json();
+        setTree(data.tree);
+        // Auto-expand root folder (path is empty string for root)
+        if (data.tree) {
+          setExpandedFolders(new Set([data.tree.path ?? '']));
+        }
+        setError(null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error loading tree');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [repoPath],
+  );
+
   // Load tree when repo path changes
   useEffect(() => {
     if (repoPath) {
       loadTree();
     }
-  }, [repoPath]);
+  }, [repoPath, loadTree]);
 
   // Poll for conversation updates (every 2 seconds when a file is selected)
   useEffect(() => {
@@ -211,26 +233,6 @@ export default function BrowsePage() {
     const interval = setInterval(pollConversations, 2000);
     return () => clearInterval(interval);
   }, [selectedFile, repoPath]);
-
-  const loadTree = async (subPath: string = '') => {
-    try {
-      setLoading(true);
-      const url = `/api/browse/tree?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(subPath)}&depth=2`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to load tree');
-      const data = await res.json();
-      setTree(data.tree);
-      // Auto-expand root folder (path is empty string for root)
-      if (data.tree) {
-        setExpandedFolders(new Set([data.tree.path ?? '']));
-      }
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error loading tree');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadFile = async (filePath: string) => {
     try {

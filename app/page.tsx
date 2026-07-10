@@ -2,7 +2,7 @@
 
 import { GitPullRequest, Clock, CheckCircle, XCircle, GitMerge, Filter } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface PullRequest {
   id: number;
@@ -31,11 +31,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  useEffect(() => {
-    fetchPRs();
-  }, [statusFilter]);
-
-  const fetchPRs = async () => {
+  const fetchPRs = useCallback(async () => {
     setLoading(true);
     try {
       let url = '/api/prs?limit=50';
@@ -50,7 +46,11 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter]);
+
+  useEffect(() => {
+    fetchPRs();
+  }, [fetchPRs]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
