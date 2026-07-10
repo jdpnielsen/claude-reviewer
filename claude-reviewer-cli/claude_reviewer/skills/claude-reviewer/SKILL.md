@@ -118,7 +118,7 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `close <id>` / `delete <id>` | Abandon a PR without merging / wipe it entirely. |
 | `serve [--local\|--dev] [-p port]` | Start the web UI (default port 41729). Only ever suggest this to the human, don't run it yourself. |
 | `serve --check [-p port]` | Report whether the web UI is reachable; exits 0/1, starts nothing. Safe to run yourself. |
-| `open [id] [--dev] [-p port]` | Open the dashboard (or PR `id`) in a browser, starting the web UI first if needed. Only run this when the human explicitly asks you to open/show the review UI — it starts a server, so it's still their call by default, this is just the one case they've made that call themselves. |
+| `open [id] [-p port]` | Open the dashboard (or PR `id`) in a browser if the web UI is already running; otherwise reports that and suggests `serve` — never starts anything itself. Popping open a browser tab is still visible on the human's screen, so only run this when they've explicitly asked you to open/show the review UI. |
 | `stop` | Stop the web UI. |
 
 Full flag list: `claude-reviewer <command> --help`.

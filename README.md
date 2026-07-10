@@ -152,7 +152,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer serve --local` | Start the web UI locally (npm) |
 | `claude-reviewer serve --check` | Report whether the web UI is reachable; starts nothing |
 | `claude-reviewer stop` | Stop the web UI |
-| `claude-reviewer open [id]` | Open the dashboard (or a specific PR) in your browser, starting the web UI first if needed |
+| `claude-reviewer open [id]` | Open the dashboard (or a specific PR) in your browser; reports and suggests `serve` if it's not running yet |
 | `claude-reviewer skills install` | Install the bundled Claude Code skills (see below) |
 | `claude-reviewer skills list` | List the bundled Claude Code skills |
 

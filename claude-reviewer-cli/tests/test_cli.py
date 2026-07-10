@@ -120,17 +120,13 @@ class TestServeCheck:
 class TestOpenCommand:
     """Tests for the `open` CLI command."""
 
-    def test_opens_the_dashboard_without_starting_when_already_running(
+    def test_opens_the_dashboard_when_already_running(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """If the web UI is already reachable, `open` just opens the browser."""
+        """If the web UI is already reachable, `open` opens the browser to it."""
         monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: True)
         opened_urls: list[str] = []
         monkeypatch.setattr("webbrowser.open", opened_urls.append)
-        monkeypatch.setattr(
-            "claude_reviewer.cli.serve",
-            lambda **kwargs: pytest.fail("should not try to start an already-running web UI"),
-        )
 
         result = CliRunner().invoke(main, ["open"])
 
@@ -162,20 +158,24 @@ class TestOpenCommand:
         assert result.exit_code != 0
         assert opened_urls == []
 
-    def test_starts_the_web_ui_first_when_not_running(
+    def test_suggests_serve_instead_of_starting_it_when_not_running(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """If nothing is listening, `open` starts the web UI before opening the browser."""
+        """If nothing is listening, `open` reports that and points at `serve` — it never starts anything."""
         monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: False)
-        monkeypatch.setattr("claude_reviewer.cli.is_port_in_use", lambda port: True)
-        started: list[dict[str, object]] = []
-        monkeypatch.setattr("claude_reviewer.cli.serve", lambda **kwargs: started.append(kwargs))
-        monkeypatch.setattr("webbrowser.open", lambda url: None)
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *args, **kwargs: pytest.fail("open should not shell out to start anything"),
+        )
+        opened_urls: list[str] = []
+        monkeypatch.setattr("webbrowser.open", opened_urls.append)
 
         result = CliRunner().invoke(main, ["open"])
 
-        assert result.exit_code == 0
-        assert started
+        assert result.exit_code != 0
+        assert "claude-reviewer serve" in result.output
+        assert opened_urls == []
 
 
 class TestSkillsCommand:
