@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { filePath, lineNumber, endLineNumber, content, lineType, commentUuid, author, commitSha } = body;
+    const { filePath, lineNumber, endLineNumber, content, lineType, commentUuid, commitSha } = body;
 
     const pr = getPRByUuid(id);
     if (!pr) {
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           { status: 400 }
         );
       }
-      const replyUuid = addReply(commentUuid, content, author || 'user');
+      const replyUuid = addReply(commentUuid, content);
       return NextResponse.json({
         uuid: replyUuid,
         message: 'Reply added',
