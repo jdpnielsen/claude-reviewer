@@ -3,10 +3,34 @@
 from __future__ import annotations
 
 import contextlib
+import subprocess
 from pathlib import Path
 from typing import TypedDict
 
 from git import GitCommandError, Repo
+
+
+def get_global_git_user() -> tuple[str | None, str | None]:
+    """Read the machine's global git user.name/user.email, if configured.
+
+    Not tied to any specific repository - reflects whatever `git config
+    --global` resolves to, independent of GitOps' repo-scoped operations.
+    """
+    return (_try_global_git_config("user.name"), _try_global_git_config("user.email"))
+
+
+def _try_global_git_config(key: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--get", key],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        value = result.stdout.strip()
+        return value or None
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
 
 
 class GitResult(TypedDict, total=False):
