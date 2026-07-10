@@ -213,29 +213,37 @@ describe("PR Workflow E2E Tests", () => {
       if (!el) throw new Error(`Comment containing "${commentText}" not found`);
       const deleteBtn = await el.$(".delete-btn");
       if (!deleteBtn) throw new Error("Delete button not found");
-
-      // Don't await the click alongside the dialog promise: window.confirm()
-      // blocks the page's JS thread, so the click's own CDP round-trip can't
-      // resolve until the dialog is dismissed, which happens after this
-      // function returns. Awaiting both together deadlocks. Instead, keep the
-      // click's promise and hand it back so the caller can drain it after
-      // resolving the dialog - leaving it truly unawaited seems to leave a
-      // pending CDP command that blocks later commands (e.g. navigation) on
-      // the same session.
-      const dialogPromise = new Promise<import("puppeteer").Dialog>((resolve) => page.once("dialog", resolve));
-      const clickPromise = deleteBtn.click();
-      const dialog = await dialogPromise;
-      return { dialog, clickPromise };
+      await deleteBtn.click();
+      await page.waitForSelector(".confirm-dialog-backdrop", { timeout: 5000 });
     }
 
-    // The first page.goto() issued anywhere after Puppeteer resolves a native
-    // JS dialog (confirm/alert/prompt) via CDP reliably times out, even though
-    // Chrome finishes the navigation shortly after; a fresh goto() call right
-    // afterward succeeds normally. Since this file's only dialogs come from
-    // comment deletion, only navigations near a delete need this retry. The
-    // first attempt is expected to fail, so it uses a short timeout rather
-    // than waiting out Puppeteer's full default.
-    async function gotoAfterDialog(url: string, options: Parameters<Page['goto']>[1]) {
+    async function confirmDialogMessage(): Promise<string> {
+      return page.$eval(".confirm-dialog-message", (el) => el.textContent ?? "");
+    }
+
+    async function acceptConfirmDialog() {
+      await page.click(".confirm-dialog-confirm-btn");
+      await page.waitForSelector(".confirm-dialog-backdrop", { hidden: true, timeout: 5000 });
+    }
+
+    async function cancelConfirmDialog() {
+      await page.click(".confirm-dialog-cancel-btn");
+      await page.waitForSelector(".confirm-dialog-backdrop", { hidden: true, timeout: 5000 });
+    }
+
+    // The first page.goto() issued anywhere after Puppeteer dispatches a
+    // mouse click via CDP reliably times out - even a click with no dialog
+    // involved at all - though the server receives and answers the
+    // navigation request in milliseconds the whole time. A fresh goto() call
+    // right afterward always succeeds. Confirmed via instrumented diagnostic
+    // runs: server logs show a fast 200 response to the exact URL requested
+    // while the goto() promise itself never resolves, even to a different
+    // destination URL, ruling out same-URL navigation as the cause. This
+    // file's only clicks are the delete button and the dialog's
+    // Confirm/Cancel buttons, so only navigations immediately following one
+    // need the retry. The first attempt is expected to fail, so it uses a
+    // short timeout rather than waiting out Puppeteer's full default.
+    async function gotoAfterClick(url: string, options: Parameters<Page['goto']>[1]) {
       try {
         await page.goto(url, { ...options, timeout: 3000 });
       } catch (e) {
@@ -251,21 +259,20 @@ describe("PR Workflow E2E Tests", () => {
         { timeout: 20000 }
       );
 
-      const { dialog, clickPromise } = await clickDeleteButtonForComment("Please add documentation for this constant");
-      expect(dialog.message()).toBe("Delete this comment?");
-      await dialog.accept();
-      await clickPromise;
+      await clickDeleteButtonForComment("Please add documentation for this constant");
+      expect(await confirmDialogMessage()).toBe("Delete this comment?");
+      await acceptConfirmDialog();
 
       await page.waitForFunction(
         () => !document.body.textContent?.includes("Please add documentation for this constant"),
         { timeout: 10000 }
       );
 
-      await gotoAfterDialog(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await gotoAfterClick(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await new Promise((resolve) => setTimeout(resolve, 500));
       const content = await page.content();
       expect(content).not.toContain("Please add documentation for this constant");
-    }, 60000);
+    });
 
     test("mentions the reply count and removes both comment and reply", async () => {
       await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
@@ -274,10 +281,9 @@ describe("PR Workflow E2E Tests", () => {
         { timeout: 20000 }
       );
 
-      const { dialog, clickPromise } = await clickDeleteButtonForComment("This needs a reply-count test");
-      expect(dialog.message()).toBe("Delete this comment and its 1 reply?");
-      await dialog.accept();
-      await clickPromise;
+      await clickDeleteButtonForComment("This needs a reply-count test");
+      expect(await confirmDialogMessage()).toBe("Delete this comment and its 1 reply?");
+      await acceptConfirmDialog();
 
       await page.waitForFunction(
         () => !document.body.textContent?.includes("This needs a reply-count test"),
@@ -286,24 +292,23 @@ describe("PR Workflow E2E Tests", () => {
 
       const content = await page.content();
       expect(content).not.toContain("Good catch");
-    }, 60000);
+    });
 
     test("keeps the comment when the confirm dialog is cancelled", async () => {
       addComment(testPRUuid, "test.ts", 4, "Do not delete me");
-      await gotoAfterDialog(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await gotoAfterClick(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(
         () => document.body.textContent?.includes("Do not delete me"),
         { timeout: 20000 }
       );
 
-      const { dialog, clickPromise } = await clickDeleteButtonForComment("Do not delete me");
-      await dialog.dismiss();
-      await clickPromise;
+      await clickDeleteButtonForComment("Do not delete me");
+      await cancelConfirmDialog();
 
       await new Promise((resolve) => setTimeout(resolve, 500));
       const content = await page.content();
       expect(content).toContain("Do not delete me");
-    }, 60000);
+    });
   });
 
   describe("Navigation", () => {
