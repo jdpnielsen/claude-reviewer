@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 
+import { AuthorKind, ConversationStatus, LineType, PullRequestStatus, ReviewAction } from './enum';
 import { getGitUserIdentity } from './git';
 
 // Types
@@ -16,7 +17,7 @@ export interface PullRequest {
   head_ref: string;
   base_commit: string;
   head_commit: string;
-  status: 'pending' | 'approved' | 'changes_requested' | 'merged' | 'closed';
+  status: PullRequestStatus;
   created_at: string;
   updated_at: string;
 }
@@ -29,7 +30,7 @@ export interface Comment {
   line_number: number;
   end_line_number: number;
   commit_sha: string | null;
-  line_type: 'old' | 'new' | 'context';
+  line_type: LineType;
   content: string;
   resolved: boolean;
   created_at: string;
@@ -38,7 +39,7 @@ export interface Comment {
 export interface Review {
   id: number;
   pr_id: number;
-  action: 'approve' | 'request_changes' | 'comment';
+  action: ReviewAction;
   summary: string | null;
   created_at: string;
 }
@@ -58,14 +59,14 @@ export interface CommentReply {
   comment_id: number;
   author_id: number;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
 
 export interface Author {
   id: number;
-  kind: 'human' | 'agent';
+  kind: AuthorKind;
   name: string;
   email: string | null;
   created_at: string;
@@ -83,7 +84,7 @@ export interface RepoConversation {
   anchor_context_before: string | null;
   anchor_context_after: string | null;
   anchor_commit: string | null;
-  status: 'active' | 'orphaned' | 'resolved';
+  status: ConversationStatus;
   file_exists: boolean;
   current_line_number: number | null;
   created_at: string;
@@ -96,7 +97,7 @@ export interface RepoConversationMessage {
   conversation_id: number;
   author_id: number;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -572,7 +573,7 @@ export function addComment(
   filePath: string,
   lineNumber: number,
   content: string,
-  lineType: 'old' | 'new' | 'context' = 'new',
+  lineType: LineType = LineType.New,
   endLineNumber: number = lineNumber,
   commitSha: string | null = null,
 ): string {
@@ -658,7 +659,7 @@ export function deleteComment(commentUuid: string): boolean {
 
 export function submitReview(
   prUuid: string,
-  action: 'approve' | 'request_changes',
+  action: typeof ReviewAction.Approve | typeof ReviewAction.RequestChanges,
   summary?: string,
 ): boolean {
   const db = getDatabase();
@@ -668,7 +669,10 @@ export function submitReview(
     | undefined;
   if (!pr) throw new Error(`PR ${prUuid} not found`);
 
-  const newStatus = action === 'approve' ? 'approved' : 'changes_requested';
+  const newStatus =
+    action === ReviewAction.Approve
+      ? PullRequestStatus.Approved
+      : PullRequestStatus.ChangesRequested;
 
   const transaction = db.transaction(() => {
     db.prepare(`
@@ -778,7 +782,7 @@ export function createRepoConversation(
   filePath: string,
   lineNumber: number,
   content: string,
-  authorHint: 'human' | 'claude' = 'human',
+  authorKind: AuthorKind = AuthorKind.Human,
   anchor?: {
     content: string;
     contextBefore: string;
@@ -789,7 +793,9 @@ export function createRepoConversation(
   const db = getDatabase();
   const conversationUuid = generateUuid();
   const messageUuid = generateUuid();
-  const authorId = (authorHint === 'claude' ? getDefaultAgentAuthor() : getDefaultHumanAuthor()).id;
+  const authorId = (
+    authorKind === AuthorKind.Agent ? getDefaultAgentAuthor() : getDefaultHumanAuthor()
+  ).id;
 
   const transaction = db.transaction(() => {
     // Create conversation
@@ -836,7 +842,7 @@ export function listRepoConversations(
   options: {
     repoPath: string;
     filePath?: string;
-    status?: 'active' | 'orphaned' | 'resolved' | 'all';
+    status?: ConversationStatus | 'all';
     limit?: number;
   } = { repoPath: '' },
 ): RepoConversationWithMessages[] {
@@ -907,11 +913,13 @@ export function getRepoConversationWithMessages(uuid: string): RepoConversationW
 export function addRepoConversationMessage(
   conversationUuid: string,
   content: string,
-  authorHint: 'human' | 'claude' = 'human',
+  authorKind: AuthorKind = AuthorKind.Human,
 ): string {
   const db = getDatabase();
   const messageUuid = generateUuid();
-  const authorId = (authorHint === 'claude' ? getDefaultAgentAuthor() : getDefaultHumanAuthor()).id;
+  const authorId = (
+    authorKind === AuthorKind.Agent ? getDefaultAgentAuthor() : getDefaultHumanAuthor()
+  ).id;
 
   const conv = db
     .prepare('SELECT id FROM repo_conversations WHERE uuid = ?')
@@ -934,10 +942,7 @@ export function addRepoConversationMessage(
   return messageUuid;
 }
 
-export function updateRepoConversationStatus(
-  uuid: string,
-  status: 'active' | 'orphaned' | 'resolved',
-): boolean {
+export function updateRepoConversationStatus(uuid: string, status: ConversationStatus): boolean {
   const db = getDatabase();
   const result = db
     .prepare(`
@@ -1044,11 +1049,7 @@ export function getDefaultAgentAuthor(): Author {
   return author;
 }
 
-export function createAuthor(
-  kind: 'human' | 'agent',
-  name: string,
-  email: string | null = null,
-): Author {
+export function createAuthor(kind: AuthorKind, name: string, email: string | null = null): Author {
   const db = getDatabase();
   try {
     const result = db
@@ -1112,7 +1113,7 @@ export function deleteAuthor(id: number): void {
   }
 
   const defaultKey =
-    author.kind === 'human' ? 'default_human_author_id' : 'default_agent_author_id';
+    author.kind === AuthorKind.Human ? 'default_human_author_id' : 'default_agent_author_id';
   if (getSetting(defaultKey) === String(id)) {
     throw new Error(
       `Cannot delete "${author.name}" - it's the current default ${author.kind}. Set a different default first.`,
@@ -1126,7 +1127,8 @@ export function deleteAuthor(id: number): void {
 export function setDefaultAuthor(id: number): void {
   const author = getAuthorById(id);
   if (!author) throw new Error(`Author ${id} not found`);
-  const key = author.kind === 'human' ? 'default_human_author_id' : 'default_agent_author_id';
+  const key =
+    author.kind === AuthorKind.Human ? 'default_human_author_id' : 'default_agent_author_id';
   setSetting(key, String(id));
 }
 

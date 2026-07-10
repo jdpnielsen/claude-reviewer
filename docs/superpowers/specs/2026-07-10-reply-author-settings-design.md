@@ -93,7 +93,7 @@ export interface CommentReply {
   comment_id: number;
   author_id: number;
   author: string;                  // authors.name via JOIN — live, reflects renames
-  author_kind: 'human' | 'agent';  // authors.kind via JOIN
+  author_kind: AuthorKind;  // authors.kind via JOIN
   content: string;
   created_at: string;
 }

@@ -8,6 +8,7 @@ import {
   updateRepoConversationStatus,
   deleteRepoConversation,
 } from '@/lib/database';
+import { AuthorKind, ConversationStatus } from '@/lib/enum';
 
 // GET /api/browse/conversations - List conversations
 export async function GET(req: NextRequest) {
@@ -15,11 +16,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const repoPath = searchParams.get('repo');
     const filePath = searchParams.get('file') || undefined;
-    const status = (searchParams.get('status') || 'all') as
-      | 'active'
-      | 'orphaned'
-      | 'resolved'
-      | 'all';
+    const status = (searchParams.get('status') || 'all') as ConversationStatus | 'all';
     const limit = parseInt(searchParams.get('limit') || '100', 10);
 
     if (!repoPath) {
@@ -114,7 +111,14 @@ export async function POST(req: NextRequest) {
       // Continue without anchor if we can't read the file
     }
 
-    const uuid = createRepoConversation(repo, filePath, lineNumber, content, 'human', anchor);
+    const uuid = createRepoConversation(
+      repo,
+      filePath,
+      lineNumber,
+      content,
+      AuthorKind.Human,
+      anchor,
+    );
 
     return NextResponse.json({ uuid, success: true });
   } catch (error: unknown) {
@@ -133,7 +137,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'uuid and status are required' }, { status: 400 });
     }
 
-    if (!['active', 'orphaned', 'resolved'].includes(status)) {
+    if (!Object.values(ConversationStatus).includes(status)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
     }
 

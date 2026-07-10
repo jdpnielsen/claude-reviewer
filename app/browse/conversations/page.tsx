@@ -17,11 +17,12 @@ import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 
 import { useConfirm } from '@/components/ConfirmDialog';
+import { AuthorKind, ConversationStatus } from '@/lib/enum';
 
 interface ConversationMessage {
   uuid: string;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -33,7 +34,7 @@ interface Conversation {
   file_path: string;
   line_number: number;
   current_line_number: number | null;
-  status: 'active' | 'orphaned' | 'resolved';
+  status: ConversationStatus;
   file_exists: boolean;
   created_at: string;
   updated_at: string;
@@ -77,7 +78,7 @@ export default function ConversationsListPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'active' | 'orphaned' | 'resolved'>('all');
+  const [filter, setFilter] = useState<ConversationStatus | 'all'>('all');
   const [expandedConversation, setExpandedConversation] = useState<string | null>(null);
   const [conversationMessages, setConversationMessages] = useState<
     Record<string, ConversationMessage[]>
@@ -201,7 +202,7 @@ export default function ConversationsListPage() {
       const res = await fetch('/api/browse/conversations', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, status: 'resolved' }),
+        body: JSON.stringify({ uuid, status: ConversationStatus.Resolved }),
       });
       if (!res.ok) throw new Error('Failed to resolve conversation');
       await loadConversations();
@@ -306,10 +307,10 @@ export default function ConversationsListPage() {
   };
 
   const getStatusIcon = (conv: Conversation) => {
-    if (conv.status === 'resolved') {
+    if (conv.status === ConversationStatus.Resolved) {
       return <CheckCircle size={14} className="status-icon resolved" />;
     }
-    if (conv.status === 'orphaned' || !conv.file_exists) {
+    if (conv.status === ConversationStatus.Orphaned || !conv.file_exists) {
       return <AlertCircle size={14} className="status-icon orphaned" />;
     }
     return <Clock size={14} className="status-icon active" />;
@@ -392,7 +393,7 @@ export default function ConversationsListPage() {
               </button>
             </div>
             <div className="filter-tabs">
-              {(['all', 'active', 'orphaned', 'resolved'] as const).map((f) => (
+              {(['all', ...Object.values(ConversationStatus)] as const).map((f) => (
                 <button
                   key={f}
                   className={`filter-tab ${filter === f ? 'active' : ''}`}
@@ -485,14 +486,14 @@ export default function ConversationsListPage() {
                             {conversationMessages[conv.uuid].map((msg) => (
                               <div
                                 key={msg.uuid}
-                                className={`message ${msg.author_kind === 'agent' ? 'message-claude' : 'message-user'}`}
+                                className={`message ${msg.author_kind === AuthorKind.Agent ? 'message-claude' : 'message-user'}`}
                               >
                                 <span className="message-author">{msg.author}</span>
                                 <span className="message-content">{msg.content}</span>
                                 <span className="message-time">{formatDate(msg.created_at)}</span>
                               </div>
                             ))}
-                            {conv.status !== 'resolved' && (
+                            {conv.status !== ConversationStatus.Resolved && (
                               <div className="reply-form-inline">
                                 <textarea
                                   placeholder="Write a reply..."
@@ -521,7 +522,7 @@ export default function ConversationsListPage() {
                               <div className="claude-status-message">{claudeError}</div>
                             )}
                             <div className="conversation-actions">
-                              {conv.status !== 'resolved' && conv.file_exists && (
+                              {conv.status !== ConversationStatus.Resolved && conv.file_exists && (
                                 <>
                                   <button
                                     className="claude-respond-btn"
@@ -555,7 +556,7 @@ export default function ConversationsListPage() {
                                   </button>
                                 </>
                               )}
-                              {conv.status !== 'resolved' && (
+                              {conv.status !== ConversationStatus.Resolved && (
                                 <button
                                   className="resolve-btn"
                                   onClick={(e) => {

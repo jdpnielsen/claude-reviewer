@@ -44,6 +44,7 @@ import {
   listRepoConversations,
   getRepoConversationWithMessages,
 } from '../lib/database';
+import { AuthorKind, LineType, PullRequestStatus, ReviewAction } from '../lib/enum';
 
 describe('Database Module', () => {
   afterAll(() => {
@@ -82,7 +83,7 @@ describe('Database Module', () => {
       expect(pr?.title).toBe('Test PR');
       expect(pr?.base_ref).toBe('main');
       expect(pr?.head_ref).toBe('feature');
-      expect(pr?.status).toBe('pending');
+      expect(pr?.status).toBe(PullRequestStatus.Pending);
       expect(pr?.description).toBe('Test description');
     });
 
@@ -116,17 +117,17 @@ describe('Database Module', () => {
     });
 
     test('listPRs filters by status', () => {
-      const prs = listPRs({ status: 'pending' });
+      const prs = listPRs({ status: PullRequestStatus.Pending });
       expect(prs.length).toBeGreaterThanOrEqual(1);
-      prs.forEach((pr) => expect(pr.status).toBe('pending'));
+      prs.forEach((pr) => expect(pr.status).toBe(PullRequestStatus.Pending));
     });
 
     test('updatePRStatus updates PR status', () => {
-      const result = updatePRStatus(testPRUuid, 'approved');
+      const result = updatePRStatus(testPRUuid, PullRequestStatus.Approved);
       expect(result).toBe(true);
 
       const pr = getPRByUuid(testPRUuid);
-      expect(pr?.status).toBe('approved');
+      expect(pr?.status).toBe(PullRequestStatus.Approved);
     });
 
     test('getLatestDiff returns diff content', () => {
@@ -219,7 +220,15 @@ describe('Database Module', () => {
 
     test('addComment defaults commit_sha to null and stores it when provided', () => {
       const cumulativeUuid = addComment(prUuid, 'scoped.py', 1, 'cumulative comment');
-      const scopedUuid = addComment(prUuid, 'scoped.py', 2, 'commit comment', 'new', 2, 'abc1234');
+      const scopedUuid = addComment(
+        prUuid,
+        'scoped.py',
+        2,
+        'commit comment',
+        LineType.New,
+        2,
+        'abc1234',
+      );
 
       const fileComments = getComments(prUuid, { filePath: 'scoped.py' });
       const cumulative = fileComments.find((c) => c.uuid === cumulativeUuid);
@@ -238,24 +247,24 @@ describe('Database Module', () => {
     });
 
     test('submitReview approves PR', () => {
-      const result = submitReview(prUuid, 'approve', 'LGTM!');
+      const result = submitReview(prUuid, ReviewAction.Approve, 'LGTM!');
       expect(result).toBe(true);
 
       const pr = getPRByUuid(prUuid);
-      expect(pr?.status).toBe('approved');
+      expect(pr?.status).toBe(PullRequestStatus.Approved);
     });
 
     test('submitReview requests changes', () => {
-      const result = submitReview(prUuid, 'request_changes', 'Needs work');
+      const result = submitReview(prUuid, ReviewAction.RequestChanges, 'Needs work');
       expect(result).toBe(true);
 
       const pr = getPRByUuid(prUuid);
-      expect(pr?.status).toBe('changes_requested');
+      expect(pr?.status).toBe(PullRequestStatus.ChangesRequested);
     });
 
     test('submitReview throws for non-existent PR', () => {
       expect(() => {
-        submitReview('nonexistent', 'approve');
+        submitReview('nonexistent', ReviewAction.Approve);
       }).toThrow('PR nonexistent not found');
     });
 
@@ -265,8 +274,8 @@ describe('Database Module', () => {
 
       // Check both actions are present (order may vary due to fast insertion)
       const actions = reviews.map((r) => r.action);
-      expect(actions).toContain('approve');
-      expect(actions).toContain('request_changes');
+      expect(actions).toContain(ReviewAction.Approve);
+      expect(actions).toContain(ReviewAction.RequestChanges);
     });
 
     test('getReviews returns empty for non-existent PR', () => {
@@ -278,27 +287,27 @@ describe('Database Module', () => {
   describe('Author Operations', () => {
     test('seeding creates exactly one agent row named claude', () => {
       const authors = listAuthors();
-      const agents = authors.filter((a) => a.kind === 'agent');
+      const agents = authors.filter((a) => a.kind === AuthorKind.Agent);
       expect(agents.length).toBe(1);
       expect(agents[0].name).toBe('claude');
     });
 
     test('seeding creates exactly one human row', () => {
       const authors = listAuthors();
-      const humans = authors.filter((a) => a.kind === 'human');
+      const humans = authors.filter((a) => a.kind === AuthorKind.Human);
       expect(humans.length).toBe(1);
     });
 
     test('getDefaultHumanAuthor and getDefaultAgentAuthor resolve the seeded rows', () => {
       const human = getDefaultHumanAuthor();
       const agent = getDefaultAgentAuthor();
-      expect(human.kind).toBe('human');
-      expect(agent.kind).toBe('agent');
+      expect(human.kind).toBe(AuthorKind.Human);
+      expect(agent.kind).toBe(AuthorKind.Agent);
       expect(agent.name).toBe('claude');
     });
 
     test('createAuthor adds a new row and getAuthorByName finds it case-insensitively', () => {
-      const created = createAuthor('human', 'Alice', 'alice@example.com');
+      const created = createAuthor(AuthorKind.Human, 'Alice', 'alice@example.com');
       expect(created.id).toBeDefined();
       expect(created.email).toBe('alice@example.com');
 
@@ -307,20 +316,20 @@ describe('Database Module', () => {
     });
 
     test('createAuthor rejects a duplicate name case-insensitively', () => {
-      createAuthor('human', 'Bob');
-      expect(() => createAuthor('human', 'bob')).toThrow(/already exists/i);
+      createAuthor(AuthorKind.Human, 'Bob');
+      expect(() => createAuthor(AuthorKind.Human, 'bob')).toThrow(/already exists/i);
     });
 
     test('updateAuthor changes name and email without touching kind', () => {
-      const created = createAuthor('human', 'Carol');
+      const created = createAuthor(AuthorKind.Human, 'Carol');
       const updated = updateAuthor(created.id, { name: 'Caroline', email: 'c@example.com' });
       expect(updated.name).toBe('Caroline');
       expect(updated.email).toBe('c@example.com');
-      expect(updated.kind).toBe('human');
+      expect(updated.kind).toBe(AuthorKind.Human);
     });
 
     test('deleteAuthor refuses to delete an author referenced by a reply', () => {
-      const author = createAuthor('human', 'Dave');
+      const author = createAuthor(AuthorKind.Human, 'Dave');
       const prUuid = createPR(
         '/repo/authors',
         'Author Test PR',
@@ -352,13 +361,13 @@ describe('Database Module', () => {
     });
 
     test('deleteAuthor succeeds for an unreferenced, non-default author', () => {
-      const author = createAuthor('human', 'Eve');
+      const author = createAuthor(AuthorKind.Human, 'Eve');
       deleteAuthor(author.id);
       expect(getAuthorById(author.id)).toBeUndefined();
     });
 
     test("setDefaultAuthor repoints the default for that author's kind", () => {
-      const newHuman = createAuthor('human', 'Frank');
+      const newHuman = createAuthor(AuthorKind.Human, 'Frank');
       setDefaultAuthor(newHuman.id);
       expect(getDefaultHumanAuthor().id).toBe(newHuman.id);
     });
@@ -380,7 +389,7 @@ describe('Database Module', () => {
       const replies = getReplies(commentUuid);
       const reply = replies.find((r) => r.uuid === replyUuid);
       expect(reply?.author).toBe(getDefaultHumanAuthor().name);
-      expect(reply?.author_kind).toBe('human');
+      expect(reply?.author_kind).toBe(AuthorKind.Human);
     });
 
     test('renaming the default human author retroactively updates past replies', () => {
@@ -396,7 +405,7 @@ describe('Database Module', () => {
     test('getCommentsWithReplies includes author_kind on each reply', () => {
       const withReplies = getCommentsWithReplies(prUuid);
       const target = withReplies.find((c) => c.comment.uuid === commentUuid);
-      expect(target?.replies.every((r) => r.author_kind === 'human')).toBe(true);
+      expect(target?.replies.every((r) => r.author_kind === AuthorKind.Human)).toBe(true);
     });
   });
 
@@ -405,7 +414,7 @@ describe('Database Module', () => {
       const convUuid = createRepoConversation('/repo/conv', 'file.py', 10, 'first message');
       const withMessages = getRepoConversationWithMessages(convUuid);
       expect(withMessages?.messages[0].author).toBe(getDefaultHumanAuthor().name);
-      expect(withMessages?.messages[0].author_kind).toBe('human');
+      expect(withMessages?.messages[0].author_kind).toBe(AuthorKind.Human);
     });
 
     test("createRepoConversation with 'claude' hint attributes to the default agent", () => {
@@ -414,26 +423,26 @@ describe('Database Module', () => {
         'file2.py',
         5,
         "claude's opening",
-        'claude',
+        AuthorKind.Agent,
       );
       const withMessages = getRepoConversationWithMessages(convUuid);
       expect(withMessages?.messages[0].author).toBe('claude');
-      expect(withMessages?.messages[0].author_kind).toBe('agent');
+      expect(withMessages?.messages[0].author_kind).toBe(AuthorKind.Agent);
     });
 
     test("addRepoConversationMessage with 'claude' hint attributes to the default agent", () => {
       const convUuid = createRepoConversation('/repo/conv', 'file3.py', 1, 'human message');
-      addRepoConversationMessage(convUuid, "claude's reply", 'claude');
+      addRepoConversationMessage(convUuid, "claude's reply", AuthorKind.Agent);
 
       const withMessages = getRepoConversationWithMessages(convUuid);
       expect(withMessages?.messages[1].author).toBe('claude');
-      expect(withMessages?.messages[1].author_kind).toBe('agent');
+      expect(withMessages?.messages[1].author_kind).toBe(AuthorKind.Agent);
     });
 
     test('listRepoConversations includes author_kind on each message', () => {
       createRepoConversation('/repo/conv-list', 'file.py', 1, 'a message');
       const list = listRepoConversations({ repoPath: '/repo/conv-list' });
-      expect(list[0].messages[0].author_kind).toBe('human');
+      expect(list[0].messages[0].author_kind).toBe(AuthorKind.Human);
     });
   });
 });

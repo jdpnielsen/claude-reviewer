@@ -4,10 +4,11 @@ import { Trash2, Star, Pencil } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 import { useConfirm } from '@/components/ConfirmDialog';
+import { AuthorKind } from '@/lib/enum';
 
 interface Author {
   id: number;
-  kind: 'human' | 'agent';
+  kind: AuthorKind;
   name: string;
   email: string | null;
   isDefaultHuman: boolean;
@@ -30,7 +31,7 @@ export default function SettingsPage() {
   const [editEmail, setEditEmail] = useState('');
 
   const [newName, setNewName] = useState('');
-  const [newKind, setNewKind] = useState<'human' | 'agent'>('human');
+  const [newKind, setNewKind] = useState<AuthorKind>(AuthorKind.Human);
   const [newEmail, setNewEmail] = useState('');
   const confirm = useConfirm();
 
@@ -153,10 +154,10 @@ export default function SettingsPage() {
           <tbody>
             {authors.map((author) => {
               const isDefault =
-                author.kind === 'human' ? author.isDefaultHuman : author.isDefaultAgent;
+                author.kind === AuthorKind.Human ? author.isDefaultHuman : author.isDefaultAgent;
               const showGitHint =
                 isDefault &&
-                author.kind === 'human' &&
+                author.kind === AuthorKind.Human &&
                 gitSuggestion &&
                 (gitSuggestion.name !== author.name ||
                   (gitSuggestion.email || null) !== author.email);
@@ -220,7 +221,7 @@ export default function SettingsPage() {
 
         <div className="add-author-form">
           <input placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <select value={newKind} onChange={(e) => setNewKind(e.target.value as 'human' | 'agent')}>
+          <select value={newKind} onChange={(e) => setNewKind(e.target.value as AuthorKind)}>
             <option value="human">human</option>
             <option value="agent">agent</option>
           </select>

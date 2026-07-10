@@ -14,6 +14,8 @@ import {
 import { Highlight, themes } from 'prism-react-renderer';
 import { useState, useEffect, useCallback } from 'react';
 
+import { AuthorKind, ConversationStatus } from '@/lib/enum';
+
 // Types
 interface TreeNode {
   name: string;
@@ -26,7 +28,7 @@ interface TreeNode {
 interface ConversationMessage {
   uuid: string;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -35,7 +37,7 @@ interface Conversation {
   uuid: string;
   line_number: number;
   current_line_number: number | null;
-  status: 'active' | 'orphaned' | 'resolved';
+  status: ConversationStatus;
   message_count: number;
   latest_message: ConversationMessage | null;
 }
@@ -46,7 +48,7 @@ interface ConversationWithMessages {
     file_path: string;
     line_number: number;
     current_line_number: number | null;
-    status: string;
+    status: ConversationStatus;
   };
   messages: ConversationMessage[];
 }
@@ -211,7 +213,10 @@ export default function BrowsePage() {
               }));
 
               // Check if Claude has responded - remove from pending if last message is from Claude
-              if (messages.length > 0 && messages[messages.length - 1].author_kind === 'agent') {
+              if (
+                messages.length > 0 &&
+                messages[messages.length - 1].author_kind === AuthorKind.Agent
+              ) {
                 setClaudeResponding((prev) => {
                   if (prev.has(conv.uuid)) {
                     const next = new Set(prev);
@@ -428,7 +433,7 @@ export default function BrowsePage() {
       const res = await fetch('/api/browse/conversations', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, status: 'resolved' }),
+        body: JSON.stringify({ uuid, status: ConversationStatus.Resolved }),
       });
 
       if (!res.ok) throw new Error('Failed to resolve conversation');
@@ -487,7 +492,9 @@ export default function BrowsePage() {
 
   const getLineConversations = (lineNumber: number): Conversation[] => {
     return fileConversations.filter(
-      (c) => (c.current_line_number || c.line_number) === lineNumber && c.status !== 'resolved',
+      (c) =>
+        (c.current_line_number || c.line_number) === lineNumber &&
+        c.status !== ConversationStatus.Resolved,
     );
   };
 
@@ -636,11 +643,11 @@ export default function BrowsePage() {
                               {lineConversations.map((conv) => (
                                 <div
                                   key={conv.uuid}
-                                  className={`inline-comment ${conv.status === 'orphaned' ? 'orphaned' : ''}`}
+                                  className={`inline-comment ${conv.status === ConversationStatus.Orphaned ? 'orphaned' : ''}`}
                                 >
                                   <div className="comment-header">
                                     <span className="comment-meta">
-                                      {conv.status === 'orphaned' && (
+                                      {conv.status === ConversationStatus.Orphaned && (
                                         <span className="orphaned-badge">
                                           <AlertCircle size={12} />
                                           Line changed
@@ -663,7 +670,7 @@ export default function BrowsePage() {
                                       {conversationMessages[conv.uuid].map((msg) => (
                                         <div
                                           key={msg.uuid}
-                                          className={`comment-reply ${msg.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}
+                                          className={`comment-reply ${msg.author_kind === AuthorKind.Agent ? 'reply-claude' : 'reply-human'}`}
                                         >
                                           <span className="reply-author">{msg.author}:</span>
                                           <span className="reply-content">{msg.content}</span>
@@ -681,7 +688,7 @@ export default function BrowsePage() {
                                   )}
 
                                   {/* Reply form - always visible for active conversations */}
-                                  {conv.status !== 'resolved' && (
+                                  {conv.status !== ConversationStatus.Resolved && (
                                     <div className="reply-form">
                                       <textarea
                                         placeholder="Reply..."

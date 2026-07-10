@@ -31,6 +31,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { useConfirm } from '@/components/ConfirmDialog';
+import { AuthorKind, ChangeType, LineType, PullRequestStatus, ReviewAction } from '@/lib/enum';
 
 // Map file extensions to Prism language identifiers
 const getLanguage = (filePath: string): string => {
@@ -75,7 +76,7 @@ interface PullRequest {
   description: string;
   base_ref: string;
   head_ref: string;
-  status: 'pending' | 'approved' | 'changes_requested' | 'merged' | 'closed';
+  status: PullRequestStatus;
   created_at: string;
   updated_at: string;
 }
@@ -84,7 +85,7 @@ interface CommentReply {
   id: number;
   uuid: string;
   author: string;
-  author_kind: 'human' | 'agent';
+  author_kind: AuthorKind;
   content: string;
   created_at: string;
 }
@@ -96,7 +97,7 @@ interface Comment {
   line_number: number;
   end_line_number: number;
   commit_sha: string | null;
-  line_type: 'old' | 'new' | 'context';
+  line_type: LineType;
   content: string;
   resolved: boolean;
   created_at: string;
@@ -109,7 +110,7 @@ interface CommentWithReplies {
 
 interface FileInfo {
   path: string;
-  changeType: 'added' | 'modified' | 'deleted' | 'renamed';
+  changeType: ChangeType;
   additions: number;
   deletions: number;
 }
@@ -234,13 +235,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     file: string;
     startLine: number;
     endLine: number;
-    lineType: 'old' | 'new';
+    lineType: LineType;
   } | null>(null);
   const [lastClickedLine, setLastClickedLine] = useState<{
     file: string;
     hunkIndex: number;
     line: number;
-    lineType: 'old' | 'new';
+    lineType: LineType;
   } | null>(null);
   const [newComment, setNewComment] = useState('');
   const [editingComment, setEditingComment] = useState<{ uuid: string; content: string } | null>(
@@ -646,7 +647,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       id: Date.now(),
       uuid: `temp-${Date.now()}`,
       author: defaultAuthorName,
-      author_kind: 'human',
+      author_kind: AuthorKind.Human,
       content: replyContent,
       created_at: new Date().toISOString(),
     };
@@ -772,7 +773,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
-  const submitReview = async (action: 'approve' | 'request_changes') => {
+  const submitReview = async (
+    action: typeof ReviewAction.Approve | typeof ReviewAction.RequestChanges,
+  ) => {
     setSubmitting(true);
     try {
       await fetch(`/api/prs/${id}/review`, {
@@ -1062,7 +1065,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           </div>
 
           {/* Review Panel */}
-          {pr.status !== 'merged' && (
+          {pr.status !== PullRequestStatus.Merged && (
             <div className="sidebar-section review-panel">
               <h3>Submit Review</h3>
               <textarea
@@ -1074,7 +1077,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
               <div className="review-actions">
                 <button
                   className="btn-approve"
-                  onClick={() => submitReview('approve')}
+                  onClick={() => submitReview(ReviewAction.Approve)}
                   disabled={submitting}
                 >
                   <CheckCircle size={16} />
@@ -1082,14 +1085,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                 </button>
                 <button
                   className="btn-request-changes"
-                  onClick={() => submitReview('request_changes')}
+                  onClick={() => submitReview(ReviewAction.RequestChanges)}
                   disabled={submitting}
                 >
                   <XCircle size={16} />
                   Request Changes
                 </button>
               </div>
-              {pr.status === 'approved' && (
+              {pr.status === PullRequestStatus.Approved && (
                 <div className="approved-notice">
                   <CheckCircle size={16} />
                   Approved - Ready for merge
@@ -1247,9 +1250,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
                             const currentLine = newLineNum;
                             const anchorLine = line.startsWith('-') ? oldLineNum : newLineNum;
-                            const anchorLineType: 'old' | 'new' = line.startsWith('-')
-                              ? 'old'
-                              : 'new';
+                            const anchorLineType: LineType = line.startsWith('-')
+                              ? LineType.Old
+                              : LineType.New;
                             // Frozen per-iteration snapshot — hunkIndex itself is a single mutable
                             // binding shared across the whole render pass, so closures (e.g. the
                             // click handler below) must not capture it directly.
@@ -1259,8 +1262,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                             const lineComments = fileComments.filter((c) => {
                               if (line.startsWith('@@')) return false;
                               const sideMatches = line.startsWith('-')
-                                ? c.comment.line_type === 'old'
-                                : c.comment.line_type !== 'old';
+                                ? c.comment.line_type === LineType.Old
+                                : c.comment.line_type !== LineType.Old;
                               return sideMatches && anchorLine === c.comment.end_line_number;
                             });
 
@@ -1268,8 +1271,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                             const isInSavedCommentRange = fileComments.some((c) => {
                               if (line.startsWith('@@')) return false;
                               const sideMatches = line.startsWith('-')
-                                ? c.comment.line_type === 'old'
-                                : c.comment.line_type !== 'old';
+                                ? c.comment.line_type === LineType.Old
+                                : c.comment.line_type !== LineType.Old;
                               return (
                                 sideMatches &&
                                 anchorLine >= c.comment.line_number &&
@@ -1515,7 +1518,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
                                             {replies.map((r) => (
                                               <div
                                                 key={r.uuid}
-                                                className={`comment-reply ${r.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}
+                                                className={`comment-reply ${r.author_kind === AuthorKind.Agent ? 'reply-claude' : 'reply-human'}`}
                                               >
                                                 <span className="reply-author">{r.author}:</span>
                                                 <span className="reply-content">{r.content}</span>

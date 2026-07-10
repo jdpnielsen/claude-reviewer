@@ -9,6 +9,7 @@ import {
   updateRepoConversationStatus,
   RepoConversationWithMessages,
 } from '@/lib/database';
+import { ConversationStatus } from '@/lib/enum';
 
 // Relocate a conversation's anchor in the current file content
 // Returns the new line number or null if not found
@@ -143,7 +144,7 @@ export async function GET(req: NextRequest) {
     // Relocate anchors and update conversation positions
     const conversations = conversationsData.map((c) => {
       // Only try to relocate active/orphaned conversations that have anchors
-      if (c.conversation.status !== 'resolved' && c.conversation.anchor_content) {
+      if (c.conversation.status !== ConversationStatus.Resolved && c.conversation.anchor_content) {
         const newLineNumber = relocateAnchor(c, allLines);
 
         if (newLineNumber !== null) {
@@ -152,27 +153,27 @@ export async function GET(req: NextRequest) {
             updateRepoConversationAnchor(c.conversation.uuid, newLineNumber, true);
           }
           // If it was orphaned but now found, restore to active
-          if (c.conversation.status === 'orphaned') {
-            updateRepoConversationStatus(c.conversation.uuid, 'active');
+          if (c.conversation.status === ConversationStatus.Orphaned) {
+            updateRepoConversationStatus(c.conversation.uuid, ConversationStatus.Active);
           }
           return {
             uuid: c.conversation.uuid,
             line_number: c.conversation.line_number,
             current_line_number: newLineNumber,
-            status: 'active' as const,
+            status: ConversationStatus.Active,
             message_count: c.message_count,
             latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null,
           };
         } else {
           // Anchor not found - mark as orphaned
-          if (c.conversation.status !== 'orphaned') {
-            updateRepoConversationStatus(c.conversation.uuid, 'orphaned');
+          if (c.conversation.status !== ConversationStatus.Orphaned) {
+            updateRepoConversationStatus(c.conversation.uuid, ConversationStatus.Orphaned);
           }
           return {
             uuid: c.conversation.uuid,
             line_number: c.conversation.line_number,
             current_line_number: c.conversation.current_line_number || c.conversation.line_number,
-            status: 'orphaned' as const,
+            status: ConversationStatus.Orphaned,
             message_count: c.message_count,
             latest_message: c.messages.length > 0 ? c.messages[c.messages.length - 1] : null,
           };

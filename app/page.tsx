@@ -4,6 +4,8 @@ import { GitPullRequest, Clock, CheckCircle, XCircle, GitMerge, Filter } from 'l
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 
+import { PullRequestStatus } from '@/lib/enum';
+
 interface PullRequest {
   id: number;
   uuid: string;
@@ -12,7 +14,7 @@ interface PullRequest {
   description: string;
   base_ref: string;
   head_ref: string;
-  status: 'pending' | 'approved' | 'changes_requested' | 'merged' | 'closed';
+  status: PullRequestStatus;
   created_at: string;
   updated_at: string;
 }
