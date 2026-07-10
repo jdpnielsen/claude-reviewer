@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useConfirm } from '@/components/ConfirmDialog';
 import {
   MessageSquare,
   File,
@@ -80,6 +81,7 @@ export default function ConversationsListPage() {
   const [replyContent, setReplyContent] = useState('');
   const [claudeResponding, setClaudeResponding] = useState<string | null>(null);
   const [claudeError, setClaudeError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   // Load recent repos on mount
   useEffect(() => {
@@ -199,7 +201,7 @@ export default function ConversationsListPage() {
   };
 
   const deleteConversation = async (uuid: string) => {
-    if (!confirm('Are you sure you want to delete this conversation?')) return;
+    if (!(await confirm('Are you sure you want to delete this conversation?', { danger: true }))) return;
 
     try {
       const res = await fetch(`/api/browse/conversations?uuid=${uuid}`, {
