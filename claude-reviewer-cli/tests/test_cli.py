@@ -82,6 +82,41 @@ class TestStopCommand:
         assert "Stopped" in result.output
 
 
+class TestServeCheck:
+    """Tests for `serve --check`."""
+
+    def test_reports_running_and_exits_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--check exits 0 and says so when the web UI is reachable."""
+        monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: True)
+
+        result = CliRunner().invoke(main, ["serve", "--check"])
+
+        assert result.exit_code == 0
+        assert "running" in result.output.lower()
+
+    def test_reports_not_running_and_exits_nonzero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--check exits non-zero and says so when nothing is listening on the port."""
+        monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: False)
+
+        result = CliRunner().invoke(main, ["serve", "--check"])
+
+        assert result.exit_code != 0
+        assert "not running" in result.output.lower()
+
+    def test_does_not_attempt_to_start_anything(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--check never touches docker or npm, regardless of whether the UI is up."""
+        monkeypatch.setattr("claude_reviewer.cli.is_web_ui_running", lambda port: False)
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *args, **kwargs: pytest.fail("serve --check should not shell out"),
+        )
+
+        result = CliRunner().invoke(main, ["serve", "--check"])
+
+        assert result.exit_code != 0
+
+
 class TestSkillsCommand:
     """Tests for `skills list` and `skills install`."""
 

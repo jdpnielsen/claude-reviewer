@@ -77,6 +77,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `update` | Update PR diff after making changes |
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
+| `serve --check` | Report whether the web UI is reachable; starts nothing |
 | `stop` | Stop the web UI |
 | `skills install` / `skills list` | Install/list the bundled Claude Code skills (see below) |
 
