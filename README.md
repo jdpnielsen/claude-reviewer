@@ -146,6 +146,8 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer status <id>` | Check PR status (pending/approved/changes_requested) |
 | `claude-reviewer comments <id>` | Get inline comments with file:line references |
 | `claude-reviewer show <id>` | Show detailed PR information |
+| `claude-reviewer reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment; `-a` defaults to `claude`, or use `-a me`/`-a <name>` |
+| `claude-reviewer authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities used for reply attribution |
 | `claude-reviewer update <id>` | Update PR diff after making changes |
 | `claude-reviewer merge <id>` | Merge an approved PR |
 | `claude-reviewer serve` | Start the web UI (Docker) |
