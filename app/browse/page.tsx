@@ -27,6 +27,7 @@ interface TreeNode {
 interface ConversationMessage {
   uuid: string;
   author: string;
+  author_kind: 'human' | 'agent';
   content: string;
   created_at: string;
 }
@@ -183,7 +184,7 @@ export default function BrowsePage() {
               }));
 
               // Check if Claude has responded - remove from pending if last message is from Claude
-              if (messages.length > 0 && messages[messages.length - 1].author === 'claude') {
+              if (messages.length > 0 && messages[messages.length - 1].author_kind === 'agent') {
                 setClaudeResponding(prev => {
                   if (prev.has(conv.uuid)) {
                     const next = new Set(prev);
@@ -369,8 +370,7 @@ export default function BrowsePage() {
           repo: repoPath,
           filePath: selectedFile,
           lineNumber: commentingAt,
-          content: newComment,
-          author: 'user'
+          content: newComment
         })
       });
 
@@ -399,8 +399,7 @@ export default function BrowsePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: replyContent,
-          author: 'user'
+          content: replyContent
         })
       });
 
@@ -650,7 +649,7 @@ export default function BrowsePage() {
                                       {conversationMessages[conv.uuid].map(msg => (
                                         <div
                                           key={msg.uuid}
-                                          className={`comment-reply ${msg.author === 'claude' ? 'reply-claude' : 'reply-ben'}`}
+                                          className={`comment-reply ${msg.author_kind === 'agent' ? 'reply-claude' : 'reply-human'}`}
                                         >
                                           <span className="reply-author">{msg.author}:</span>
                                           <span className="reply-content">{msg.content}</span>
