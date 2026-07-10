@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { GitPullRequest, FolderTree, MessageSquare } from 'lucide-react';
+import { GitPullRequest, FolderTree, MessageSquare, Settings } from 'lucide-react';
 
 export function HeaderNav() {
   const pathname = usePathname();
@@ -13,6 +13,9 @@ export function HeaderNav() {
     }
     if (path === '/browse') {
       return pathname === '/browse';
+    }
+    if (path === '/settings') {
+      return pathname.startsWith('/settings');
     }
     return pathname.startsWith(path);
   };
@@ -39,6 +42,13 @@ export function HeaderNav() {
       >
         <MessageSquare size={16} />
         Conversations
+      </Link>
+      <Link
+        href="/settings"
+        className={`nav-tab ${isActive('/settings') ? 'active' : ''}`}
+      >
+        <Settings size={16} />
+        Settings
       </Link>
     </nav>
   );
