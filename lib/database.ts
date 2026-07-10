@@ -55,7 +55,9 @@ export interface CommentReply {
   id: number;
   uuid: string;
   comment_id: number;
+  author_id: number;
   author: string;
+  author_kind: 'human' | 'agent';
   content: string;
   created_at: string;
 }
@@ -659,22 +661,19 @@ export function getReviews(prUuid: string): Review[] {
 // Comment Reply Operations
 // =============================================================================
 
-export function addReply(
-  commentUuid: string,
-  content: string,
-  author: string = 'user'
-): string {
+export function addReply(commentUuid: string, content: string): string {
   const db = getDatabase();
   const replyUuid = generateUuid();
+  const authorId = getDefaultHumanAuthor().id;
 
   const comment = db.prepare('SELECT id, pr_id FROM comments WHERE uuid = ?').get(commentUuid) as { id: number; pr_id: number } | undefined;
   if (!comment) throw new Error(`Comment ${commentUuid} not found`);
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO comment_replies (uuid, comment_id, author, content)
+      INSERT INTO comment_replies (uuid, comment_id, author_id, content)
       VALUES (?, ?, ?, ?)
-    `).run(replyUuid, comment.id, author, content);
+    `).run(replyUuid, comment.id, authorId, content);
 
     db.prepare(
       'UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?'
@@ -693,7 +692,11 @@ export function getReplies(commentUuid: string): CommentReply[] {
   if (!comment) return [];
 
   return db.prepare(`
-    SELECT * FROM comment_replies WHERE comment_id = ? ORDER BY created_at
+    SELECT cr.id, cr.uuid, cr.comment_id, cr.author_id, a.name AS author, a.kind AS author_kind, cr.content, cr.created_at
+    FROM comment_replies cr
+    JOIN authors a ON a.id = cr.author_id
+    WHERE cr.comment_id = ?
+    ORDER BY cr.created_at
   `).all(comment.id) as CommentReply[];
 }
 

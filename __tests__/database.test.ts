@@ -36,6 +36,9 @@ import {
   updateAuthor,
   deleteAuthor,
   setDefaultAuthor,
+  addReply,
+  getReplies,
+  getCommentsWithReplies,
 } from "../lib/database";
 
 describe("Database Module", () => {
@@ -358,6 +361,42 @@ describe("Database Module", () => {
       const newHuman = createAuthor("human", "Frank");
       setDefaultAuthor(newHuman.id);
       expect(getDefaultHumanAuthor().id).toBe(newHuman.id);
+    });
+  });
+
+  describe("Comment Reply Operations", () => {
+    let prUuid: string;
+    let commentUuid: string;
+
+    beforeAll(() => {
+      prUuid = createPR("/repo/replies", "Reply Test PR", "main", "feature", "a", "b", "diff");
+      commentUuid = addComment(prUuid, "file.py", 1, "a comment");
+    });
+
+    test("addReply always attributes to the default human author", () => {
+      const replyUuid = addReply(commentUuid, "a reply");
+      expect(replyUuid).toBeDefined();
+
+      const replies = getReplies(commentUuid);
+      const reply = replies.find((r) => r.uuid === replyUuid);
+      expect(reply?.author).toBe(getDefaultHumanAuthor().name);
+      expect(reply?.author_kind).toBe("human");
+    });
+
+    test("renaming the default human author retroactively updates past replies", () => {
+      const replyUuid = addReply(commentUuid, "another reply");
+      const human = getDefaultHumanAuthor();
+      updateAuthor(human.id, { name: "Renamed Human" });
+
+      const replies = getReplies(commentUuid);
+      const reply = replies.find((r) => r.uuid === replyUuid);
+      expect(reply?.author).toBe("Renamed Human");
+    });
+
+    test("getCommentsWithReplies includes author_kind on each reply", () => {
+      const withReplies = getCommentsWithReplies(prUuid);
+      const target = withReplies.find((c) => c.comment.uuid === commentUuid);
+      expect(target?.replies.every((r) => r.author_kind === "human")).toBe(true);
     });
   });
 });
