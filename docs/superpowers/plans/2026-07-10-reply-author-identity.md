@@ -1974,7 +1974,7 @@ to:
         if messages and messages[-1].author_kind != "agent":
 ```
 
-In `claude_reviewer/cli.py`, no changes are needed for `respond_to_conversation`'s call at line 1408 (`db.add_repo_conversation_message(conv.uuid, response, author="claude")`) or `respond_to_pr_comment`'s call at line 1533 (`db.add_reply(comment.uuid, response, author="claude")`) - both already pass the literal `"claude"`, which `_resolve_message_author_id`/`_resolve_author_id` (Task 6) both handle as the default-agent sentinel.
+In `claude_reviewer/cli.py`, no changes are needed for `respond_to_conversation`'s call at line 1449 (`db.add_repo_conversation_message(conv.uuid, response, author="claude")`) or `respond_to_pr_comment`'s call at line 1574 (`db.add_reply(comment.uuid, response, author="claude")`) - both already pass the literal `"claude"`, which `_resolve_message_author_id`/`_resolve_author_id` (Task 6) both handle as the default-agent sentinel. (Line numbers reflect this branch's current rebase onto `main`, which added several commands - `serve --check`, `open`, `skills` - ahead of these call sites; re-grep for `author="claude"` if they've drifted further by the time this task runs.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -3022,7 +3022,7 @@ Expected: FAIL with `Error: No such command 'authors'`
 
 - [ ] **Step 4: Write minimal implementation**
 
-In `claude_reviewer/cli.py`, add the `authors` command group after the `reply` command (after line 947, before the `watch` command):
+In `claude_reviewer/cli.py`, add the `authors` command group after the `reply` command (currently ends around line 990, immediately before `watch`'s `@main.command()` at line 991 - re-grep for `def reply(` / `def watch(` if these have shifted, since a `skills` command group already exists later in the file at line 1627 using the identical `@main.group()`/`@authors.command("...")` pattern used below):
 
 ```python
 @main.group()
@@ -3120,7 +3120,7 @@ def authors_set_default(name: str) -> None:
     console.print(f"[green]'{author.name}' is now the default {author.kind}[/green]")
 ```
 
-Update the `reply` command's `--author` help text (line 928) from:
+Update the `reply` command's `--author` help text (currently line 969) from:
 
 ```python
 @click.option("--author", "-a", default="claude", help="Author name (default: claude)")
@@ -3151,7 +3151,7 @@ Update `reply`'s exception handling (lines 941-947) to also catch the `ValueErro
 
 (No code change needed here beyond the help text - `except ValueError` already catches both the pre-existing "Comment not found"-style errors and the new "Unknown author" error from Task 6, since both are raised as `ValueError`.)
 
-Update `print_comment`'s color check (line 59) from:
+Update `print_comment`'s color check (currently line 61) from:
 
 ```python
         author_color = "green" if reply.author == "claude" else "blue"
@@ -3177,9 +3177,89 @@ git commit -m "feat: add authors CLI command group and lock reply --author to th
 
 ---
 
-## Post-implementation note (not a task - nothing to test)
+## Task 16: Update bundled skill docs and README CLI reference tables
 
-`claude-reviewer-cli/claude_reviewer/skills/*/SKILL.md` and the CLI reference tables in `README.md`/`claude-reviewer-cli/README.md` do not exist on this branch as of this plan's writing - they're part of unrelated, unmerged work happening in a concurrent session on the main checkout (`CLAUDE.md` there already documents the convention: any CLI command change must update those files in the same change). Before merging this branch, rebase onto the latest `main` and, if those files have landed by then, add the new `authors list/add/edit/remove/set-default` commands and the changed `reply --author` semantics to them.
+**Files:**
+- Modify: `claude-reviewer-cli/claude_reviewer/skills/claude-reviewer/SKILL.md`
+- Modify: `README.md`
+- Modify: `claude-reviewer-cli/README.md`
+
+**Interfaces:**
+- Consumes: nothing code-facing - this task only updates documentation to reflect Task 15's new `authors` command group and changed `reply --author` semantics, per `CLAUDE.md`'s "Bundled Skills" convention (added since this plan's spec was originally written - the skills directory and README CLI tables are now merged into `main` and this branch, not the unmerged concurrent work referenced in earlier drafts).
+- Produces: nothing new consumed by other tasks - this is documentation-only, has no test cycle, and is placed last since it depends on Task 15's exact command names/flags already existing.
+
+- [ ] **Step 1: Update the `claude-reviewer` skill's command reference table**
+
+In `claude-reviewer-cli/claude_reviewer/skills/claude-reviewer/SKILL.md`, the "Command reference" table (currently lines 106-123) has a `reply` row. Change it from:
+
+```markdown
+| `reply <id> <comment-uuid> "text"` | Explain what you did about a comment. |
+```
+
+to:
+
+```markdown
+| `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
+```
+
+Add a new row directly after it:
+
+```markdown
+| `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
+```
+
+- [ ] **Step 2: Update the root README's CLI reference table**
+
+In `README.md`, the "CLI Reference" table (lines 142-157) has a `reply` mention implicitly covered by the review workflow section but no explicit `reply`/`authors` row yet (it lists `create`, `list`, `status`, `comments`, `show`, `update`, `merge`, `serve`, `stop`, `open`, `skills install`, `skills list`). Add two new rows after the `claude-reviewer show <id>` row:
+
+```markdown
+| `claude-reviewer reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment; `-a` defaults to `claude`, or use `-a me`/`-a <name>` |
+| `claude-reviewer authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities used for reply attribution |
+```
+
+- [ ] **Step 3: Update the CLI package's README**
+
+In `claude-reviewer-cli/README.md`, the "Commands" table (lines 70-83) is missing `reply`/`authors` entries too. Add after the `show` row:
+
+```markdown
+| `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
+| `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
+```
+
+Add a new subsection to the "CLI Reference" section (after the existing "### Merge" section, lines 122-133):
+
+```markdown
+### Manage Authors
+
+```bash
+# List registered authors (shows which is default for each kind)
+claude-reviewer authors list
+
+# Register a new reviewer identity
+claude-reviewer authors add "Jane Doe" --kind human --email jane@example.com
+
+# Rename an existing author (past replies referencing it update automatically)
+claude-reviewer authors edit "Jane Doe" --name "Jane R. Doe"
+
+# Make an author the default for its kind (used by --author me / --author claude)
+claude-reviewer authors set-default "Jane R. Doe"
+
+# Remove an author (refuses if referenced by any reply, or if it's a current default)
+claude-reviewer authors remove "Jane R. Doe"
+```
+```
+
+- [ ] **Step 4: Verify no other command references were missed**
+
+Run: `grep -rn "reply <\|db.add_reply\|--author" README.md claude-reviewer-cli/README.md claude-reviewer-cli/claude_reviewer/skills/*/SKILL.md`
+Expected: every match is one of the lines just added/edited above, or (in `claude-reviewer-always/SKILL.md`, if it appears there at all) unrelated prose that doesn't need updating - that skill only references `serve --check`/`list`/`status`, not `reply`/`authors`, so it needs no changes; confirm that by re-reading it rather than assuming.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add README.md claude-reviewer-cli/README.md claude-reviewer-cli/claude_reviewer/skills/claude-reviewer/SKILL.md
+git commit -m "docs: document the authors CLI command group and reply --author changes"
+```
 
 ## Self-Review
 
@@ -3190,11 +3270,11 @@ git commit -m "feat: add authors CLI command group and lock reply --author to th
 - CRUD (list/add/edit/remove/set-default) at parity, CLI and web → Tasks 9 (API), 11 (web UI), 15 (CLI).
 - Block-only delete invariants (referenced, current default) → Tasks 3/4 (`deleteAuthor`/`delete_author`), exercised by Task 11's manual pass.
 - `"me"`/`"claude"` pointer-based sentinels, arbitrary names require exact registration → Task 6 (`_resolve_author_id`), Task 15 (CLI help text + error path).
-- `kind` replacing all five `=== 'claude'` checks (two CSS ternaries in `page.tsx`/`browse/page.tsx`, the `browse/conversations/page.tsx` ternary, the `browse/page.tsx:186` auto-trigger guard, `cli.py:59` color check) → Tasks 12, 13, 14, 15.
+- `kind` replacing all five `=== 'claude'` checks (two CSS ternaries in `page.tsx`/`browse/page.tsx`, the `browse/conversations/page.tsx` ternary, the `browse/page.tsx:186` auto-trigger guard, `print_comment`'s color check in `cli.py`) → Tasks 12, 13, 14, 15.
 - `reply-ben` → `reply-human` CSS rename → Task 12.
 - Settings page UI (roster table, add form, git-suggestion chip, no separate "Reviewer Identity" form) → Task 11.
 - Dropping client-supplied `author` from the three REST routes → Task 10.
-- Bundled-skills/README reminder → Post-implementation note.
+- Bundled-skills/README updates (per `CLAUDE.md`'s convention, now that those files are merged into this branch) → Task 16.
 
 **Placeholder scan:** no "TBD"/"add error handling"/"similar to Task N" phrasing found; every step has complete, runnable code or an exact command.
 
