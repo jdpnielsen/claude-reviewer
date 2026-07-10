@@ -35,7 +35,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.10",
@@ -45,6 +45,9 @@
     "playwright": "^1.61.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22.13"
   },
   "packageManager": "pnpm@11.11.0"
 }

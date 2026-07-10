@@ -38,8 +38,9 @@ claude-reviewer serve
 ```
 
 #### Option B: Local Node.js (No Docker)
-Requires `pnpm` and the source code. This repo pins its `pnpm` version via
-[Corepack](https://nodejs.org/api/corepack.html), which ships with Node.js 16.9+:
+Requires Node.js 22.13+ and the source code. This repo pins its `pnpm` version via
+[Corepack](https://nodejs.org/api/corepack.html) (bundled with Node.js since 16.9+,
+but the pinned `pnpm` release itself requires Node 22.13+ to run):
 
 ```bash
 # Clone the repo if you haven't already
@@ -262,7 +263,8 @@ don't support Claude Code skills.
 ### Prerequisites
 
 - Python 3.9+
-- Node.js 20+ (with [Corepack](https://nodejs.org/api/corepack.html) enabled — see below)
+- Node.js 22.13+ (with [Corepack](https://nodejs.org/api/corepack.html) enabled — see below;
+  required by the pinned `pnpm` version)
 - Docker (for web UI)
 
 ### Local Development
