@@ -2,26 +2,12 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from claude_reviewer import database as db
 from claude_reviewer.models import PRStatus, ReviewAction
-
-
-@pytest.fixture
-def temp_db() -> Path:
-    """Create a temporary database for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.db"
-        db.init_db(db_path)
-        # Temporarily override the default path
-        original_path = db.DEFAULT_DB_PATH
-        db.DEFAULT_DB_PATH = db_path  # type: ignore[misc]
-        yield db_path
-        db.DEFAULT_DB_PATH = original_path  # type: ignore[misc]
 
 
 class TestPullRequests:

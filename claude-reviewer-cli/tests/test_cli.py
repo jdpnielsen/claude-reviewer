@@ -13,6 +13,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 import claude_reviewer.cli
+from claude_reviewer import database as db
 from claude_reviewer.cli import (
     SKILLS_DIR,
     get_local_server_pid_file,
@@ -305,3 +306,77 @@ class TestPrintComment:
 
         output = capsys.readouterr().out
         assert "a.py:1  ·" in output
+
+
+class TestAuthorsCommands:
+    """Tests for the `authors` command group."""
+
+    def test_list_shows_seeded_authors(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(main, ["authors", "list"])
+        assert result.exit_code == 0
+        assert "claude" in result.output
+
+    def test_add_registers_a_new_author(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(main, ["authors", "add", "Alice", "--kind", "human"])
+        assert result.exit_code == 0
+
+        list_result = runner.invoke(main, ["authors", "list"])
+        assert "Alice" in list_result.output
+
+    def test_add_rejects_duplicate_name(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        runner.invoke(main, ["authors", "add", "Bob", "--kind", "human"])
+        result = runner.invoke(main, ["authors", "add", "bob", "--kind", "human"])
+        assert result.exit_code != 0
+
+    def test_edit_updates_name(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        runner.invoke(main, ["authors", "add", "Carol", "--kind", "human"])
+        result = runner.invoke(main, ["authors", "edit", "Carol", "--name", "Caroline"])
+        assert result.exit_code == 0
+
+        list_result = runner.invoke(main, ["authors", "list"])
+        assert "Caroline" in list_result.output
+
+    def test_remove_deletes_unreferenced_author(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        runner.invoke(main, ["authors", "add", "Dave", "--kind", "human"])
+        result = runner.invoke(main, ["authors", "remove", "Dave"])
+        assert result.exit_code == 0
+
+        list_result = runner.invoke(main, ["authors", "list"])
+        assert "Dave" not in list_result.output
+
+    def test_set_default_repoints_default(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        runner.invoke(main, ["authors", "add", "Erin", "--kind", "human"])
+        result = runner.invoke(main, ["authors", "set-default", "Erin"])
+        assert result.exit_code == 0
+
+        list_result = runner.invoke(main, ["authors", "list"])
+        assert "Erin" in list_result.output
+
+
+class TestReplyAuthorResolution:
+    """Tests for the `reply` command's --author resolution."""
+
+    def test_reply_with_unknown_author_errors_clearly(self, temp_db: Path) -> None:
+        runner = CliRunner()
+        # `create` needs a real git repo, which this test doesn't need to set
+        # up - seed the PR/comment directly via the db module instead.
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+
+        result = runner.invoke(main, ["reply", pr_uuid, comment_uuid, "a reply", "--author", "Nobody"])
+        assert result.exit_code != 0
+        assert "Unknown author" in result.output
