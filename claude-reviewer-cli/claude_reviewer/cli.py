@@ -58,7 +58,7 @@ def print_comment(
     )
     console.print(f"{indent}  {c.content}", highlight=False)
     for reply in replies or []:
-        author_color = "green" if reply.author == "claude" else "blue"
+        author_color = "green" if reply.author_kind == "agent" else "blue"
         console.print(
             f"{indent}  [{author_color}]↳ {reply.author}:[/{author_color}] {reply.content}",
             highlight=False,
@@ -966,7 +966,12 @@ def open_ui(pr_id: str | None, port: int) -> None:
 @click.argument("pr_id")
 @click.argument("comment_uuid")
 @click.argument("message")
-@click.option("--author", "-a", default="claude", help="Author name (default: claude)")
+@click.option(
+    "--author",
+    "-a",
+    default="claude",
+    help="Author: 'me' (default human), 'claude' (default agent, default value), or a registered author name",
+)
 def reply(pr_id: str, comment_uuid: str, message: str, author: str) -> None:
     """Reply to a comment explaining what was done to address it."""
     pr = db.get_pr_by_uuid(pr_id)
@@ -986,6 +991,103 @@ def reply(pr_id: str, comment_uuid: str, message: str, author: str) -> None:
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+
+
+@main.group()
+def authors() -> None:
+    """Manage registered reviewer/agent identities."""
+
+
+@authors.command("list")
+def authors_list() -> None:
+    """List all registered authors."""
+    all_authors = db.list_authors()
+    default_human = db.get_default_human_author()
+    default_agent = db.get_default_agent_author()
+
+    table = Table(title="Authors")
+    table.add_column("Kind", style="cyan")
+    table.add_column("Name", style="white")
+    table.add_column("Email", style="dim")
+    table.add_column("Default", style="bold")
+
+    for author_row in all_authors:
+        is_default = (
+            author_row.id == default_human.id
+            if author_row.kind == "human"
+            else author_row.id == default_agent.id
+        )
+        table.add_row(
+            author_row.kind,
+            author_row.name,
+            author_row.email or "-",
+            "[green]yes[/green]" if is_default else "",
+        )
+
+    console.print(table)
+
+
+@authors.command("add")
+@click.argument("name")
+@click.option("--kind", type=click.Choice(["human", "agent"]), required=True, help="Author kind")
+@click.option("--email", default=None, help="Optional email")
+def authors_add(name: str, kind: str, email: str | None) -> None:
+    """Register a new author."""
+    try:
+        author_row = db.create_author(kind, name, email)
+        console.print(f"[green]Registered {author_row.kind} author '{author_row.name}'[/green]")
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+@authors.command("edit")
+@click.argument("name")
+@click.option("--name", "new_name", default=None, help="New name")
+@click.option("--email", default=None, help="New email")
+def authors_edit(name: str, new_name: str | None, email: str | None) -> None:
+    """Edit an existing author's name/email."""
+    author_row = db.get_author_by_name(name)
+    if not author_row:
+        console.print(f"[red]Error: Unknown author '{name}'[/red]")
+        sys.exit(1)
+
+    try:
+        updated = db.update_author(author_row.id, name=new_name, email=email)
+        console.print(f"[green]Updated author '{updated.name}'[/green]")
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+@authors.command("remove")
+@click.argument("name")
+def authors_remove(name: str) -> None:
+    """Remove an author (refuses if referenced or the current default)."""
+    author_row = db.get_author_by_name(name)
+    if not author_row:
+        console.print(f"[red]Error: Unknown author '{name}'[/red]")
+        sys.exit(1)
+
+    try:
+        db.delete_author(author_row.id)
+        console.print(f"[green]Removed author '{author_row.name}'[/green]")
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+
+
+@authors.command("set-default")
+@click.argument("name")
+def authors_set_default(name: str) -> None:
+    """Make an author the default for its kind."""
+    author_row = db.get_author_by_name(name)
+    if not author_row:
+        console.print(f"[red]Error: Unknown author '{name}'[/red]")
+        sys.exit(1)
+
+    db.set_default_author(author_row.id)
+    console.print(f"[green]'{author_row.name}' is now the default {author_row.kind}[/green]")
 
 
 @main.command()
