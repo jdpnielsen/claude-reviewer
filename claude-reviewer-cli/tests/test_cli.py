@@ -13,7 +13,13 @@ from click.testing import CliRunner
 from rich.console import Console
 
 import claude_reviewer.cli
-from claude_reviewer.cli import get_local_server_pid_file, main, print_comment, stop_local_server
+from claude_reviewer.cli import (
+    SKILLS_DIR,
+    get_local_server_pid_file,
+    main,
+    print_comment,
+    stop_local_server,
+)
 from claude_reviewer.models import Comment
 
 
@@ -74,6 +80,80 @@ class TestStopCommand:
 
         assert result.exit_code == 0
         assert "Stopped" in result.output
+
+
+class TestSkillsCommand:
+    """Tests for `skills list` and `skills install`."""
+
+    def test_list_shows_every_bundled_skill(self) -> None:
+        """`skills list` names each bundled skill and its description."""
+        result = CliRunner().invoke(main, ["skills", "list"])
+
+        assert result.exit_code == 0
+        for name in ("claude-reviewer", "claude-reviewer-always"):
+            assert name in result.output
+
+    def test_install_copies_all_skills_to_the_user_scope_by_default(self, fake_home: Path) -> None:
+        """With no names given, `skills install` installs every bundled skill under ~/.claude/skills."""
+        result = CliRunner().invoke(main, ["skills", "install"])
+
+        assert result.exit_code == 0
+        installed = fake_home / ".claude" / "skills"
+        assert (installed / "claude-reviewer" / "SKILL.md").read_text() == (
+            SKILLS_DIR / "claude-reviewer" / "SKILL.md"
+        ).read_text()
+        assert (installed / "claude-reviewer-always" / "SKILL.md").exists()
+
+    def test_install_with_a_name_installs_only_that_skill(self, fake_home: Path) -> None:
+        """Naming a skill installs just that one, leaving the others out."""
+        result = CliRunner().invoke(main, ["skills", "install", "claude-reviewer"])
+
+        assert result.exit_code == 0
+        installed = fake_home / ".claude" / "skills"
+        assert (installed / "claude-reviewer" / "SKILL.md").exists()
+        assert not (installed / "claude-reviewer-always").exists()
+
+    def test_install_rejects_an_unknown_skill_name(self, fake_home: Path) -> None:
+        """An unrecognized skill name fails loudly instead of installing nothing silently."""
+        result = CliRunner().invoke(main, ["skills", "install", "not-a-real-skill"])
+
+        assert result.exit_code != 0
+        assert "unknown skill" in result.output.lower()
+
+    def test_install_project_scope_uses_the_given_repo_path(self, tmp_path: Path) -> None:
+        """--scope project installs under <repo>/.claude/skills instead of the home directory."""
+        result = CliRunner().invoke(
+            main,
+            ["skills", "install", "claude-reviewer", "--scope", "project", "--repo", str(tmp_path)],
+        )
+
+        assert result.exit_code == 0
+        assert (tmp_path / ".claude" / "skills" / "claude-reviewer" / "SKILL.md").exists()
+
+    def test_reinstall_without_force_prompts_and_skips_on_no(self, fake_home: Path) -> None:
+        """Re-installing an existing skill asks first, and declining leaves it untouched."""
+        installed_dir = fake_home / ".claude" / "skills" / "claude-reviewer"
+        CliRunner().invoke(main, ["skills", "install", "claude-reviewer"])
+        marker = installed_dir / "marker.txt"
+        marker.write_text("do not overwrite me")
+
+        result = CliRunner().invoke(main, ["skills", "install", "claude-reviewer"], input="n\n")
+
+        assert result.exit_code == 0
+        assert "overwrite" in result.output.lower()
+        assert marker.exists()
+
+    def test_reinstall_with_force_overwrites_without_prompting(self, fake_home: Path) -> None:
+        """--force re-installs an existing skill without asking."""
+        installed_dir = fake_home / ".claude" / "skills" / "claude-reviewer"
+        CliRunner().invoke(main, ["skills", "install", "claude-reviewer"])
+        marker = installed_dir / "marker.txt"
+        marker.write_text("should be removed")
+
+        result = CliRunner().invoke(main, ["skills", "install", "claude-reviewer", "--force"])
+
+        assert result.exit_code == 0
+        assert not marker.exists()
 
 
 class TestPrintComment:

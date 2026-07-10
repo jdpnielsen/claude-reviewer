@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -1556,6 +1557,111 @@ Your response (just the message content, no prefixes):"""
                     console.print("[yellow]No changes to commit[/yellow]")
         except Exception as e:
             console.print(f"[yellow]Warning: Could not commit changes: {e}[/yellow]")
+
+
+# Claude Code skills bundled with this install, e.g. skills/claude-reviewer/SKILL.md
+SKILLS_DIR = Path(__file__).parent / "skills"
+
+
+def _available_skills() -> list[str]:
+    """Names of the skills bundled with this install of the CLI."""
+    if not SKILLS_DIR.is_dir():
+        return []
+    return sorted(p.name for p in SKILLS_DIR.iterdir() if (p / "SKILL.md").exists())
+
+
+def _skill_frontmatter(skill_dir: Path) -> dict[str, str]:
+    """Parse the (flat, single-line-values) YAML frontmatter of a SKILL.md file."""
+    text = (skill_dir / "SKILL.md").read_text()
+    if not text.startswith("---"):
+        return {}
+    _, frontmatter, _ = text.split("---", 2)
+    result = {}
+    for line in frontmatter.splitlines():
+        if ":" in line:
+            key, _, value = line.partition(":")
+            result[key.strip()] = value.strip()
+    return result
+
+
+@main.group()
+def skills() -> None:
+    """Manage the Claude Code skills that teach Claude the claude-reviewer workflow."""
+
+
+@skills.command("list")
+def skills_list() -> None:
+    """List the Claude Code skills bundled with this claude-reviewer install."""
+    available = _available_skills()
+    if not available:
+        console.print("[dim]No bundled skills found[/dim]")
+        return
+
+    table = Table(title="Bundled Skills")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description", style="white")
+    for name in available:
+        description = _skill_frontmatter(SKILLS_DIR / name).get("description", "")
+        table.add_row(name, description)
+    console.print(table)
+
+
+@skills.command("install")
+@click.argument("names", nargs=-1)
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    help="Install to ~/.claude/skills (user, default) or <repo>/.claude/skills (project)",
+)
+@click.option("--repo", "-r", default=".", help="Project root when --scope=project")
+@click.option("--force", "-f", is_flag=True, help="Overwrite an already-installed skill")
+def skills_install(names: tuple[str, ...], scope: str, repo: str, force: bool) -> None:
+    """Install claude-reviewer's Claude Code skills so Claude knows the review workflow.
+
+    Installs all bundled skills by default. Pass one or more names to install
+    a subset, e.g. `claude-reviewer skills install claude-reviewer`.
+
+    --scope user (default) installs to ~/.claude/skills, applying to every project.
+    --scope project installs to <repo>/.claude/skills, applying to this repo only.
+    """
+    available = _available_skills()
+    if not available:
+        console.print("[red]Error: no bundled skills found in this install[/red]")
+        sys.exit(1)
+
+    targets = list(names) if names else available
+    unknown = [n for n in targets if n not in available]
+    if unknown:
+        console.print(f"[red]Error: unknown skill(s): {', '.join(unknown)}[/red]")
+        console.print(f"[dim]Available: {', '.join(available)}[/dim]")
+        sys.exit(1)
+
+    dest_root = (
+        Path.home() / ".claude" / "skills"
+        if scope == "user"
+        else Path(repo).resolve() / ".claude" / "skills"
+    )
+    dest_root.mkdir(parents=True, exist_ok=True)
+
+    installed = []
+    for name in targets:
+        dest = dest_root / name
+        if dest.exists():
+            if not force and not click.confirm(
+                f"'{name}' is already installed at {dest} — overwrite?"
+            ):
+                console.print(f"[dim]Skipped {name}[/dim]")
+                continue
+            shutil.rmtree(dest)
+        shutil.copytree(SKILLS_DIR / name, dest)
+        console.print(f"[green]Installed {name}[/green] -> {dest}")
+        installed.append(name)
+
+    if installed:
+        console.print(
+            "\n[dim]Restart Claude Code (or start a new session) to pick up the new skill(s).[/dim]"
+        )
 
 
 if __name__ == "__main__":

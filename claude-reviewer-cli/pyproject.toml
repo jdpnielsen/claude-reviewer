@@ -67,6 +67,9 @@ dev = [
 where = ["."]
 include = ["claude_reviewer*"]
 
+[tool.setuptools.package-data]
+claude_reviewer = ["skills/**/*"]
+
 # Black configuration
 [tool.black]
 line-length = 100
