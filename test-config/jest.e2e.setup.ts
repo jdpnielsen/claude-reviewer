@@ -45,6 +45,7 @@ beforeAll(async () => {
   global.__SERVER__ = spawn("npm", ["run", "dev", "--", "-p", PORT.toString()], {
     cwd: process.cwd(),
     stdio: "pipe",
+    detached: true,
     env: {
       ...process.env,
       DATABASE_DIR: testDbDir,
@@ -69,17 +70,34 @@ beforeAll(async () => {
   console.log("Server ready");
 }, 60000);
 
+// npm run dev spawns next dev, which spawns next-server (and Turbopack
+// workers); killing only the npm process orphans the rest, which keep the
+// inherited stdout/stderr pipes open and block Jest from exiting. Since the
+// server was spawned with detached: true, its pid is also its process group
+// id, so killing -pid kills the whole tree.
+function killServerGroup(server: ChildProcess) {
+  if (!server.pid) {
+    server.kill("SIGKILL");
+    return;
+  }
+  try {
+    process.kill(-server.pid, "SIGKILL");
+  } catch {
+    server.kill("SIGKILL");
+  }
+}
+
 afterAll(async () => {
   // Stop the server
   if (global.__SERVER__) {
     console.log("Stopping server...");
-    global.__SERVER__.kill("SIGKILL");
+    killServerGroup(global.__SERVER__);
 
     // Wait for process to exit
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
         if (global.__SERVER__) {
-          global.__SERVER__.kill("SIGKILL");
+          killServerGroup(global.__SERVER__);
         }
         resolve();
       }, 3000);
