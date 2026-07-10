@@ -14,7 +14,9 @@ import {
 import { Highlight, themes } from 'prism-react-renderer';
 import { useState, useEffect, useCallback } from 'react';
 
+import RepoPathPicker from '@/components/browse/RepoPathPicker';
 import { AuthorKind, ConversationStatus } from '@/lib/enum';
+import { getRecentRepos, saveRecentRepo } from '@/lib/recent-repos';
 
 // Types
 interface TreeNode {
@@ -106,30 +108,6 @@ const githubDarkTheme = {
     { types: ['regex', 'important', 'variable'], style: { color: '#ffa657' } },
   ],
 };
-
-const RECENT_REPOS_KEY = 'claude-reviewer-recent-repos';
-const MAX_RECENT_REPOS = 5;
-
-function getRecentRepos(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(RECENT_REPOS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentRepo(path: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const recent = getRecentRepos().filter((p) => p !== path);
-    recent.unshift(path);
-    localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT_REPOS)));
-  } catch {
-    // Ignore localStorage errors
-  }
-}
 
 export default function BrowsePage() {
   const [repoPath, setRepoPath] = useState('');
@@ -502,37 +480,15 @@ export default function BrowsePage() {
     <main className="container browse-page">
       {/* Repo Path Input */}
       {!repoPath && (
-        <div className="repo-input-section">
-          <h1>Browse Repository</h1>
-          <p>Enter the path to a local repository to browse and add comments.</p>
-          <div className="repo-input-form">
-            <input
-              type="text"
-              placeholder="/path/to/your/repo"
-              value={inputPath}
-              onChange={(e) => setInputPath(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSetRepo()}
-            />
-            <button onClick={() => handleSetRepo()}>Browse</button>
-          </div>
-          {recentRepos.length > 0 && (
-            <div className="recent-repos">
-              <p className="recent-repos-label">Recent repositories:</p>
-              <div className="recent-repos-list">
-                {recentRepos.map((path) => (
-                  <button
-                    key={path}
-                    className="recent-repo-btn"
-                    onClick={() => handleSetRepo(path)}
-                  >
-                    {path.split('/').pop()}
-                    <span className="recent-repo-path">{path}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <RepoPathPicker
+          heading="Browse Repository"
+          description="Enter the path to a local repository to browse and add comments."
+          submitLabel="Browse"
+          inputPath={inputPath}
+          onInputPathChange={setInputPath}
+          onSubmit={handleSetRepo}
+          recentRepos={recentRepos}
+        />
       )}
 
       {/* Browse Layout */}
