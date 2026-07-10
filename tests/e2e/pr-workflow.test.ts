@@ -165,7 +165,7 @@ describe('PR Workflow E2E Tests', () => {
 
       const content = await page.content();
       // Should contain some diff content
-      expect(content).toMatch(/foo|bar|hello|world|\+|\-/);
+      expect(content).toMatch(/foo|bar|hello|world|\+|-/);
     });
 
     test('displays existing comments', async () => {
@@ -327,7 +327,6 @@ describe('PR Workflow E2E Tests', () => {
         .catch(() => {});
 
       // Verify we're on the PR page
-      const url = page.url();
       // Either we navigated or the page structure is different
       const content = await page.content();
       expect(content).toContain('Test PR for E2E');
