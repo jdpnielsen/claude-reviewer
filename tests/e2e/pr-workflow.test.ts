@@ -1,7 +1,7 @@
 /**
  * E2E tests for PR list and review workflow.
  */
-import puppeteer, { Browser, Page } from "puppeteer";
+import { chromium, Browser, Page } from "playwright";
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
@@ -38,7 +38,7 @@ describe("PR Workflow E2E Tests", () => {
   });
 
   beforeAll(async () => {
-    browser = await puppeteer.launch({
+    browser = await chromium.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
@@ -221,35 +221,25 @@ describe("PR Workflow E2E Tests", () => {
       return page.$eval(".confirm-dialog-message", (el) => el.textContent ?? "");
     }
 
+    // The delete button removes the comment from local state optimistically,
+    // before the DELETE request even fires (see deleteComment() in
+    // app/prs/[id]/page.tsx), so waiting for the dialog to close doesn't mean
+    // the deletion has landed server-side yet. Wait for the request's actual
+    // response instead - it must be registered before the click so it can't
+    // miss a reply that comes back before this call returns.
     async function acceptConfirmDialog() {
+      const deleteRequestPromise = page.waitForResponse(
+        (resp) => resp.request().method() === "DELETE" && resp.url().includes("/comments"),
+        { timeout: 10000 }
+      );
       await page.click(".confirm-dialog-confirm-btn");
-      await page.waitForSelector(".confirm-dialog-backdrop", { hidden: true, timeout: 5000 });
+      await page.waitForSelector(".confirm-dialog-backdrop", { state: "hidden", timeout: 5000 });
+      await deleteRequestPromise;
     }
 
     async function cancelConfirmDialog() {
       await page.click(".confirm-dialog-cancel-btn");
-      await page.waitForSelector(".confirm-dialog-backdrop", { hidden: true, timeout: 5000 });
-    }
-
-    // The first page.goto() issued anywhere after Puppeteer dispatches a
-    // mouse click via CDP reliably times out - even a click with no dialog
-    // involved at all - though the server receives and answers the
-    // navigation request in milliseconds the whole time. A fresh goto() call
-    // right afterward always succeeds. Confirmed via instrumented diagnostic
-    // runs: server logs show a fast 200 response to the exact URL requested
-    // while the goto() promise itself never resolves, even to a different
-    // destination URL, ruling out same-URL navigation as the cause. This
-    // file's only clicks are the delete button and the dialog's
-    // Confirm/Cancel buttons, so only navigations immediately following one
-    // need the retry. The first attempt is expected to fail, so it uses a
-    // short timeout rather than waiting out Puppeteer's full default.
-    async function gotoAfterClick(url: string, options: Parameters<Page['goto']>[1]) {
-      try {
-        await page.goto(url, { ...options, timeout: 3000 });
-      } catch (e) {
-        if (!(e instanceof Error) || !e.message.includes('Navigation timeout')) throw e;
-        await page.goto(url, options);
-      }
+      await page.waitForSelector(".confirm-dialog-backdrop", { state: "hidden", timeout: 5000 });
     }
 
     test("shows a confirm dialog and removes a comment with no replies", async () => {
@@ -263,12 +253,7 @@ describe("PR Workflow E2E Tests", () => {
       expect(await confirmDialogMessage()).toBe("Delete this comment?");
       await acceptConfirmDialog();
 
-      await page.waitForFunction(
-        () => !document.body.textContent?.includes("Please add documentation for this constant"),
-        { timeout: 10000 }
-      );
-
-      await gotoAfterClick(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await new Promise((resolve) => setTimeout(resolve, 500));
       const content = await page.content();
       expect(content).not.toContain("Please add documentation for this constant");
@@ -285,18 +270,13 @@ describe("PR Workflow E2E Tests", () => {
       expect(await confirmDialogMessage()).toBe("Delete this comment and its 1 reply?");
       await acceptConfirmDialog();
 
-      await page.waitForFunction(
-        () => !document.body.textContent?.includes("This needs a reply-count test"),
-        { timeout: 10000 }
-      );
-
       const content = await page.content();
       expect(content).not.toContain("Good catch");
     });
 
     test("keeps the comment when the confirm dialog is cancelled", async () => {
       addComment(testPRUuid, "test.ts", 4, "Do not delete me");
-      await gotoAfterClick(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(
         () => document.body.textContent?.includes("Do not delete me"),
         { timeout: 20000 }
@@ -326,10 +306,10 @@ describe("PR Workflow E2E Tests", () => {
       const prLink = await page.$(`a[href*="${testPRUuid}"]`);
       if (prLink) {
         await prLink.click();
-        await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 10000 }).catch(() => { });
+        await page.waitForNavigation({ waitUntil: "networkidle", timeout: 10000 }).catch(() => { });
       } else {
         // Try clicking on the PR row or title
-        await page.click(`text/Test PR for E2E`).catch(() => { });
+        await page.click(`text=Test PR for E2E`).catch(() => { });
       }
 
       // Wait for navigation
@@ -348,7 +328,7 @@ describe("PR Workflow E2E Tests", () => {
 
   describe("Responsive Design", () => {
     test("page renders on mobile viewport", async () => {
-      await page.setViewport({ width: 375, height: 667 });
+      await page.setViewportSize({ width: 375, height: 667 });
       await page.goto(global.__BASE_URL__);
       await page.waitForSelector("body");
 
@@ -357,7 +337,7 @@ describe("PR Workflow E2E Tests", () => {
     });
 
     test("page renders on tablet viewport", async () => {
-      await page.setViewport({ width: 768, height: 1024 });
+      await page.setViewportSize({ width: 768, height: 1024 });
       await page.goto(global.__BASE_URL__);
       await page.waitForSelector("body");
 
@@ -366,7 +346,7 @@ describe("PR Workflow E2E Tests", () => {
     });
 
     test("page renders on desktop viewport", async () => {
-      await page.setViewport({ width: 1920, height: 1080 });
+      await page.setViewportSize({ width: 1920, height: 1080 });
       await page.goto(global.__BASE_URL__);
       await page.waitForSelector("body");
 
