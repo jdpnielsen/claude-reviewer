@@ -93,12 +93,15 @@ button {
   font-weight: 500;
 }
 
-/* Darken button on hover for visual feedback */
-button:hover {
+/* Darken button on hover for visual feedback. Zero-specificity :where() wrapper
+   keeps this a fallback for plain buttons instead of outranking every button's
+   own color via the :hover pseudo-class's specificity bump. */
+:where(button):hover {
   background-color: var(--primary-hover);
 }
 
 input, select, textarea {
+  box-sizing: border-box;
   padding: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -145,6 +148,10 @@ input, select, textarea {
 
 .comment-card-cancel {
   background-color: #6e7681;
+}
+
+.comment-card-cancel:hover {
+  background-color: #57606a;
 }
 
 .comments-summary {
@@ -284,6 +291,7 @@ input, select, textarea {
 
 .folder-item:hover {
   color: #c9d1d9;
+  background: #21262d;
 }
 
 .folder-item .folder-icon {
@@ -363,6 +371,11 @@ input, select, textarea {
   margin-bottom: 0.75rem;
 }
 
+.review-panel textarea:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
 .review-actions {
   display: flex;
   gap: 0.5rem;
@@ -387,10 +400,18 @@ input, select, textarea {
   color: white;
 }
 
+.btn-approve:hover {
+  background: #2ea043;
+}
+
 .btn-request-changes {
   background: #21262d;
   color: #f85149;
   border: 1px solid #30363d;
+}
+
+.btn-request-changes:hover {
+  background: #30363d;
 }
 
 .approved-notice {
@@ -1593,6 +1614,10 @@ input, select, textarea {
   background: #21262d;
   color: #8b949e;
   border: 1px solid var(--border);
+}
+
+.confirm-dialog-cancel-btn:hover {
+  background: #30363d;
 }
 
 .confirm-dialog-confirm-btn {
