@@ -27,13 +27,10 @@ touch, anything that will outlive this conversation.
    head and base branch.
 2. Confirm there's something to review: `git status` should show committed changes
    that differ from the base branch. Uncommitted changes don't show up in the diff.
-3. Make sure the web UI is actually reachable, not just installed. `create` succeeds
-   either way — a PR is just a database row — and prints a warning if it can't see a
-   server, but don't count on catching that warning mid-flow. Proactively run
-   `claude-reviewer serve` (or `claude-reviewer serve --dev` if you're working from
-   this source checkout) before or right after `create`. If it's already running,
-   `serve` exits with a "Port already in use" error — that's the expected signal that
-   you're set, not a failure to work around by picking a different port.
+3. Whether the web UI is reachable is the human's call, not yours — never run
+   `claude-reviewer serve` on their behalf. `create` will tell you if it can't see a
+   server (a "Web UI is not running" warning with the exact fix). When that happens,
+   pass it straight to the human and ask them to run it before you hand over a URL.
 
 ## The review loop
 
@@ -46,10 +43,8 @@ git add -A && git commit -m "Add the thing"
 # 2. Open a PR for review
 claude-reviewer create --title "Add the thing" --base main
 # -> PR #a1b2c3d4 created. Review URL: http://localhost:41729/prs/a1b2c3d4
-
-# 2b. Make sure the human can actually load that URL — start the web UI if it's
-# not already up. "Port already in use" here just means it's already running.
-claude-reviewer serve
+# If this warns the web UI isn't running, ask the human to run `claude-reviewer serve`
+# (or `serve --dev` from a source checkout) — that's their call, not yours to make.
 
 # 3. Block until the human responds (approval or changes requested)
 claude-reviewer watch a1b2c3d4
@@ -128,15 +123,17 @@ Full flag list: `claude-reviewer <command> --help`.
 
 - **"Not a git repository" / base==head error**: you're on `main` with nothing to
   diff, or tried to PR a branch against itself. Create a feature branch first.
-- **PR created but review URL 404s**: the web UI isn't running yet. Don't just rely
-  on `create`'s warning — run `claude-reviewer serve` (or `serve --dev` from this
-  source checkout) yourself before handing the URL over, and reload.
-- **`serve` exits with "Port already in use"**: that's not an error to fix — it means
-  the web UI is already up on that port. Move on, don't restart it or pick a new port.
+- **PR created but review URL 404s**: the web UI isn't running. Don't start it
+  yourself — ask the human to run `claude-reviewer serve` (or `serve --dev` from this
+  source checkout); spinning up a local server/container on their machine is their
+  decision to make, not yours.
+- **Human says `serve` errored with "Port already in use"**: that's not a real
+  error — it means the web UI was already running. Reassure them, no action needed.
 - **Server was running last session but isn't now**: web UI containers/processes
-  don't survive a reboot or a `docker system prune`. If `watch`/`comments` still work
-  (they talk to SQLite directly, not the server) but the review URL is dead, that's
-  the tell — `serve` again.
+  don't survive a reboot or a `docker system prune`. `watch`/`comments`/`list` keep
+  working fine in this case — they talk to SQLite directly, not the server — which is
+  exactly why the CLI "working" doesn't mean the review link does. If the link is
+  dead, ask the human to `serve` again.
 - **`update` didn't pick up your fix**: `update` diffs `base_ref..head_ref` from git,
   not from memory — make sure the fix is actually committed, not just staged.
 - **Merge refuses**: only `approved` PRs merge. If status is still `pending`, nobody
