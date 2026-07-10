@@ -372,3 +372,78 @@ class TestReviews:
 
         reviews = db.get_reviews(uuid)
         assert len(reviews) == 2
+
+
+class TestAuthors:
+    """Tests for author operations."""
+
+    def test_seeding_creates_one_agent_row_named_claude(self, temp_db: Path) -> None:
+        authors = db.list_authors()
+        agents = [a for a in authors if a.kind == "agent"]
+        assert len(agents) == 1
+        assert agents[0].name == "claude"
+
+    def test_seeding_creates_one_human_row(self, temp_db: Path) -> None:
+        authors = db.list_authors()
+        humans = [a for a in authors if a.kind == "human"]
+        assert len(humans) == 1
+
+    def test_get_default_human_and_agent_authors(self, temp_db: Path) -> None:
+        human = db.get_default_human_author()
+        agent = db.get_default_agent_author()
+        assert human.kind == "human"
+        assert agent.kind == "agent"
+        assert agent.name == "claude"
+
+    def test_create_author_and_get_by_name_case_insensitive(self, temp_db: Path) -> None:
+        created = db.create_author("human", "Alice", "alice@example.com")
+        assert created.id is not None
+        assert created.email == "alice@example.com"
+
+        found = db.get_author_by_name("ALICE")
+        assert found is not None
+        assert found.id == created.id
+
+    def test_create_author_rejects_duplicate_name_case_insensitive(self, temp_db: Path) -> None:
+        db.create_author("human", "Bob")
+        with pytest.raises(ValueError, match="already exists"):
+            db.create_author("human", "bob")
+
+    def test_update_author_changes_name_and_email(self, temp_db: Path) -> None:
+        created = db.create_author("human", "Carol")
+        updated = db.update_author(created.id, name="Caroline", email="c@example.com")
+        assert updated.name == "Caroline"
+        assert updated.email == "c@example.com"
+        assert updated.kind == "human"
+
+    def test_delete_author_refuses_referenced_author(self, temp_db: Path) -> None:
+        author = db.create_author("human", "Dave")
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+        db.add_reply(comment_uuid, "a reply", author=author.name)
+
+        with pytest.raises(ValueError, match="referenced by 1 reply"):
+            db.delete_author(author.id)
+
+    def test_delete_author_refuses_current_default(self, temp_db: Path) -> None:
+        human = db.get_default_human_author()
+        with pytest.raises(ValueError, match="current default"):
+            db.delete_author(human.id)
+
+    def test_delete_author_succeeds_for_unreferenced_non_default(self, temp_db: Path) -> None:
+        author = db.create_author("human", "Eve")
+        db.delete_author(author.id)
+        assert db.get_author_by_id(author.id) is None
+
+    def test_set_default_author_repoints_default(self, temp_db: Path) -> None:
+        new_human = db.create_author("human", "Frank")
+        db.set_default_author(new_human.id)
+        assert db.get_default_human_author().id == new_human.id
