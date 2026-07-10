@@ -1,53 +1,16 @@
 'use client';
 
-import {
-  MessageSquare,
-  File,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  ChevronDown,
-  ChevronRight,
-  Trash2,
-  Bot,
-  Loader2,
-  GitCommit,
-} from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 
+import type { Conversation, ConversationMessage, ConversationWithMessages } from './types';
 import { useConfirm } from '@/components/ConfirmDialog';
+import ConversationGroups from '@/components/browse/ConversationGroups';
+import ConversationsHeader from '@/components/browse/ConversationsHeader';
 import RepoPathPicker from '@/components/browse/RepoPathPicker';
-import { AuthorKind, ConversationStatus } from '@/lib/enum';
+import { ConversationStatus } from '@/lib/enum';
 import { getRecentRepos, saveRecentRepo } from '@/lib/recent-repos';
-
-interface ConversationMessage {
-  uuid: string;
-  author: string;
-  author_kind: AuthorKind;
-  content: string;
-  created_at: string;
-}
-
-interface Conversation {
-  id: number;
-  uuid: string;
-  repo_path: string;
-  file_path: string;
-  line_number: number;
-  current_line_number: number | null;
-  status: ConversationStatus;
-  file_exists: boolean;
-  created_at: string;
-  updated_at: string;
-  message_count?: number;
-  latest_message?: ConversationMessage | null;
-}
-
-interface ConversationWithMessages {
-  conversation: Conversation;
-  messages: ConversationMessage[];
-}
 
 export default function ConversationsListPage() {
   const [repoPath, setRepoPath] = useState('');
@@ -284,26 +247,6 @@ export default function ConversationsListPage() {
     }
   };
 
-  const getStatusIcon = (conv: Conversation) => {
-    if (conv.status === ConversationStatus.Resolved) {
-      return <CheckCircle size={14} className="status-icon resolved" />;
-    }
-    if (conv.status === ConversationStatus.Orphaned || !conv.file_exists) {
-      return <AlertCircle size={14} className="status-icon orphaned" />;
-    }
-    return <Clock size={14} className="status-icon active" />;
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
   const groupedConversations = conversations.reduce(
     (acc, conv) => {
       const filePath = conv.file_path;
@@ -333,36 +276,17 @@ export default function ConversationsListPage() {
 
       {repoPath && (
         <div className="conversations-layout">
-          <div className="conversations-header">
-            <div className="header-left">
-              <h1>Conversations</h1>
-              <span className="repo-name">{repoPath.split('/').pop()}</span>
-              <button
-                className="change-repo-btn"
-                onClick={() => {
-                  setRepoPath('');
-                  setInputPath('');
-                  setConversations([]);
-                }}
-              >
-                Change
-              </button>
-            </div>
-            <div className="filter-tabs">
-              {(['all', ...Object.values(ConversationStatus)] as const).map((f) => (
-                <button
-                  key={f}
-                  className={`filter-tab ${filter === f ? 'active' : ''}`}
-                  onClick={() => setFilter(f)}
-                >
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
-                  {f === 'all' && conversations.length > 0 && (
-                    <span className="count">{conversations.length}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+          <ConversationsHeader
+            repoPath={repoPath}
+            filter={filter}
+            conversationsCount={conversations.length}
+            onChangeRepo={() => {
+              setRepoPath('');
+              setInputPath('');
+              setConversations([]);
+            }}
+            onFilterChange={setFilter}
+          />
 
           {loading && <div className="loading">Loading conversations...</div>}
           {error && <div className="error">{error}</div>}
@@ -378,181 +302,21 @@ export default function ConversationsListPage() {
           )}
 
           {!loading && Object.keys(groupedConversations).length > 0 && (
-            <div className="conversations-grouped">
-              {Object.entries(groupedConversations).map(([filePath, convs]) => (
-                <div key={filePath} className="file-group">
-                  <div className="file-group-header">
-                    <File size={14} />
-                    <span className="file-path">{filePath}</span>
-                    <span className="conv-count">
-                      {convs.length} conversation{convs.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div className="file-conversations">
-                    {convs.map((conv, idx) => (
-                      <div
-                        key={`${conv.uuid}-${idx}`}
-                        className={`conversation-item ${conv.status} ${expandedConversation === conv.uuid ? 'expanded' : ''}`}
-                      >
-                        <div
-                          className="conversation-summary"
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => toggleConversation(conv.uuid)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              toggleConversation(conv.uuid);
-                            }
-                          }}
-                        >
-                          <div className="summary-left">
-                            {expandedConversation === conv.uuid ? (
-                              <ChevronDown size={14} />
-                            ) : (
-                              <ChevronRight size={14} />
-                            )}
-                            {getStatusIcon(conv)}
-                            <span className="line-number">
-                              Line {conv.current_line_number || conv.line_number}
-                            </span>
-                            {conv.current_line_number &&
-                              conv.current_line_number !== conv.line_number && (
-                                <span className="line-moved">(was {conv.line_number})</span>
-                              )}
-                          </div>
-                          <div className="summary-right">
-                            <span className="message-count">
-                              <MessageSquare size={12} />
-                              {conv.message_count || 0}
-                            </span>
-                            <span className="date">{formatDate(conv.created_at)}</span>
-                          </div>
-                        </div>
-
-                        {conv.latest_message && expandedConversation !== conv.uuid && (
-                          <div className="conversation-preview">
-                            <span className="preview-author">{conv.latest_message.author}:</span>
-                            <span className="preview-content">{conv.latest_message.content}</span>
-                          </div>
-                        )}
-
-                        {expandedConversation === conv.uuid && conversationMessages[conv.uuid] && (
-                          <div className="conversation-messages">
-                            {conversationMessages[conv.uuid].map((msg) => (
-                              <div
-                                key={msg.uuid}
-                                className={`message ${msg.author_kind === AuthorKind.Agent ? 'message-claude' : 'message-user'}`}
-                              >
-                                <span className="message-author">{msg.author}</span>
-                                <span className="message-content">{msg.content}</span>
-                                <span className="message-time">{formatDate(msg.created_at)}</span>
-                              </div>
-                            ))}
-                            {conv.status !== ConversationStatus.Resolved && (
-                              <div className="reply-form-inline">
-                                <textarea
-                                  placeholder="Write a reply..."
-                                  value={replyContent}
-                                  onChange={(e) => setReplyContent(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                      e.preventDefault();
-                                      addReply(conv.uuid);
-                                    }
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                                <button
-                                  className="send-reply-btn"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    addReply(conv.uuid);
-                                  }}
-                                >
-                                  Send
-                                </button>
-                              </div>
-                            )}
-                            {claudeError && expandedConversation === conv.uuid && (
-                              <div className="claude-status-message">{claudeError}</div>
-                            )}
-                            <div className="conversation-actions">
-                              {conv.status !== ConversationStatus.Resolved && conv.file_exists && (
-                                <>
-                                  <button
-                                    className="claude-respond-btn"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      respondWithClaude(conv.uuid, false);
-                                    }}
-                                    disabled={claudeResponding === conv.uuid}
-                                  >
-                                    {claudeResponding === conv.uuid ? (
-                                      <Loader2 size={14} className="spinning" />
-                                    ) : (
-                                      <Bot size={14} />
-                                    )}
-                                    {claudeResponding === conv.uuid ? 'Thinking...' : 'Ask Claude'}
-                                  </button>
-                                  <button
-                                    className="claude-respond-commit-btn"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      respondWithClaude(conv.uuid, true);
-                                    }}
-                                    disabled={claudeResponding === conv.uuid}
-                                  >
-                                    {claudeResponding === conv.uuid ? (
-                                      <Loader2 size={14} className="spinning" />
-                                    ) : (
-                                      <GitCommit size={14} />
-                                    )}
-                                    Ask & Commit
-                                  </button>
-                                </>
-                              )}
-                              {conv.status !== ConversationStatus.Resolved && (
-                                <button
-                                  className="resolve-btn"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    resolveConversation(conv.uuid);
-                                  }}
-                                >
-                                  <CheckCircle size={14} />
-                                  Resolve
-                                </button>
-                              )}
-                              <button
-                                className="delete-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteConversation(conv.uuid);
-                                }}
-                              >
-                                <Trash2 size={14} />
-                                Delete
-                              </button>
-                              {conv.file_exists && (
-                                <Link
-                                  href={`/browse?repo=${encodeURIComponent(repoPath)}&file=${encodeURIComponent(conv.file_path)}&line=${conv.current_line_number || conv.line_number}`}
-                                  className="view-file-btn"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <File size={14} />
-                                  View in File
-                                </Link>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ConversationGroups
+              groupedConversations={groupedConversations}
+              repoPath={repoPath}
+              expandedConversation={expandedConversation}
+              conversationMessages={conversationMessages}
+              replyContent={replyContent}
+              claudeResponding={claudeResponding}
+              claudeError={claudeError}
+              onToggleConversation={toggleConversation}
+              onReplyChange={setReplyContent}
+              onAddReply={addReply}
+              onRespondWithClaude={respondWithClaude}
+              onResolveConversation={resolveConversation}
+              onDeleteConversation={deleteConversation}
+            />
           )}
         </div>
       )}
