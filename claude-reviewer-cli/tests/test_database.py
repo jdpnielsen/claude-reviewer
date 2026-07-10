@@ -447,3 +447,92 @@ class TestAuthors:
         new_human = db.create_author("human", "Frank")
         db.set_default_author(new_human.id)
         assert db.get_default_human_author().id == new_human.id
+
+
+class TestCommentReplies:
+    """Tests for comment reply operations."""
+
+    def test_add_reply_me_sentinel_resolves_to_default_human(self, temp_db: Path) -> None:
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+
+        db.add_reply(comment_uuid, "a reply", author="me")
+        replies = db.get_replies(comment_uuid)
+        assert replies[0].author == db.get_default_human_author().name
+        assert replies[0].author_kind == "human"
+
+    def test_add_reply_claude_sentinel_resolves_to_default_agent(self, temp_db: Path) -> None:
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+
+        db.add_reply(comment_uuid, "a reply", author="claude")
+        replies = db.get_replies(comment_uuid)
+        assert replies[0].author == "claude"
+        assert replies[0].author_kind == "agent"
+
+    def test_add_reply_registered_name_resolves_directly(self, temp_db: Path) -> None:
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+        db.create_author("human", "Guest Reviewer")
+
+        db.add_reply(comment_uuid, "a reply", author="Guest Reviewer")
+        replies = db.get_replies(comment_uuid)
+        assert replies[0].author == "Guest Reviewer"
+
+    def test_add_reply_unregistered_name_raises(self, temp_db: Path) -> None:
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+
+        with pytest.raises(ValueError, match="Unknown author"):
+            db.add_reply(comment_uuid, "a reply", author="Nobody Registered")
+
+    def test_renaming_default_human_retroactively_updates_replies(self, temp_db: Path) -> None:
+        pr_uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(pr_uuid, "file.py", 1, "a comment")
+        db.add_reply(comment_uuid, "a reply", author="me")
+
+        human = db.get_default_human_author()
+        db.update_author(human.id, name="Renamed Human")
+
+        replies = db.get_replies(comment_uuid)
+        assert replies[0].author == "Renamed Human"
