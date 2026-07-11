@@ -132,9 +132,7 @@ describe('PR Workflow E2E Tests', () => {
 
   describe('PR Review Page', () => {
     test('displays PR details', async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForSelector('body');
 
       // Wait for content to load
@@ -149,9 +147,7 @@ describe('PR Workflow E2E Tests', () => {
     });
 
     test('shows diff content', async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForSelector('body');
 
       // Wait for diff to load
@@ -169,9 +165,7 @@ describe('PR Workflow E2E Tests', () => {
     });
 
     test('displays existing comments', async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForSelector('body');
 
       // Wait for comments to potentially load
@@ -183,9 +177,7 @@ describe('PR Workflow E2E Tests', () => {
     });
 
     test('has review action buttons', async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForSelector('body');
 
       // Wait for page to load
@@ -246,9 +238,7 @@ describe('PR Workflow E2E Tests', () => {
     }
 
     test('shows a confirm dialog and removes a comment with no replies', async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForFunction(
         () => document.body.textContent?.includes('Please add documentation for this constant'),
         { timeout: 20000 },
@@ -258,18 +248,14 @@ describe('PR Workflow E2E Tests', () => {
       expect(await confirmDialogMessage()).toBe('Delete this comment?');
       await acceptConfirmDialog();
 
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await new Promise((resolve) => setTimeout(resolve, 500));
       const content = await page.content();
       expect(content).not.toContain('Please add documentation for this constant');
     });
 
     test('mentions the reply count and removes both comment and reply', async () => {
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForFunction(
         () => document.body.textContent?.includes('This needs a reply-count test'),
         { timeout: 20000 },
@@ -285,9 +271,7 @@ describe('PR Workflow E2E Tests', () => {
 
     test('keeps the comment when the confirm dialog is cancelled', async () => {
       addComment(testPRUuid, 'test.ts', 4, 'Do not delete me');
-      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`, {
-        waitUntil: 'domcontentloaded',
-      });
+      await page.goto(`${global.__BASE_URL__}/prs/${testPRUuid}`);
       await page.waitForFunction(() => document.body.textContent?.includes('Do not delete me'), {
         timeout: 20000,
       });
