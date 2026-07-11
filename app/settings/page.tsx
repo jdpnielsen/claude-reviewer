@@ -1,30 +1,29 @@
 'use client';
 
 import { Trash2, Star, Pencil } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 import { useConfirm } from '@/components/ConfirmDialog';
 import { AuthorKind } from '@/lib/enum';
-
-interface Author {
-  id: number;
-  kind: AuthorKind;
-  name: string;
-  email: string | null;
-  isDefaultHuman: boolean;
-  isDefaultAgent: boolean;
-}
-
-interface GitSuggestion {
-  name: string | null;
-  email: string | null;
-}
+import {
+  useAddAuthorMutation,
+  useAuthorsQuery,
+  useDeleteAuthorMutation,
+  useMakeDefaultAuthorMutation,
+  useUpdateAuthorMutation,
+  type Author,
+} from '@/lib/queries/authors';
 
 export default function SettingsPage() {
-  const [authors, setAuthors] = useState<Author[]>([]);
-  const [gitSuggestion, setGitSuggestion] = useState<GitSuggestion | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error } = useAuthorsQuery();
+  const authors = data?.authors ?? [];
+  const gitSuggestion = data?.gitSuggestion ?? null;
+  const confirm = useConfirm();
+
+  const updateAuthor = useUpdateAuthorMutation();
+  const deleteAuthorMutation = useDeleteAuthorMutation();
+  const makeDefaultMutation = useMakeDefaultAuthorMutation();
+  const addAuthorMutation = useAddAuthorMutation();
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
@@ -33,27 +32,6 @@ export default function SettingsPage() {
   const [newName, setNewName] = useState('');
   const [newKind, setNewKind] = useState<AuthorKind>(AuthorKind.Human);
   const [newEmail, setNewEmail] = useState('');
-  const confirm = useConfirm();
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/authors');
-      if (!res.ok) throw new Error('Failed to load authors');
-      const data = await res.json();
-      setAuthors(data.authors);
-      setGitSuggestion(data.gitSuggestion);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error loading authors');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
 
   const startEdit = (author: Author) => {
     setEditingId(author.id);
@@ -67,68 +45,40 @@ export default function SettingsPage() {
     setEditEmail(gitSuggestion.email || '');
   };
 
-  const saveEdit = async (id: number) => {
-    try {
-      const res = await fetch(`/api/authors/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName.trim(), email: editEmail.trim() || null }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update author');
-      setEditingId(null);
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error updating author');
-    }
+  const saveEdit = (id: number) => {
+    updateAuthor.mutate(
+      { id, name: editName.trim(), email: editEmail.trim() || null },
+      {
+        onSuccess: () => setEditingId(null),
+        onError: (e) => alert(e.message),
+      },
+    );
   };
 
   const deleteAuthor = async (id: number) => {
-    if (!confirm('Delete this author?')) return;
-    try {
-      const res = await fetch(`/api/authors/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete author');
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error deleting author');
-    }
+    if (!(await confirm('Delete this author?'))) return;
+    deleteAuthorMutation.mutate(id, { onError: (e) => alert(e.message) });
   };
 
-  const makeDefault = async (id: number) => {
-    try {
-      const res = await fetch(`/api/authors/${id}/default`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to set default');
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error setting default');
-    }
+  const makeDefault = (id: number) => {
+    makeDefaultMutation.mutate(id, { onError: (e) => alert(e.message) });
   };
 
-  const addAuthor = async () => {
+  const addAuthor = () => {
     if (!newName.trim()) return;
-    try {
-      const res = await fetch('/api/authors', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName.trim(),
-          kind: newKind,
-          email: newEmail.trim() || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add author');
-      setNewName('');
-      setNewEmail('');
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error adding author');
-    }
+    addAuthorMutation.mutate(
+      { name: newName.trim(), kind: newKind, email: newEmail.trim() || null },
+      {
+        onSuccess: () => {
+          setNewName('');
+          setNewEmail('');
+        },
+        onError: (e) => alert(e.message),
+      },
+    );
   };
 
-  if (loading)
+  if (isLoading)
     return (
       <div className="settings-page">
         <p>Loading...</p>
@@ -140,7 +90,7 @@ export default function SettingsPage() {
       <h1>Settings</h1>
       <section className="authors-section">
         <h2>Authors</h2>
-        {error && <p className="error-text">{error}</p>}
+        {error && <p className="error-text">{error.message}</p>}
         <table className="authors-table">
           <thead>
             <tr>
