@@ -51,10 +51,6 @@ describe('Browse Workflow E2E Tests', () => {
   let testRepoDir: string;
   let activeConversationUuid: string;
 
-  beforeEach(() => {
-    console.log(`▶ ${expect.getState().currentTestName}`);
-  });
-
   beforeAll(async () => {
     browser = await chromium.launch({
       headless: true,
