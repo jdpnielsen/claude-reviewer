@@ -2,28 +2,30 @@
 
 import { MessageSquare } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import type { Conversation, ConversationMessage, ConversationWithMessages } from './types';
+import type { Conversation, ConversationMessage } from './types';
 import ConversationGroups from '@/components/browse/ConversationGroups';
 import ConversationsHeader from '@/components/browse/ConversationsHeader';
 import RepoPathPicker from '@/components/browse/RepoPathPicker';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { ConversationStatus } from '@/lib/enum';
+import {
+  useAddReplyMutation,
+  useConversationMessagesQuery,
+  useConversationsQuery,
+  useDeleteConversationMutation,
+  useResolveConversationMutation,
+  useRespondWithClaudeMutation,
+} from '@/lib/queries/conversations';
 import { getRecentRepos, saveRecentRepo } from '@/lib/recent-repos';
 
 export default function ConversationsListPage() {
   const [repoPath, setRepoPath] = useState('');
   const [inputPath, setInputPath] = useState('');
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ConversationStatus | 'all'>('all');
   const [expandedConversation, setExpandedConversation] = useState<string | null>(null);
-  const [conversationMessages, setConversationMessages] = useState<
-    Record<string, ConversationMessage[]>
-  >({});
   const [replyContent, setReplyContent] = useState('');
   const [claudeResponding, setClaudeResponding] = useState<string | null>(null);
   const [claudeError, setClaudeError] = useState<string | null>(null);
@@ -34,217 +36,91 @@ export default function ConversationsListPage() {
     setRecentRepos(getRecentRepos());
   }, []);
 
-  const loadConversations = useCallback(async () => {
-    try {
-      setLoading(true);
-      let url = `/api/browse/conversations?repo=${encodeURIComponent(repoPath)}`;
-      if (filter !== 'all') {
-        url += `&status=${filter}`;
-      }
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to load conversations');
-      const data = await res.json();
-      // Transform nested API response to flat conversation objects
-      const flatConversations = (data.conversations || []).map(
-        (item: ConversationWithMessages & { message_count?: number }) => ({
-          ...item.conversation,
-          message_count: item.message_count || item.messages?.length || 0,
-          latest_message:
-            item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null,
-        }),
-      );
-      setConversations(flatConversations);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error loading conversations');
-    } finally {
-      setLoading(false);
-    }
-  }, [repoPath, filter]);
+  const conversationsQuery = useConversationsQuery(repoPath, filter);
+  const messagesQuery = useConversationMessagesQuery(expandedConversation);
+  const addReplyMutation = useAddReplyMutation();
+  const resolveConversationMutation = useResolveConversationMutation();
+  const deleteConversationMutation = useDeleteConversationMutation();
+  const respondMutation = useRespondWithClaudeMutation();
 
-  useEffect(() => {
-    if (repoPath) {
-      loadConversations();
-    }
-  }, [repoPath, filter, loadConversations]);
+  const conversations = conversationsQuery.data?.conversations ?? [];
+  const loading = conversationsQuery.isLoading;
+  const error = conversationsQuery.error?.message ?? null;
 
-  // Poll for conversation updates (every 2 seconds)
-  useEffect(() => {
-    if (!repoPath) return;
-
-    const pollConversations = async () => {
-      try {
-        let url = `/api/browse/conversations?repo=${encodeURIComponent(repoPath)}`;
-        if (filter !== 'all') {
-          url += `&status=${filter}`;
-        }
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          // Transform nested API response to flat conversation objects
-          const flatConversations = (data.conversations || []).map(
-            (item: ConversationWithMessages & { message_count?: number }) => ({
-              ...item.conversation,
-              message_count: item.message_count || item.messages?.length || 0,
-              latest_message:
-                item.messages?.length > 0 ? item.messages[item.messages.length - 1] : null,
-            }),
-          );
-          setConversations(flatConversations);
-        }
-
-        // Refresh expanded conversation messages
-        if (expandedConversation) {
-          const msgRes = await fetch(`/api/browse/conversations/${expandedConversation}/messages`);
-          if (msgRes.ok) {
-            const msgData = await msgRes.json();
-            setConversationMessages((prev) => ({
-              ...prev,
-              [expandedConversation]: msgData.messages,
-            }));
-          }
-        }
-      } catch (e) {
-        // Silently fail on poll errors
-        console.error('Poll error:', e);
-      }
-    };
-
-    const interval = setInterval(pollConversations, 2000);
-    return () => clearInterval(interval);
-  }, [repoPath, filter, expandedConversation]);
-
-  const loadConversationMessages = async (uuid: string) => {
-    try {
-      const res = await fetch(`/api/browse/conversations/${uuid}/messages`);
-      if (!res.ok) throw new Error('Failed to load conversation');
-      const data: ConversationWithMessages = await res.json();
-      setConversationMessages((prev) => ({
-        ...prev,
-        [uuid]: data.messages,
-      }));
-    } catch (e) {
-      console.error('Error loading conversation:', e);
-    }
-  };
+  const conversationMessages = useMemo(() => {
+    if (!expandedConversation || !messagesQuery.data) return {};
+    return { [expandedConversation]: messagesQuery.data.messages } as Record<
+      string,
+      ConversationMessage[]
+    >;
+  }, [expandedConversation, messagesQuery.data]);
 
   const handleSetRepo = (path?: string) => {
     const newPath = path || inputPath.trim();
     if (newPath) {
       setRepoPath(newPath);
-      setConversations([]);
       saveRecentRepo(newPath);
       setRecentRepos(getRecentRepos());
     }
   };
 
-  const resolveConversation = async (uuid: string) => {
-    try {
-      const res = await fetch('/api/browse/conversations', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, status: ConversationStatus.Resolved }),
-      });
-      if (!res.ok) throw new Error('Failed to resolve conversation');
-      await loadConversations();
-    } catch (e) {
-      console.error('Error resolving conversation:', e);
-    }
+  const resolveConversation = (uuid: string) => {
+    resolveConversationMutation.mutate(uuid);
   };
 
   const deleteConversation = async (uuid: string) => {
     if (!(await confirm('Are you sure you want to delete this conversation?', { danger: true })))
       return;
 
-    try {
-      const res = await fetch(`/api/browse/conversations?uuid=${uuid}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Failed to delete conversation');
-      await loadConversations();
-    } catch (e) {
-      console.error('Error deleting conversation:', e);
-    }
+    deleteConversationMutation.mutate(uuid);
   };
 
-  const respondWithClaude = async (conversationUuid: string, autoCommit: boolean = false) => {
+  const respondWithClaude = (conversationUuid: string, autoCommit: boolean = false) => {
     setClaudeResponding(conversationUuid);
     setClaudeError(null);
 
-    try {
-      const res = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'respond',
-          conversationUuid,
-          allowEdits: true,
-          autoCommit,
-          push: false,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to get Claude response');
-      }
-
-      // Reload conversation messages to show Claude's response
-      await loadConversationMessages(conversationUuid);
-
-      // Show commit info if changes were made
-      if (data.hasChanges && !autoCommit) {
-        setClaudeError(
-          `Claude made changes. Use "Respond & Commit" to auto-commit, or commit manually.`,
-        );
-      } else if (data.commit?.success) {
-        setClaudeError(`Changes committed: ${data.commit.commitHash?.slice(0, 7)}`);
-      }
-    } catch (e) {
-      console.error('Error getting Claude response:', e);
-      setClaudeError(e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setClaudeResponding(null);
-    }
+    respondMutation.mutate(
+      { conversationUuid, autoCommit },
+      {
+        onSuccess: (data) => {
+          // Show commit info if changes were made
+          if (data.hasChanges && !autoCommit) {
+            setClaudeError(
+              `Claude made changes. Use "Respond & Commit" to auto-commit, or commit manually.`,
+            );
+          } else if (data.commit?.success) {
+            setClaudeError(`Changes committed: ${data.commit.commitHash?.slice(0, 7)}`);
+          }
+        },
+        onError: (e) => {
+          setClaudeError(e.message);
+        },
+        onSettled: () => {
+          setClaudeResponding(null);
+        },
+      },
+    );
   };
 
-  const addReply = async (conversationUuid: string, triggerClaude: boolean = true) => {
+  const addReply = (conversationUuid: string, triggerClaude: boolean = true) => {
     if (!replyContent.trim()) return;
 
-    try {
-      const res = await fetch(`/api/browse/conversations/${conversationUuid}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: replyContent,
-        }),
-      });
-
-      if (!res.ok) throw new Error('Failed to add reply');
-
-      // Reload conversation messages
-      await loadConversationMessages(conversationUuid);
-      setReplyContent('');
-
-      // Auto-trigger Claude to respond
-      if (triggerClaude) {
-        respondWithClaude(conversationUuid, false);
-      }
-    } catch (e) {
-      console.error('Error adding reply:', e);
-    }
+    addReplyMutation.mutate(
+      { conversationUuid, content: replyContent },
+      {
+        onSuccess: () => {
+          setReplyContent('');
+          // Auto-trigger Claude to respond
+          if (triggerClaude) {
+            respondWithClaude(conversationUuid, false);
+          }
+        },
+      },
+    );
   };
 
   const toggleConversation = (uuid: string) => {
-    if (expandedConversation === uuid) {
-      setExpandedConversation(null);
-    } else {
-      setExpandedConversation(uuid);
-      if (!conversationMessages[uuid]) {
-        loadConversationMessages(uuid);
-      }
-    }
+    setExpandedConversation((prev) => (prev === uuid ? null : uuid));
   };
 
   const groupedConversations = conversations.reduce(
@@ -283,7 +159,6 @@ export default function ConversationsListPage() {
             onChangeRepo={() => {
               setRepoPath('');
               setInputPath('');
-              setConversations([]);
             }}
             onFilterChange={setFilter}
           />

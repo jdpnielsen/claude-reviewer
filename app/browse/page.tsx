@@ -1,30 +1,32 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import type {
-  Conversation,
-  ConversationMessage,
-  ConversationWithMessages,
-  TreeNode,
-} from './types';
+import type { ConversationMessage } from './types';
 import BrowseSidebar from '@/components/browse/BrowseSidebar';
 import FileViewer from '@/components/browse/FileViewer';
 import RepoPathPicker from '@/components/browse/RepoPathPicker';
 import { AuthorKind, ConversationStatus } from '@/lib/enum';
+import {
+  useBrowseFileQuery,
+  useBrowseTreeQuery,
+  useLoadFolderChildrenMutation,
+} from '@/lib/queries/browse';
+import {
+  useAddCommentMutation,
+  useAddReplyMutation,
+  useConversationMessagesQueries,
+  useResolveConversationMutation,
+  useRespondWithClaudeAsyncMutation,
+} from '@/lib/queries/conversations';
 import { getRecentRepos, saveRecentRepo } from '@/lib/recent-repos';
 
 export default function BrowsePage() {
   const [repoPath, setRepoPath] = useState('');
   const [inputPath, setInputPath] = useState('');
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
-  const [tree, setTree] = useState<TreeNode | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string[]>([]);
-  const [fileConversations, setFileConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Load recent repos on mount
   useEffect(() => {
@@ -34,162 +36,60 @@ export default function BrowsePage() {
   // Comment state
   const [commentingAt, setCommentingAt] = useState<number | null>(null);
   const [newComment, setNewComment] = useState('');
-  const [conversationMessages, setConversationMessages] = useState<
-    Record<string, ConversationMessage[]>
-  >({});
   const [replyContent, setReplyContent] = useState('');
   const [claudeResponding, setClaudeResponding] = useState<Set<string>>(new Set());
 
-  const loadTree = useCallback(
-    async (subPath: string = '') => {
-      try {
-        setLoading(true);
-        const url = `/api/browse/tree?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(subPath)}&depth=2`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('Failed to load tree');
-        const data = await res.json();
-        setTree(data.tree);
-        // Auto-expand root folder (path is empty string for root)
-        if (data.tree) {
-          setExpandedFolders(new Set([data.tree.path ?? '']));
-        }
-        setError(null);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Error loading tree');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [repoPath],
-  );
+  const treeQuery = useBrowseTreeQuery(repoPath);
+  const fileQuery = useBrowseFileQuery(repoPath, selectedFile);
+  const loadFolderChildrenMutation = useLoadFolderChildrenMutation(repoPath);
+  const addCommentMutation = useAddCommentMutation();
+  const addReplyMutation = useAddReplyMutation();
+  const resolveConversationMutation = useResolveConversationMutation();
+  const respondMutation = useRespondWithClaudeAsyncMutation();
 
-  // Load tree when repo path changes
+  const tree = treeQuery.data?.tree ?? null;
+  const fileContent = fileQuery.data?.lines ?? [];
+  const fileConversations = useMemo(() => fileQuery.data?.conversations ?? [], [fileQuery.data]);
+  const loading = treeQuery.isLoading || fileQuery.isLoading;
+  const error = fileQuery.error?.message ?? treeQuery.error?.message ?? null;
+
+  // Auto-expand root folder whenever the repo (and so the root tree) changes
   useEffect(() => {
     if (repoPath) {
-      loadTree();
+      setExpandedFolders(new Set(['']));
     }
-  }, [repoPath, loadTree]);
+  }, [repoPath]);
 
-  // Poll for conversation updates (every 2 seconds when a file is selected)
+  const messagesQueries = useConversationMessagesQueries(fileConversations.map((c) => c.uuid));
+
+  const conversationMessages = useMemo(() => {
+    const map: Record<string, ConversationMessage[]> = {};
+    fileConversations.forEach((conv, idx) => {
+      const data = messagesQueries[idx]?.data;
+      if (data) {
+        map[conv.uuid] = data.messages;
+      }
+    });
+    return map;
+  }, [fileConversations, messagesQueries]);
+
+  // Claude has "responded" once the latest message in a conversation is
+  // agent-authored - drop it from the pending set when that happens.
   useEffect(() => {
-    if (!selectedFile || !repoPath) return;
-
-    const pollConversations = async () => {
-      try {
-        // Refresh file conversations
-        const url = `/api/browse/file?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(selectedFile)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          const convs = data.conversations || [];
-          setFileConversations(convs);
-
-          // Refresh messages for all conversations
-          for (const conv of convs) {
-            const msgRes = await fetch(`/api/browse/conversations/${conv.uuid}/messages`);
-            if (msgRes.ok) {
-              const msgData = await msgRes.json();
-              const messages = msgData.messages || [];
-              setConversationMessages((prev) => ({
-                ...prev,
-                [conv.uuid]: messages,
-              }));
-
-              // Check if Claude has responded - remove from pending if last message is from Claude
-              if (
-                messages.length > 0 &&
-                messages[messages.length - 1].author_kind === AuthorKind.Agent
-              ) {
-                setClaudeResponding((prev) => {
-                  if (prev.has(conv.uuid)) {
-                    const next = new Set(prev);
-                    next.delete(conv.uuid);
-                    return next;
-                  }
-                  return prev;
-                });
-              }
-            }
-          }
+    setClaudeResponding((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set(prev);
+      for (const uuid of prev) {
+        const messages = conversationMessages[uuid];
+        if (messages?.length && messages[messages.length - 1].author_kind === AuthorKind.Agent) {
+          next.delete(uuid);
+          changed = true;
         }
-      } catch (e) {
-        // Silently fail on poll errors
-        console.error('Poll error:', e);
       }
-    };
-
-    const interval = setInterval(pollConversations, 2000);
-    return () => clearInterval(interval);
-  }, [selectedFile, repoPath]);
-
-  const loadFile = async (filePath: string) => {
-    try {
-      setLoading(true);
-      setSelectedFile(filePath);
-      const url = `/api/browse/file?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(filePath)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to load file');
-      const data = await res.json();
-      setFileContent(data.lines);
-      setFileConversations(data.conversations || []);
-
-      // Auto-load messages for all conversations
-      const convs = data.conversations || [];
-      for (const conv of convs) {
-        loadConversationMessages(conv.uuid);
-      }
-
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error loading file');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadConversationMessages = async (uuid: string) => {
-    try {
-      const res = await fetch(`/api/browse/conversations/${uuid}/messages`);
-      if (!res.ok) throw new Error('Failed to load conversation');
-      const data: ConversationWithMessages = await res.json();
-      setConversationMessages((prev) => ({
-        ...prev,
-        [uuid]: data.messages,
-      }));
-    } catch (e) {
-      console.error('Error loading conversation:', e);
-    }
-  };
-
-  const loadFolderChildren = async (folderPath: string) => {
-    try {
-      const url = `/api/browse/tree?repo=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(folderPath)}&depth=2`;
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const data = await res.json();
-
-      if (data.tree && data.tree.children) {
-        // Update tree with new children
-        setTree((prevTree) => {
-          if (!prevTree) return prevTree;
-
-          const updateNode = (node: TreeNode): TreeNode => {
-            if (node.path === folderPath) {
-              return { ...node, children: data.tree.children };
-            }
-            if (node.children) {
-              return { ...node, children: node.children.map(updateNode) };
-            }
-            return node;
-          };
-
-          return updateNode(prevTree);
-        });
-      }
-    } catch (e) {
-      console.error('Error loading folder children:', e);
-    }
-  };
+      return changed ? next : prev;
+    });
+  }, [conversationMessages]);
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => {
@@ -199,7 +99,7 @@ export default function BrowsePage() {
       } else {
         next.add(path);
         // Load children if not already loaded
-        loadFolderChildren(path);
+        loadFolderChildrenMutation.mutate(path);
       }
       return next;
     });
@@ -210,127 +110,68 @@ export default function BrowsePage() {
     if (newPath) {
       setRepoPath(newPath);
       setSelectedFile(null);
-      setFileContent([]);
-      setTree(null);
       saveRecentRepo(newPath);
       setRecentRepos(getRecentRepos());
     }
   };
 
-  const respondWithClaude = async (conversationUuid: string) => {
+  const respondWithClaude = (conversationUuid: string) => {
     // Add to set of pending responses
     setClaudeResponding((prev) => new Set(prev).add(conversationUuid));
 
-    try {
-      // Use async mode so Claude processes in background even if user navigates away
-      const res = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'respond',
-          conversationUuid,
-          allowEdits: true,
-          autoCommit: false,
-          push: false,
-          async: true, // Fire-and-forget mode
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to trigger Claude response');
-      }
-
-      // Response is processing in background
-      // Polling will remove from claudeResponding when Claude's response arrives
-    } catch (e) {
-      console.error('Error triggering Claude response:', e);
-      // Remove from pending on error
-      setClaudeResponding((prev) => {
-        const next = new Set(prev);
-        next.delete(conversationUuid);
-        return next;
-      });
-    }
+    // Use async mode so Claude processes in background even if user navigates away.
+    // Polling will remove from claudeResponding when Claude's response arrives.
+    respondMutation.mutate(conversationUuid, {
+      onError: () => {
+        // Remove from pending on error
+        setClaudeResponding((prev) => {
+          const next = new Set(prev);
+          next.delete(conversationUuid);
+          return next;
+        });
+      },
+    });
   };
 
-  const addComment = async () => {
+  const addComment = () => {
     if (!commentingAt || !newComment.trim() || !selectedFile) return;
 
-    try {
-      const res = await fetch('/api/browse/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repo: repoPath,
-          filePath: selectedFile,
-          lineNumber: commentingAt,
-          content: newComment,
-        }),
-      });
+    addCommentMutation.mutate(
+      { repo: repoPath, filePath: selectedFile, lineNumber: commentingAt, content: newComment },
+      {
+        onSuccess: (data) => {
+          setCommentingAt(null);
+          setNewComment('');
 
-      if (!res.ok) throw new Error('Failed to add comment');
-      const data = await res.json();
-
-      // Reload file to get updated conversations
-      await loadFile(selectedFile);
-      setCommentingAt(null);
-      setNewComment('');
-
-      // Auto-trigger Claude to respond to the new conversation
-      if (data.uuid) {
-        respondWithClaude(data.uuid);
-      }
-    } catch (e) {
-      console.error('Error adding comment:', e);
-    }
+          // Auto-trigger Claude to respond to the new conversation
+          if (data.uuid) {
+            respondWithClaude(data.uuid);
+          }
+        },
+      },
+    );
   };
 
-  const addReply = async (conversationUuid: string) => {
+  const addReply = (conversationUuid: string) => {
     if (!replyContent.trim()) return;
 
-    try {
-      const res = await fetch(`/api/browse/conversations/${conversationUuid}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: replyContent,
-        }),
-      });
-
-      if (!res.ok) throw new Error('Failed to add reply');
-
-      // Reload conversation messages
-      await loadConversationMessages(conversationUuid);
-      setReplyContent('');
-
-      // Auto-trigger Claude to respond
-      respondWithClaude(conversationUuid);
-    } catch (e) {
-      console.error('Error adding reply:', e);
-    }
+    addReplyMutation.mutate(
+      { conversationUuid, content: replyContent },
+      {
+        onSuccess: () => {
+          setReplyContent('');
+          // Auto-trigger Claude to respond
+          respondWithClaude(conversationUuid);
+        },
+      },
+    );
   };
 
-  const resolveConversation = async (uuid: string) => {
-    try {
-      const res = await fetch('/api/browse/conversations', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid, status: ConversationStatus.Resolved }),
-      });
-
-      if (!res.ok) throw new Error('Failed to resolve conversation');
-
-      // Reload file
-      if (selectedFile) {
-        await loadFile(selectedFile);
-      }
-    } catch (e) {
-      console.error('Error resolving conversation:', e);
-    }
+  const resolveConversation = (uuid: string) => {
+    resolveConversationMutation.mutate(uuid);
   };
 
-  const getLineConversations = (lineNumber: number): Conversation[] => {
+  const getLineConversations = (lineNumber: number) => {
     return fileConversations.filter(
       (c) =>
         (c.current_line_number || c.line_number) === lineNumber &&
@@ -362,11 +203,10 @@ export default function BrowsePage() {
             expandedFolders={expandedFolders}
             selectedFile={selectedFile}
             onToggleFolder={toggleFolder}
-            onSelectFile={loadFile}
+            onSelectFile={setSelectedFile}
             onChangeRepo={() => {
               setRepoPath('');
               setInputPath('');
-              setTree(null);
               setSelectedFile(null);
             }}
           />
