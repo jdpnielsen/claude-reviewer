@@ -24,14 +24,6 @@ describe('PR Workflow E2E Tests', () => {
   let testPRUuid: string;
   let testRepoDir: string;
 
-  // Jest's reporter buffers a file's results and only prints them once the
-  // whole file finishes, even with verbose: true; plain console.log calls
-  // bypass that buffering and print immediately, giving real-time progress
-  // for this suite's ~60-100s runtime.
-  beforeEach(() => {
-    console.log(`▶ ${expect.getState().currentTestName}`);
-  });
-
   beforeAll(async () => {
     browser = await chromium.launch({
       headless: true,
