@@ -2,22 +2,9 @@
 
 import { GitPullRequest, Clock, CheckCircle, XCircle, GitMerge, Filter } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 
-import { PullRequestStatus } from '@/lib/enum';
-
-interface PullRequest {
-  id: number;
-  uuid: string;
-  repo_path: string;
-  title: string;
-  description: string;
-  base_ref: string;
-  head_ref: string;
-  status: PullRequestStatus;
-  created_at: string;
-  updated_at: string;
-}
+import { usePRsQuery } from '@/lib/queries/prs';
 
 // GitHub-style status colors
 const statusConfig = {
@@ -29,30 +16,9 @@ const statusConfig = {
 };
 
 export default function Home() {
-  const [prs, setPrs] = useState<PullRequest[]>([]);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  const fetchPRs = useCallback(async () => {
-    setLoading(true);
-    try {
-      let url = '/api/prs?limit=50';
-      if (statusFilter !== 'all') {
-        url += `&status=${statusFilter}`;
-      }
-      const res = await fetch(url);
-      const data = await res.json();
-      setPrs(data.prs || []);
-    } catch (e) {
-      console.error('Error fetching PRs:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
-
-  useEffect(() => {
-    fetchPRs();
-  }, [fetchPRs]);
+  const { data, isLoading } = usePRsQuery(statusFilter);
+  const prs = data?.prs ?? [];
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -94,7 +60,7 @@ export default function Home() {
       </div>
 
       {/* PR List */}
-      {loading ? (
+      {isLoading ? (
         <div className="loading-state">Loading pull requests...</div>
       ) : prs.length === 0 ? (
         <div className="empty-state">
