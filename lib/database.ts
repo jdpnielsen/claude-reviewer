@@ -790,12 +790,17 @@ export function createRepoConversation(
     commit: string;
   },
 ): string {
-  const db = getDatabase();
   const conversationUuid = generateUuid();
   const messageUuid = generateUuid();
+  // Resolved before getDatabase() below: getDefaultAgentAuthor/getDefaultHumanAuthor
+  // call getDatabase() internally too, and if that triggers a reconnect (the
+  // db file's mtime check in getDatabase() detects a change), a `db`
+  // reference captured before this point would be left pointing at a
+  // now-closed connection.
   const authorId = (
     authorKind === AuthorKind.Agent ? getDefaultAgentAuthor() : getDefaultHumanAuthor()
   ).id;
+  const db = getDatabase();
 
   const transaction = db.transaction(() => {
     // Create conversation
@@ -915,11 +920,13 @@ export function addRepoConversationMessage(
   content: string,
   authorKind: AuthorKind = AuthorKind.Human,
 ): string {
-  const db = getDatabase();
   const messageUuid = generateUuid();
+  // Resolved before getDatabase() below - see the matching comment in
+  // createRepoConversation for why this ordering matters.
   const authorId = (
     authorKind === AuthorKind.Agent ? getDefaultAgentAuthor() : getDefaultHumanAuthor()
   ).id;
+  const db = getDatabase();
 
   const conv = db
     .prepare('SELECT id FROM repo_conversations WHERE uuid = ?')
