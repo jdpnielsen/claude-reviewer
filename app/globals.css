@@ -238,6 +238,50 @@ textarea {
   color: #c9d1d9;
 }
 
+.pr-tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: #21262d;
+  padding: 0.25rem;
+  border-radius: 6px;
+  width: fit-content;
+  margin-top: 1rem;
+}
+
+.pr-tab {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b949e;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pr-tab:hover {
+  color: #c9d1d9;
+  background: #30363d;
+}
+
+.pr-tab.active {
+  color: #c9d1d9;
+  background: #30363d;
+}
+
+.pr-tab .count {
+  background: #30363d;
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+}
+
+.pr-tab.active .count {
+  background: #484f58;
+}
+
 .pr-layout {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -889,6 +933,86 @@ textarea {
   word-wrap: break-word;
   overflow-wrap: break-word;
   white-space: pre-wrap;
+}
+
+/* Conversation Tab */
+.conversation-tab {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.thread-group-heading {
+  font-size: 0.875rem;
+  color: #8b949e;
+  margin: 0 0 0.75rem;
+}
+
+.thread-row {
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.thread-row.resolved {
+  opacity: 0.6;
+}
+
+.thread-location {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  background: #161b22;
+}
+
+.thread-location:hover {
+  background: #1c2129;
+}
+
+.thread-file {
+  font-family: monospace;
+  color: #c9d1d9;
+  font-size: 0.85rem;
+}
+
+.thread-line {
+  font-family: monospace;
+  color: #8b949e;
+  font-size: 0.8rem;
+}
+
+.thread-resolved-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #3fb950;
+  font-size: 0.75rem;
+}
+
+.thread-location .view-file-btn {
+  margin-left: auto;
+}
+
+.thread-preview {
+  padding: 0.6rem 0.75rem;
+  color: #8b949e;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CommentThread assumes it's rendered next to a diff line (60px gutter) -
+   strip that offset when it's reused inside a thread row instead. */
+.thread-row .inline-comment {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  border-top: 1px solid #30363d;
 }
 
 .reply-btn {
