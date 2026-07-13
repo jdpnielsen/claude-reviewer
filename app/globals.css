@@ -238,6 +238,15 @@ textarea {
   color: #c9d1d9;
 }
 
+.pr-tabbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
 .pr-tabs {
   display: flex;
   gap: 0.25rem;
@@ -245,7 +254,6 @@ textarea {
   padding: 0.25rem;
   border-radius: 6px;
   width: fit-content;
-  margin-top: 1rem;
 }
 
 .pr-tab {
@@ -408,7 +416,52 @@ textarea {
   flex-shrink: 0;
 }
 
-.review-panel textarea {
+.review-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.review-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 6px;
+  background: #238636;
+  color: white;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.review-dropdown-trigger:hover {
+  background: #2ea043;
+}
+
+.review-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: 420px;
+  max-width: calc(100vw - 2rem);
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  padding: 1rem;
+  z-index: 50;
+}
+
+.review-dropdown-header h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: #c9d1d9;
+}
+
+.review-dropdown-textarea {
   width: 100%;
   padding: 0.5rem;
   border: 1px solid #30363d;
@@ -419,27 +472,88 @@ textarea {
   margin-bottom: 0.75rem;
 }
 
-.review-panel textarea:focus {
+.review-dropdown-textarea:focus {
   outline: none;
   border-color: #58a6ff;
 }
 
-.review-actions {
+.review-dropdown-options {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #30363d;
+  margin-bottom: 0.75rem;
+}
+
+.review-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.review-option:hover {
+  background: #21262d;
+}
+
+.review-option.selected {
+  background: rgba(56, 139, 253, 0.1);
+}
+
+.review-option input[type='radio'] {
+  margin-top: 0.2rem;
+}
+
+.review-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.review-option strong {
+  color: #c9d1d9;
+  font-size: 0.85rem;
+}
+
+.review-option small {
+  color: #8b949e;
+  font-size: 0.75rem;
+}
+
+.review-dropdown-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.review-dropdown-cancel {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: #21262d;
+  color: #c9d1d9;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.review-dropdown-cancel:hover {
+  background: #30363d;
 }
 
 .btn-approve,
 .btn-request-changes {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem;
   border: none;
   border-radius: 6px;
   font-size: 0.8rem;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -465,21 +579,10 @@ textarea {
 .approved-notice {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding: 0.5rem;
-  background: rgba(35, 134, 54, 0.15);
-  border: 1px solid #238636;
-  border-radius: 6px;
+  gap: 0.375rem;
   color: #3fb950;
-  font-size: 0.85rem;
-}
-
-.comment-count {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: #d29922;
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 /* Diff Viewer Styles */

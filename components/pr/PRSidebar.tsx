@@ -1,12 +1,10 @@
 'use client';
 
-import { GitCommit, Layers, MessageSquare } from 'lucide-react';
+import { GitCommit, Layers } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import FileTree from './FileTree';
-import ReviewPanel from './ReviewPanel';
 import type { CommitInfo, FileInfo } from '@/app/prs/[id]/types';
-import { PullRequestStatus, ReviewAction } from '@/lib/enum';
 
 interface PRSidebarProps {
   files: FileInfo[];
@@ -18,12 +16,6 @@ interface PRSidebarProps {
   commits: CommitInfo[];
   selectedCommit: string | null;
   selectCommit: (sha: string | null) => void;
-  status: PullRequestStatus;
-  reviewSummary: string;
-  setReviewSummary: Dispatch<SetStateAction<string>>;
-  submitting: boolean;
-  submitReview: (action: typeof ReviewAction.Approve | typeof ReviewAction.RequestChanges) => void;
-  unresolvedCount: number;
 }
 
 export default function PRSidebar({
@@ -36,12 +28,6 @@ export default function PRSidebar({
   commits,
   selectedCommit,
   selectCommit,
-  status,
-  reviewSummary,
-  setReviewSummary,
-  submitting,
-  submitReview,
-  unresolvedCount,
 }: PRSidebarProps) {
   return (
     <aside className="pr-sidebar">
@@ -83,24 +69,6 @@ export default function PRSidebar({
           ))}
         </div>
       </div>
-
-      {/* Review Panel */}
-      <ReviewPanel
-        status={status}
-        reviewSummary={reviewSummary}
-        setReviewSummary={setReviewSummary}
-        submitting={submitting}
-        submitReview={submitReview}
-      />
-
-      {unresolvedCount > 0 && (
-        <div className="sidebar-section">
-          <div className="comment-count">
-            <MessageSquare size={16} />
-            {unresolvedCount} unresolved comment{unresolvedCount !== 1 ? 's' : ''}
-          </div>
-        </div>
-      )}
     </aside>
   );
 }

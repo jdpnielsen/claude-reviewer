@@ -1,6 +1,8 @@
 'use client';
 
-import { CheckCircle, XCircle } from 'lucide-react';
+import { useClickOutside, useHotkeys } from '@mantine/hooks';
+import { CheckCircle, ChevronDown } from 'lucide-react';
+import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import { PullRequestStatus, ReviewAction } from '@/lib/enum';
@@ -20,39 +22,91 @@ export default function ReviewPanel({
   submitting,
   submitReview,
 }: ReviewPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [action, setAction] = useState<
+    typeof ReviewAction.Approve | typeof ReviewAction.RequestChanges
+  >(ReviewAction.Approve);
+
+  const ref = useClickOutside(() => setOpen(false));
+  useHotkeys([['Escape', () => setOpen(false)]]);
+
   if (status === PullRequestStatus.Merged) return null;
 
+  const handleSubmit = () => {
+    submitReview(action);
+    setOpen(false);
+  };
+
   return (
-    <div className="sidebar-section review-panel">
-      <h3>Submit Review</h3>
-      <textarea
-        placeholder="Leave a comment (optional)"
-        value={reviewSummary}
-        onChange={(e) => setReviewSummary(e.target.value)}
-        rows={3}
-      />
-      <div className="review-actions">
-        <button
-          className="btn-approve"
-          onClick={() => submitReview(ReviewAction.Approve)}
-          disabled={submitting}
-        >
-          <CheckCircle size={16} />
-          Approve
-        </button>
-        <button
-          className="btn-request-changes"
-          onClick={() => submitReview(ReviewAction.RequestChanges)}
-          disabled={submitting}
-        >
-          <XCircle size={16} />
-          Request Changes
-        </button>
-      </div>
+    <div className="review-dropdown" ref={ref}>
       {status === PullRequestStatus.Approved && (
-        <div className="approved-notice">
-          <CheckCircle size={16} />
-          Approved - Ready for merge
+        <span className="approved-notice">
+          <CheckCircle size={14} />
+          Approved
+        </span>
+      )}
+      <button className="review-dropdown-trigger" onClick={() => setOpen((o) => !o)}>
+        Submit Review
+        <ChevronDown size={14} />
+      </button>
+
+      {open && (
+        <div className="review-dropdown-panel">
+          <div className="review-dropdown-header">
+            <h4>Finish your review</h4>
+          </div>
+          <textarea
+            className="review-dropdown-textarea"
+            placeholder="Leave a comment"
+            value={reviewSummary}
+            onChange={(e) => setReviewSummary(e.target.value)}
+            rows={4}
+            ref={(el) => el?.focus()}
+          />
+          <div className="review-dropdown-options">
+            <label
+              className={`review-option ${action === ReviewAction.Approve ? 'selected' : ''}`}
+              aria-label="Approve"
+            >
+              <input
+                type="radio"
+                name="review-action"
+                checked={action === ReviewAction.Approve}
+                onChange={() => setAction(ReviewAction.Approve)}
+              />
+              <span>
+                <strong>Approve</strong>
+                <small>Submit feedback and approve merging these changes.</small>
+              </span>
+            </label>
+            <label
+              className={`review-option ${action === ReviewAction.RequestChanges ? 'selected' : ''}`}
+              aria-label="Request changes"
+            >
+              <input
+                type="radio"
+                name="review-action"
+                checked={action === ReviewAction.RequestChanges}
+                onChange={() => setAction(ReviewAction.RequestChanges)}
+              />
+              <span>
+                <strong>Request changes</strong>
+                <small>Submit feedback suggesting changes.</small>
+              </span>
+            </label>
+          </div>
+          <div className="review-dropdown-footer">
+            <button className="review-dropdown-cancel" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+            <button
+              className={action === ReviewAction.Approve ? 'btn-approve' : 'btn-request-changes'}
+              onClick={handleSubmit}
+              disabled={submitting}
+            >
+              Submit review
+            </button>
+          </div>
         </div>
       )}
     </div>
