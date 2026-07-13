@@ -188,10 +188,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
-  // Used by the Conversation tab's "View in Files" action - force-expands
-  // the target file (explicit override, same as toggleFile's expand branch)
-  // and defers the scroll until the Files tab has actually mounted.
-  const jumpToFile = (filePath: string) => {
+  // Used by the Conversation tab's "View in Files" action - selects the
+  // commit the comment was made against (so the diff matches what the
+  // commenter actually saw), force-expands the target file (explicit
+  // override, same as toggleFile's expand branch), and defers the scroll
+  // until that commit's diff has finished loading.
+  const jumpToFile = (filePath: string, commitSha: string | null) => {
     setExpandedFiles((prev) => new Set(prev).add(filePath));
     setCollapsedFiles((prev) => {
       const next = new Set(prev);
@@ -200,16 +202,20 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     });
     setPendingScrollTarget(filePath);
     setActiveTab('files');
+    selectCommit(commitSha);
   };
 
   useEffect(() => {
-    if (activeTab !== 'files' || !pendingScrollTarget) return;
+    // Wait for a commit switch triggered by jumpToFile to actually land -
+    // otherwise this can fire while the previous commit's files are still
+    // rendered (keepPreviousData) and scroll to nothing, or the wrong file.
+    if (activeTab !== 'files' || !pendingScrollTarget || prQuery.isFetching) return;
     scrollToDiff(pendingScrollTarget);
     setPendingScrollTarget(null);
-    // Only re-run when the tab or pending target changes - scrollToDiff
-    // reads the DOM directly and isn't itself reactive state.
+    // Only re-run when the tab, pending target, or fetch state changes -
+    // scrollToDiff reads the DOM directly and isn't itself reactive state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, pendingScrollTarget]);
+  }, [activeTab, pendingScrollTarget, prQuery.isFetching]);
 
   const addComment = () => {
     if (!commentingAt || !newComment.trim() || !data) return;
@@ -418,6 +424,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
             // which the Files tab uses instead).
             <ConversationTab
               comments={comments}
+              commits={data.commits}
               onJumpToFile={jumpToFile}
               editingComment={editingComment}
               setEditingComment={setEditingComment}
