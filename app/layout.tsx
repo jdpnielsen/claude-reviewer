@@ -1,4 +1,5 @@
 import { GitPullRequest } from 'lucide-react';
+import { NuqsAdapter } from 'nuqs/adapters/next/app';
 
 import './globals.css';
 import type { Metadata } from 'next';
@@ -21,32 +22,34 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <QueryProvider>
-          <ConfirmProvider>
-            <header>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                <Link
-                  href="/"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    fontWeight: 600,
-                    fontSize: '1.25rem',
-                    textDecoration: 'none',
-                    color: 'inherit',
-                  }}
-                >
-                  <GitPullRequest size={24} />
-                  Claude Reviewer
-                </Link>
-                <HeaderNav />
-              </div>
-              <div style={{ fontSize: '0.9rem', color: '#8b949e' }}>Local Code Review System</div>
-            </header>
-            {children}
-          </ConfirmProvider>
-        </QueryProvider>
+        <NuqsAdapter>
+          <QueryProvider>
+            <ConfirmProvider>
+              <header>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                  <Link
+                    href="/"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      fontWeight: 600,
+                      fontSize: '1.25rem',
+                      textDecoration: 'none',
+                      color: 'inherit',
+                    }}
+                  >
+                    <GitPullRequest size={24} />
+                    Claude Reviewer
+                  </Link>
+                  <HeaderNav />
+                </div>
+                <div style={{ fontSize: '0.9rem', color: '#8b949e' }}>Local Code Review System</div>
+              </header>
+              {children}
+            </ConfirmProvider>
+          </QueryProvider>
+        </NuqsAdapter>
       </body>
     </html>
   );

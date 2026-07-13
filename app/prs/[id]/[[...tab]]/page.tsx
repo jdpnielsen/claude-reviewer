@@ -1,7 +1,9 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { useQueryState } from 'nuqs';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, useEffect, use } from 'react';
 
 import {
@@ -14,9 +16,9 @@ import {
   useRequestAIReviewMutation,
   useResolveCommentMutation,
   useSubmitReviewMutation,
-} from './queries';
-import type { CommentingAt, EditingComment, LastClickedLine, PRData } from './types';
-import { statusConfig } from './utils';
+} from '@/app/prs/[id]/queries';
+import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
+import { statusConfig } from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
 import CommitSelector from '@/components/pr/CommitSelector';
 import ConversationTab from '@/components/pr/ConversationTab';
@@ -29,14 +31,20 @@ import { apiClient } from '@/lib/api-client';
 import { ReviewAction } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
 
-export default function PRPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function PRPage({
+  params,
+}: {
+  params: Promise<{ id: string; tab?: string[] }>;
+}) {
+  const { id, tab } = use(params);
+  const activeTab: PRViewTab = tab?.[0] === 'conversation' ? 'conversation' : 'files';
+  const router = useRouter();
   const confirm = useConfirm();
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   // Files the user has explicitly collapsed - always wins over the
   // comment-based or file-count-based defaults (see isFileExpanded below).
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
-  const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
+  const [selectedCommit, setSelectedCommit] = useQueryState('commit');
   const [commentingAt, setCommentingAt] = useState<CommentingAt | null>(null);
   const [lastClickedLine, setLastClickedLine] = useState<LastClickedLine | null>(null);
   const [newComment, setNewComment] = useState('');
@@ -52,7 +60,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [showAllLines, setShowAllLines] = useState<Set<string>>(new Set());
   // Track collapsed folders in sidebar
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<PRViewTab>('files');
   // Set by jumpToFile (from the Conversation tab) so the scroll can happen
   // once the Files tab has actually mounted - see the effect below.
   const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null);
@@ -193,6 +200,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   // commenter actually saw), force-expands the target file (explicit
   // override, same as toggleFile's expand branch), and defers the scroll
   // until that commit's diff has finished loading.
+  //
+  // This is the one place that builds a URL and navigates directly instead
+  // of going through the per-field abstractions (nuqs setter, tab Links)
+  // used everywhere else: it needs to change both the path (back to Files)
+  // and the commit query in one shot, and nuqs's setter alone would only
+  // touch the query while leaving us on the Conversation path.
   const jumpToFile = (filePath: string, commitSha: string | null) => {
     setExpandedFiles((prev) => new Set(prev).add(filePath));
     setCollapsedFiles((prev) => {
@@ -201,8 +214,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       return next;
     });
     setPendingScrollTarget(filePath);
-    setActiveTab('files');
-    selectCommit(commitSha);
+    router.replace(`/prs/${id}${commitSha ? `?commit=${encodeURIComponent(commitSha)}` : ''}`);
   };
 
   useEffect(() => {
@@ -316,12 +328,19 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     files.filter((f) => isFileExpanded(f.path)).map((f) => f.path),
   );
 
+  // Preserved across tab links so switching tabs and back doesn't lose the
+  // commit selection, even though the Conversation tab itself ignores it.
+  const commitQuery = selectedCommit ? `?commit=${encodeURIComponent(selectedCommit)}` : '';
+  const filesHref = `/prs/${id}${commitQuery}`;
+  const conversationHref = `/prs/${id}/conversation${commitQuery}`;
+
   return (
     <main className="container pr-detail">
       <PRHeader
         pr={pr}
         config={config}
         requestingAI={requestAIReviewMutation.isPending}
+        showFileControls={activeTab === 'files'}
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
         onRequestAIReview={requestAIReview}
@@ -331,15 +350,18 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         <div className="pr-tabbar-left">
           <PRTabs
             activeTab={activeTab}
-            onChange={setActiveTab}
+            filesHref={filesHref}
+            conversationHref={conversationHref}
             filesCount={files.length}
             unresolvedCount={unresolvedCount}
           />
-          <CommitSelector
-            commits={data.commits}
-            selectedCommit={selectedCommit}
-            selectCommit={selectCommit}
-          />
+          {activeTab === 'files' && (
+            <CommitSelector
+              commits={data.commits}
+              selectedCommit={selectedCommit}
+              selectCommit={selectCommit}
+            />
+          )}
         </div>
         <ReviewPanel
           status={pr.status}
@@ -351,15 +373,17 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       </div>
 
       {/* Layout: Sidebar + Main */}
-      <div className="pr-layout">
-        <PRSidebar
-          files={files}
-          expandedFiles={effectiveExpandedFiles}
-          collapsedFolders={collapsedFolders}
-          setCollapsedFolders={setCollapsedFolders}
-          toggleFile={toggleFile}
-          scrollToDiff={scrollToDiff}
-        />
+      <div className={`pr-layout ${activeTab === 'conversation' ? 'single-column' : ''}`}>
+        {activeTab === 'files' && (
+          <PRSidebar
+            files={files}
+            expandedFiles={effectiveExpandedFiles}
+            collapsedFolders={collapsedFolders}
+            setCollapsedFolders={setCollapsedFolders}
+            toggleFile={toggleFile}
+            scrollToDiff={scrollToDiff}
+          />
+        )}
 
         {/* Main Diff View */}
         <div className="pr-main">
