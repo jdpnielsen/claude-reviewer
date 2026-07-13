@@ -245,6 +245,7 @@ textarea {
   flex-wrap: wrap;
   gap: 1rem;
   margin-top: 1rem;
+  margin-bottom: 1rem;
 }
 
 .pr-tabbar-left {
@@ -1117,7 +1118,6 @@ textarea {
 
 /* Conversation Tab */
 .conversation-tab {
-  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1127,6 +1127,7 @@ textarea {
   font-size: 0.875rem;
   color: #8b949e;
   margin: 0 0 0.75rem;
+  padding: 0 0.25rem;
 }
 
 .thread-row {
