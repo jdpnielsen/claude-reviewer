@@ -23,6 +23,7 @@ import FileDiffCard from '@/components/pr/FileDiffCard';
 import PRHeader from '@/components/pr/PRHeader';
 import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
+import ReviewPanel from '@/components/pr/ReviewPanel';
 import { apiClient } from '@/lib/api-client';
 import { ReviewAction } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
@@ -319,12 +320,21 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         onRequestAIReview={requestAIReview}
       />
 
-      <PRTabs
-        activeTab={activeTab}
-        onChange={setActiveTab}
-        filesCount={files.length}
-        unresolvedCount={unresolvedCount}
-      />
+      <div className="pr-tabbar">
+        <PRTabs
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          filesCount={files.length}
+          unresolvedCount={unresolvedCount}
+        />
+        <ReviewPanel
+          status={pr.status}
+          reviewSummary={reviewSummary}
+          setReviewSummary={setReviewSummary}
+          submitting={submitReviewMutation.isPending}
+          submitReview={submitReview}
+        />
+      </div>
 
       {/* Layout: Sidebar + Main */}
       <div className="pr-layout">
@@ -338,12 +348,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           commits={data.commits}
           selectedCommit={selectedCommit}
           selectCommit={selectCommit}
-          status={pr.status}
-          reviewSummary={reviewSummary}
-          setReviewSummary={setReviewSummary}
-          submitting={submitReviewMutation.isPending}
-          submitReview={submitReview}
-          unresolvedCount={unresolvedCount}
         />
 
         {/* Main Diff View */}
