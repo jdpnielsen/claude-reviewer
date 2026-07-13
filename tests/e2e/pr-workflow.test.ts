@@ -337,4 +337,131 @@ describe('PR Workflow E2E Tests', () => {
       expect(content).toContain('Pull Requests');
     });
   });
+
+  describe('File expand/collapse defaults', () => {
+    // A PR with >10 files so the file-count default only auto-expands the
+    // first 3 - this is what makes "files with comments are always expanded"
+    // observable as distinct from the plain file-count default.
+    const FILE_COUNT = 12;
+    let manyFilesPRUuid: string;
+    let manyFilesRepoDir: string;
+
+    function fileDiffId(filePath: string): string {
+      return `file-${filePath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+    }
+
+    async function isFileDiffExpanded(filePath: string): Promise<boolean> {
+      return page.$eval(
+        `#${fileDiffId(filePath)}`,
+        (el) => el.querySelector('.diff-content') !== null,
+      );
+    }
+
+    beforeAll(() => {
+      manyFilesRepoDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'claude-reviewer-e2e-manyfiles-'),
+      );
+      git(['init', '-q'], manyFilesRepoDir);
+      git(['config', 'user.email', 'e2e@test.local'], manyFilesRepoDir);
+      git(['config', 'user.name', 'E2E Test'], manyFilesRepoDir);
+      fs.writeFileSync(path.join(manyFilesRepoDir, 'README.md'), 'placeholder\n');
+      git(['add', 'README.md'], manyFilesRepoDir);
+      git(['commit', '-q', '-m', 'initial'], manyFilesRepoDir);
+      const baseCommit = git(['rev-parse', 'HEAD'], manyFilesRepoDir);
+      const headCommit = baseCommit;
+
+      const diffParts = Array.from({ length: FILE_COUNT }, (_, i) => {
+        const name = `file${String(i).padStart(2, '0')}.ts`;
+        return `diff --git a/${name} b/${name}
+new file mode 100644
+--- /dev/null
++++ b/${name}
+@@ -0,0 +1,1 @@
++export const value${i} = ${i};`;
+      });
+
+      manyFilesPRUuid = createPR(
+        manyFilesRepoDir,
+        'Many files PR for expand/collapse tests',
+        'main',
+        'many-files',
+        baseCommit,
+        headCommit,
+        diffParts.join('\n'),
+        'Exercises the >10 file default-expand cutoff.',
+      );
+
+      // Beyond the first-3 cutoff - should still auto-expand because it has a comment.
+      addComment(manyFilesPRUuid, 'file05.ts', 1, 'Please double check this value');
+    });
+
+    afterAll(() => {
+      if (manyFilesRepoDir) {
+        fs.rmSync(manyFilesRepoDir, { recursive: true, force: true });
+      }
+    });
+
+    test('expands a file with a comment even beyond the default cutoff', async () => {
+      await page.goto(`${global.__BASE_URL__}/prs/${manyFilesPRUuid}`);
+      await page.waitForFunction(
+        () => document.querySelectorAll('.file-diff').length >= 12,
+        { timeout: 15000 },
+      );
+
+      // Sanity check on the plain file-count default: first 3 open, others closed.
+      expect(await isFileDiffExpanded('file00.ts')).toBe(true);
+      expect(await isFileDiffExpanded('file06.ts')).toBe(false);
+
+      // file05.ts is outside the first-3 cutoff but has a comment, so it
+      // must be expanded anyway.
+      expect(await isFileDiffExpanded('file05.ts')).toBe(true);
+    });
+
+    test('keeps a manually collapsed file collapsed even after a new comment arrives', async () => {
+      await page.goto(`${global.__BASE_URL__}/prs/${manyFilesPRUuid}`);
+      await page.waitForFunction(
+        () => document.querySelectorAll('.file-diff').length >= 12,
+        { timeout: 15000 },
+      );
+
+      // file00.ts is auto-expanded by the file-count default; collapse it manually.
+      expect(await isFileDiffExpanded('file00.ts')).toBe(true);
+      await page.click(`#${fileDiffId('file00.ts')} .file-header-left`);
+      expect(await isFileDiffExpanded('file00.ts')).toBe(false);
+
+      // Simulate a comment arriving on file00.ts from elsewhere (e.g. another
+      // reviewer) while this page is open, and wait for the 5s comment poll
+      // (see usePRCommentsPollQuery) to pick it up.
+      const pollResponsePromise = page.waitForResponse(
+        (resp) =>
+          resp.request().method() === 'GET' &&
+          resp.url().includes(`/api/prs/${manyFilesPRUuid}`) &&
+          !resp.url().includes('commit='),
+        { timeout: 10000 },
+      );
+      addComment(manyFilesPRUuid, 'file00.ts', 1, 'Late-arriving comment');
+      await pollResponsePromise;
+      // Give React Query a moment to flush the refetched state into the DOM.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Manual collapse must win over the new comment.
+      expect(await isFileDiffExpanded('file00.ts')).toBe(false);
+
+      // Meanwhile, an untouched file with a fresh comment (file07.ts, beyond
+      // the default cutoff, previously collapsed) should auto-expand.
+      expect(await isFileDiffExpanded('file07.ts')).toBe(false);
+      const secondPollPromise = page.waitForResponse(
+        (resp) =>
+          resp.request().method() === 'GET' &&
+          resp.url().includes(`/api/prs/${manyFilesPRUuid}`) &&
+          !resp.url().includes('commit='),
+        { timeout: 10000 },
+      );
+      addComment(manyFilesPRUuid, 'file07.ts', 1, 'Another late comment');
+      await secondPollPromise;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(await isFileDiffExpanded('file07.ts')).toBe(true);
+    });
+  });
 });

@@ -29,6 +29,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const { id } = use(params);
   const confirm = useConfirm();
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  // Files the user has explicitly collapsed - always wins over the
+  // comment-based or file-count-based defaults (see isFileExpanded below).
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [commentingAt, setCommentingAt] = useState<CommentingAt | null>(null);
   const [lastClickedLine, setLastClickedLine] = useState<LastClickedLine | null>(null);
@@ -70,11 +73,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
-  // For large PRs (>10 files), only expand first 3 files for performance.
+  // For large PRs (>10 files), only expand first 3 files by default -
+  // files with comments are always expanded regardless (see isFileExpanded).
   // For smaller PRs, expand all. Re-runs whenever a genuinely new file list
   // arrives (initial load, or switching commits) - `prQuery.data` keeps its
   // previous reference while a refetch is in flight (`keepPreviousData`), so
-  // this doesn't fire on every render, only on an actual new response.
+  // this doesn't fire on every render, only on an actual new response. Manual
+  // collapses are reset here too, since a new file list means a fresh view.
   useEffect(() => {
     if (!prQuery.data) return;
     const files = prQuery.data.files;
@@ -83,6 +88,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     } else {
       setExpandedFiles(new Set(files.map((f) => f.path)));
     }
+    setCollapsedFiles(new Set());
     // Only re-run when the file list itself changes identity, not on every
     // render - see comment above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,22 +139,33 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   };
 
   const toggleFile = (path: string) => {
-    const newExpanded = new Set(expandedFiles);
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path);
+    if (isFileExpanded(path)) {
+      setCollapsedFiles((prev) => new Set(prev).add(path));
+      setExpandedFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
     } else {
-      newExpanded.add(path);
+      setExpandedFiles((prev) => new Set(prev).add(path));
+      setCollapsedFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
     }
-    setExpandedFiles(newExpanded);
   };
 
   const expandAll = () => {
     if (!data) return;
     setExpandedFiles(new Set(data.files.map((f) => f.path)));
+    setCollapsedFiles(new Set());
   };
 
   const collapseAll = () => {
+    if (!data) return;
     setExpandedFiles(new Set());
+    setCollapsedFiles(new Set(data.files.map((f) => f.path)));
   };
 
   const scrollToDiff = (path: string) => {
@@ -229,6 +246,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     );
   };
 
+  // A file with comments is always shown expanded, so reviewers never miss
+  // existing discussion - unless the user has explicitly collapsed it, which
+  // always wins. Absent either of those, fall back to the file-count default.
+  const isFileExpanded = (filePath: string) => {
+    if (collapsedFiles.has(filePath)) return false;
+    if (expandedFiles.has(filePath)) return true;
+    return getFileComments(filePath).length > 0;
+  };
+
   if (prQuery.isPending) {
     return (
       <main className="container">
@@ -249,6 +275,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const { pr, diff, files, comments } = data;
   const config = statusConfig[pr.status];
   const unresolvedCount = comments.filter((c) => !c.comment.resolved).length;
+  const effectiveExpandedFiles = new Set(
+    files.filter((f) => isFileExpanded(f.path)).map((f) => f.path),
+  );
 
   return (
     <main className="container pr-detail">
@@ -265,7 +294,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       <div className="pr-layout">
         <PRSidebar
           files={files}
-          expandedFiles={expandedFiles}
+          expandedFiles={effectiveExpandedFiles}
           collapsedFolders={collapsedFolders}
           setCollapsedFolders={setCollapsedFolders}
           toggleFile={toggleFile}
@@ -306,7 +335,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
               file={file}
               diff={diff}
               fileComments={getFileComments(file.path)}
-              isExpanded={expandedFiles.has(file.path)}
+              isExpanded={effectiveExpandedFiles.has(file.path)}
               toggleFile={toggleFile}
               isPreview={previewMode.has(file.path)}
               togglePreview={togglePreview}
