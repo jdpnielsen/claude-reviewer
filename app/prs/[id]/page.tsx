@@ -18,9 +18,11 @@ import {
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from './types';
 import { statusConfig } from './utils';
 import { useConfirm } from '@/components/ConfirmDialog';
+import ConversationTab from '@/components/pr/ConversationTab';
 import FileDiffCard from '@/components/pr/FileDiffCard';
 import PRHeader from '@/components/pr/PRHeader';
 import PRSidebar from '@/components/pr/PRSidebar';
+import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import { apiClient } from '@/lib/api-client';
 import { ReviewAction } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
@@ -48,6 +50,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
   const [showAllLines, setShowAllLines] = useState<Set<string>>(new Set());
   // Track collapsed folders in sidebar
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<PRViewTab>('files');
+  // Set by jumpToFile (from the Conversation tab) so the scroll can happen
+  // once the Files tab has actually mounted - see the effect below.
+  const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null);
 
   // Switching `selectedCommit` changes this query's key; `keepPreviousData`
   // keeps the sidebar/diff pane mounted with the previous commit's data
@@ -180,6 +186,29 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
+  // Used by the Conversation tab's "View in Files" action - force-expands
+  // the target file (explicit override, same as toggleFile's expand branch)
+  // and defers the scroll until the Files tab has actually mounted.
+  const jumpToFile = (filePath: string) => {
+    setExpandedFiles((prev) => new Set(prev).add(filePath));
+    setCollapsedFiles((prev) => {
+      const next = new Set(prev);
+      next.delete(filePath);
+      return next;
+    });
+    setPendingScrollTarget(filePath);
+    setActiveTab('files');
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'files' || !pendingScrollTarget) return;
+    scrollToDiff(pendingScrollTarget);
+    setPendingScrollTarget(null);
+    // Only re-run when the tab or pending target changes - scrollToDiff
+    // reads the DOM directly and isn't itself reactive state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, pendingScrollTarget]);
+
   const addComment = () => {
     if (!commentingAt || !newComment.trim() || !data) return;
     addCommentMutation.mutate({
@@ -290,6 +319,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
         onRequestAIReview={requestAIReview}
       />
 
+      <PRTabs
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        filesCount={files.length}
+        unresolvedCount={unresolvedCount}
+      />
+
       {/* Layout: Sidebar + Main */}
       <div className="pr-layout">
         <PRSidebar
@@ -312,45 +348,68 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
 
         {/* Main Diff View */}
         <div className="pr-main">
-          {prQuery.isFetching && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.75rem 1rem',
-                background: '#161b22',
-                borderBottom: '1px solid #30363d',
-                color: '#8b949e',
-                fontSize: '0.8rem',
-              }}
-            >
-              <Loader2 size={14} className="animate-spin" />
-              Loading commit diff...
-            </div>
-          )}
-          {files.map((file) => (
-            <FileDiffCard
-              key={file.path}
-              file={file}
-              diff={diff}
-              fileComments={getFileComments(file.path)}
-              isExpanded={effectiveExpandedFiles.has(file.path)}
-              toggleFile={toggleFile}
-              isPreview={previewMode.has(file.path)}
-              togglePreview={togglePreview}
-              showAllLines={showAllLines}
-              setShowAllLines={setShowAllLines}
-              expandedContext={expandedContext}
-              loadingContext={loadingContext}
-              fetchContext={fetchContext}
-              commentingAt={commentingAt}
-              setCommentingAt={setCommentingAt}
-              lastClickedLine={lastClickedLine}
-              setLastClickedLine={setLastClickedLine}
-              newComment={newComment}
-              setNewComment={setNewComment}
-              addComment={addComment}
+          {activeTab === 'files' ? (
+            <>
+              {prQuery.isFetching && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.75rem 1rem',
+                    background: '#161b22',
+                    borderBottom: '1px solid #30363d',
+                    color: '#8b949e',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <Loader2 size={14} className="animate-spin" />
+                  Loading commit diff...
+                </div>
+              )}
+              {files.map((file) => (
+                <FileDiffCard
+                  key={file.path}
+                  file={file}
+                  diff={diff}
+                  fileComments={getFileComments(file.path)}
+                  isExpanded={effectiveExpandedFiles.has(file.path)}
+                  toggleFile={toggleFile}
+                  isPreview={previewMode.has(file.path)}
+                  togglePreview={togglePreview}
+                  showAllLines={showAllLines}
+                  setShowAllLines={setShowAllLines}
+                  expandedContext={expandedContext}
+                  loadingContext={loadingContext}
+                  fetchContext={fetchContext}
+                  commentingAt={commentingAt}
+                  setCommentingAt={setCommentingAt}
+                  lastClickedLine={lastClickedLine}
+                  setLastClickedLine={setLastClickedLine}
+                  newComment={newComment}
+                  setNewComment={setNewComment}
+                  addComment={addComment}
+                  editingComment={editingComment}
+                  setEditingComment={setEditingComment}
+                  editComment={editComment}
+                  replyingTo={replyingTo}
+                  setReplyingTo={setReplyingTo}
+                  replyContent={replyContent}
+                  setReplyContent={setReplyContent}
+                  addReply={addReply}
+                  resolveComment={resolveComment}
+                  deleteComment={deleteComment}
+                />
+              ))}
+            </>
+          ) : (
+            // PR-wide, deliberately not filtered by selectedCommit - the
+            // Conversation tab always shows every thread regardless of which
+            // commit is selected in the sidebar (see getFileComments above,
+            // which the Files tab uses instead).
+            <ConversationTab
+              comments={comments}
+              onJumpToFile={jumpToFile}
               editingComment={editingComment}
               setEditingComment={setEditingComment}
               editComment={editComment}
@@ -362,7 +421,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
               resolveComment={resolveComment}
               deleteComment={deleteComment}
             />
-          ))}
+          )}
         </div>
       </div>
     </main>
