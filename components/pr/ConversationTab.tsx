@@ -4,11 +4,12 @@ import { MessageSquare } from 'lucide-react';
 import { useState, type Dispatch, type SetStateAction } from 'react';
 
 import ThreadRow from './ThreadRow';
-import type { Comment, CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
+import type { Comment, CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 
 interface ConversationTabProps {
   comments: CommentWithReplies[];
-  onJumpToFile: (filePath: string) => void;
+  commits: CommitInfo[];
+  onJumpToFile: (filePath: string, commitSha: string | null) => void;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
   editComment: () => void;
@@ -27,6 +28,7 @@ function byCreatedAtAsc(a: CommentWithReplies, b: CommentWithReplies) {
 
 export default function ConversationTab({
   comments,
+  commits,
   onJumpToFile,
   ...commentThreadProps
 }: ConversationTabProps) {
@@ -73,6 +75,7 @@ export default function ConversationTab({
             <ThreadRow
               key={item.comment.uuid}
               item={item}
+              commits={commits}
               isExpanded={isThreadExpanded(item.comment)}
               onToggle={() => toggleThread(item.comment.uuid)}
               onJumpToFile={onJumpToFile}
@@ -89,6 +92,7 @@ export default function ConversationTab({
             <ThreadRow
               key={item.comment.uuid}
               item={item}
+              commits={commits}
               isExpanded={isThreadExpanded(item.comment)}
               onToggle={() => toggleThread(item.comment.uuid)}
               onJumpToFile={onJumpToFile}

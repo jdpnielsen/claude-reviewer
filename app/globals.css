@@ -1174,6 +1174,15 @@ textarea {
   font-size: 0.75rem;
 }
 
+.thread-commit-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #8b949e;
+  font-size: 0.75rem;
+  font-family: monospace;
+}
+
 .thread-location .view-file-btn {
   margin-left: auto;
 }

@@ -1,16 +1,17 @@
 'use client';
 
-import { CheckCircle, ChevronDown, ChevronRight, File } from 'lucide-react';
+import { CheckCircle, ChevronDown, ChevronRight, File, GitCommit, Layers } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import CommentThread from './CommentThread';
-import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
+import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 
 interface ThreadRowProps {
   item: CommentWithReplies;
+  commits: CommitInfo[];
   isExpanded: boolean;
   onToggle: () => void;
-  onJumpToFile: (filePath: string) => void;
+  onJumpToFile: (filePath: string, commitSha: string | null) => void;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
   editComment: () => void;
@@ -29,12 +30,14 @@ function firstLineOf(content: string) {
 
 export default function ThreadRow({
   item,
+  commits,
   isExpanded,
   onToggle,
   onJumpToFile,
   ...commentThreadProps
 }: ThreadRowProps) {
   const { comment } = item;
+  const commitAt = comment.commit_sha ? commits.find((c) => c.sha === comment.commit_sha) : null;
 
   return (
     <div className={`thread-row ${comment.resolved ? 'resolved' : ''}`}>
@@ -53,6 +56,17 @@ export default function ThreadRow({
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="thread-file">{comment.file_path}</span>
         <span className="thread-line">:{comment.line_number}</span>
+        <span
+          className="thread-commit-badge"
+          title={
+            comment.commit_sha
+              ? `Commented while viewing ${commitAt?.message ?? comment.commit_sha}`
+              : 'Commented while viewing the cumulative diff (all commits)'
+          }
+        >
+          {comment.commit_sha ? <GitCommit size={12} /> : <Layers size={12} />}
+          {comment.commit_sha ? (commitAt?.shortSha ?? comment.commit_sha.slice(0, 7)) : 'cumulative diff'}
+        </span>
         {Boolean(comment.resolved) && (
           <span className="thread-resolved-badge">
             <CheckCircle size={12} />
@@ -63,7 +77,7 @@ export default function ThreadRow({
           className="view-file-btn"
           onClick={(e) => {
             e.stopPropagation();
-            onJumpToFile(comment.file_path);
+            onJumpToFile(comment.file_path, comment.commit_sha);
           }}
         >
           <File size={14} />
