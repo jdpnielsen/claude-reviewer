@@ -18,6 +18,7 @@ import {
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from './types';
 import { statusConfig } from './utils';
 import { useConfirm } from '@/components/ConfirmDialog';
+import CommitSelector from '@/components/pr/CommitSelector';
 import ConversationTab from '@/components/pr/ConversationTab';
 import FileDiffCard from '@/components/pr/FileDiffCard';
 import PRHeader from '@/components/pr/PRHeader';
@@ -321,12 +322,19 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
       />
 
       <div className="pr-tabbar">
-        <PRTabs
-          activeTab={activeTab}
-          onChange={setActiveTab}
-          filesCount={files.length}
-          unresolvedCount={unresolvedCount}
-        />
+        <div className="pr-tabbar-left">
+          <PRTabs
+            activeTab={activeTab}
+            onChange={setActiveTab}
+            filesCount={files.length}
+            unresolvedCount={unresolvedCount}
+          />
+          <CommitSelector
+            commits={data.commits}
+            selectedCommit={selectedCommit}
+            selectCommit={selectCommit}
+          />
+        </div>
         <ReviewPanel
           status={pr.status}
           reviewSummary={reviewSummary}
@@ -345,9 +353,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string }> }) 
           setCollapsedFolders={setCollapsedFolders}
           toggleFile={toggleFile}
           scrollToDiff={scrollToDiff}
-          commits={data.commits}
-          selectedCommit={selectedCommit}
-          selectCommit={selectCommit}
         />
 
         {/* Main Diff View */}
