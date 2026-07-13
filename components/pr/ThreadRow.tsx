@@ -65,7 +65,16 @@ export default function ThreadRow({
           }
         >
           {comment.commit_sha ? <GitCommit size={12} /> : <Layers size={12} />}
-          {comment.commit_sha ? (commitAt?.shortSha ?? comment.commit_sha.slice(0, 7)) : 'cumulative diff'}
+          {comment.commit_sha ? (
+            <>
+              <span className="commit-sha">
+                {commitAt?.shortSha ?? comment.commit_sha.slice(0, 7)}
+              </span>
+              <span className="thread-commit-message">{commitAt?.message ?? 'unknown commit'}</span>
+            </>
+          ) : (
+            'Cumulative diff'
+          )}
         </span>
         {Boolean(comment.resolved) && (
           <span className="thread-resolved-badge">
