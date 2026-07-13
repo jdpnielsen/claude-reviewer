@@ -345,6 +345,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  text-decoration: none;
 }
 
 .pr-tab:hover {
@@ -375,6 +376,10 @@ textarea {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.pr-layout.single-column {
+  grid-template-columns: 1fr;
 }
 
 .pr-sidebar {

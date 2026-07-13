@@ -1,31 +1,42 @@
 'use client';
 
+import Link from 'next/link';
+
 export type PRViewTab = 'files' | 'conversation';
 
 interface PRTabsProps {
   activeTab: PRViewTab;
-  onChange: (tab: PRViewTab) => void;
+  filesHref: string;
+  conversationHref: string;
   filesCount: number;
   unresolvedCount: number;
 }
 
-export default function PRTabs({ activeTab, onChange, filesCount, unresolvedCount }: PRTabsProps) {
+export default function PRTabs({
+  activeTab,
+  filesHref,
+  conversationHref,
+  filesCount,
+  unresolvedCount,
+}: PRTabsProps) {
   return (
     <div className="pr-tabs">
-      <button
+      <Link
+        href={filesHref}
+        replace
         className={`pr-tab ${activeTab === 'files' ? 'active' : ''}`}
-        onClick={() => onChange('files')}
       >
         Files changed
         <span className="count">{filesCount}</span>
-      </button>
-      <button
+      </Link>
+      <Link
+        href={conversationHref}
+        replace
         className={`pr-tab ${activeTab === 'conversation' ? 'active' : ''}`}
-        onClick={() => onChange('conversation')}
       >
         Conversation
         {unresolvedCount > 0 && <span className="count">{unresolvedCount}</span>}
-      </button>
+      </Link>
     </div>
   );
 }
