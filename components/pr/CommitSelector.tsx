@@ -52,7 +52,7 @@ export default function CommitSelector({ commits, selectedCommit, selectCommit }
         ) : (
           <>
             <Layers size={14} />
-            <span className="commit-selector-label">All commits</span>
+            <span className="commit-selector-label">All commits ({commits.length})</span>
           </>
         )}
         <ChevronDown size={14} />
@@ -79,7 +79,7 @@ export default function CommitSelector({ commits, selectedCommit, selectCommit }
             }}
           >
             <Layers size={14} />
-            <span className="file-name">All commits</span>
+            <span className="file-name">All commits ({commits.length})</span>
           </button>
           {commits.map((commit) => (
             <button
