@@ -1,4 +1,4 @@
-import { AuthorKind, ChangeType, LineType, PullRequestStatus } from '@/lib/enum';
+import { AuthorKind, ChangeType, CommentTargetType, LineType, PullRequestStatus } from '@/lib/enum';
 
 export interface PullRequest {
   id: number;
@@ -29,6 +29,7 @@ export interface Comment {
   line_number: number;
   end_line_number: number;
   commit_sha: string | null;
+  target_type: CommentTargetType;
   line_type: LineType;
   content: string;
   resolved: boolean;
@@ -51,6 +52,7 @@ export interface CommitInfo {
   sha: string;
   shortSha: string;
   message: string;
+  body: string;
   author: string;
   date: string;
 }

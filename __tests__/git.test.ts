@@ -55,7 +55,7 @@ describe('listCommits', () => {
 
     fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
     runGit(repoDir, ['add', 'a.txt']);
-    runGit(repoDir, ['commit', '-m', 'add a']);
+    runGit(repoDir, ['commit', '-m', 'add a\n\nThis is the body.\nSecond body line.']);
 
     fs.writeFileSync(path.join(repoDir, 'b.txt'), 'content b\n');
     runGit(repoDir, ['add', 'b.txt']);
@@ -75,6 +75,17 @@ describe('listCommits', () => {
     expect(commits[1].message).toBe('add b');
     expect(commits[0].shortSha).toHaveLength(7);
     expect(commits[1].sha).toBe(headSha);
+  });
+
+  test('captures a multi-line body separately from the subject, without leaking into other commits', () => {
+    const commits = listCommits(repoDir, baseSha, headSha);
+
+    expect(commits[0].body.trim()).toBe('This is the body.\nSecond body line.');
+    expect(commits[1].body.trim()).toBe('');
+    // A regression here would mean the record separator failed to isolate
+    // this commit's multi-line body, bleeding into the next commit's fields.
+    expect(commits[1].message).toBe('add b');
+    expect(commits[1].author).toBe('Test User');
   });
 });
 

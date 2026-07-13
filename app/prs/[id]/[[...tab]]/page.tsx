@@ -20,6 +20,7 @@ import {
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
 import { statusConfig } from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
+import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
 import ConversationTab from '@/components/pr/ConversationTab';
 import FileDiffCard from '@/components/pr/FileDiffCard';
@@ -28,7 +29,7 @@ import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
 import { apiClient } from '@/lib/api-client';
-import { ReviewAction } from '@/lib/enum';
+import { CommentTargetType, ReviewAction } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
 
 export default function PRPage({
@@ -46,6 +47,7 @@ export default function PRPage({
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedCommit, setSelectedCommit] = useQueryState('commit');
   const [commentingAt, setCommentingAt] = useState<CommentingAt | null>(null);
+  const [commentingOnCommitMessage, setCommentingOnCommitMessage] = useState(false);
   const [lastClickedLine, setLastClickedLine] = useState<LastClickedLine | null>(null);
   const [newComment, setNewComment] = useState('');
   const [editingComment, setEditingComment] = useState<EditingComment | null>(null);
@@ -244,6 +246,17 @@ export default function PRPage({
     setLastClickedLine(null);
   };
 
+  const addCommitMessageComment = () => {
+    if (!selectedCommit || !newComment.trim() || !data) return;
+    addCommentMutation.mutate({
+      targetType: CommentTargetType.CommitMessage,
+      commitSha: selectedCommit,
+      content: newComment,
+    });
+    setNewComment('');
+    setCommentingOnCommitMessage(false);
+  };
+
   const editComment = () => {
     if (!editingComment || !editingComment.content.trim() || !data) return;
     editCommentMutation.mutate({ uuid: editingComment.uuid, content: editingComment.content });
@@ -291,7 +304,21 @@ export default function PRPage({
   const getFileComments = (filePath: string) => {
     if (!data) return [];
     return data.comments.filter(
-      (c) => c.comment.file_path === filePath && c.comment.commit_sha === selectedCommit,
+      (c) =>
+        c.comment.target_type === CommentTargetType.Line &&
+        c.comment.file_path === filePath &&
+        c.comment.commit_sha === selectedCommit,
+    );
+  };
+
+  // Get comments made on a specific commit's message (never cumulative -
+  // a commit message comment always has a commit_sha).
+  const getCommitMessageComments = (commitSha: string) => {
+    if (!data) return [];
+    return data.comments.filter(
+      (c) =>
+        c.comment.target_type === CommentTargetType.CommitMessage &&
+        c.comment.commit_sha === commitSha,
     );
   };
 
@@ -406,6 +433,31 @@ export default function PRPage({
                   Loading commit diff...
                 </div>
               )}
+              {selectedCommit &&
+                (() => {
+                  const commit = data.commits.find((c) => c.sha === selectedCommit);
+                  return commit ? (
+                    <CommitMessagePanel
+                      commit={commit}
+                      comments={getCommitMessageComments(selectedCommit)}
+                      isCommenting={commentingOnCommitMessage}
+                      setIsCommenting={setCommentingOnCommitMessage}
+                      newComment={newComment}
+                      setNewComment={setNewComment}
+                      addComment={addCommitMessageComment}
+                      editingComment={editingComment}
+                      setEditingComment={setEditingComment}
+                      editComment={editComment}
+                      replyingTo={replyingTo}
+                      setReplyingTo={setReplyingTo}
+                      replyContent={replyContent}
+                      setReplyContent={setReplyContent}
+                      addReply={addReply}
+                      resolveComment={resolveComment}
+                      deleteComment={deleteComment}
+                    />
+                  ) : null;
+                })()}
               {files.map((file) => (
                 <FileDiffCard
                   key={file.path}

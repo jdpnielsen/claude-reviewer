@@ -9,7 +9,8 @@ import {
   deleteComment,
   addReply,
 } from '@/lib/database';
-import { LineType } from '@/lib/enum';
+import { CommentTargetType, LineType } from '@/lib/enum';
+import { listCommits } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -41,7 +42,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { filePath, lineNumber, endLineNumber, content, lineType, commentUuid, commitSha } = body;
+    const {
+      filePath,
+      lineNumber,
+      endLineNumber,
+      content,
+      lineType,
+      commentUuid,
+      commitSha,
+      targetType,
+    } = body;
 
     const pr = getPRByUuid(id);
     if (!pr) {
@@ -63,7 +73,50 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Otherwise, this is a new comment
+    const VALID_TARGET_TYPES = Object.values(CommentTargetType);
+    if (targetType !== undefined && !VALID_TARGET_TYPES.includes(targetType)) {
+      return NextResponse.json({ error: 'Invalid targetType' }, { status: 400 });
+    }
+
+    // A commit message comment has no file/line - it's anchored to a commit
+    // as a whole, so commitSha is required (unlike a line comment, where it's
+    // optional and NULL means "scoped to the cumulative view").
+    if (targetType === CommentTargetType.CommitMessage) {
+      if (!content) {
+        return NextResponse.json({ error: 'Missing required field: content' }, { status: 400 });
+      }
+      if (typeof commitSha !== 'string' || !commitSha) {
+        return NextResponse.json(
+          { error: 'commitSha is required for a commit message comment' },
+          { status: 400 },
+        );
+      }
+      const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
+      if (!commits.some((c) => c.sha === commitSha)) {
+        return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
+      }
+
+      const newCommentUuid = addComment(
+        id,
+        '',
+        0,
+        content,
+        LineType.New,
+        0,
+        commitSha,
+        CommentTargetType.CommitMessage,
+      );
+
+      return NextResponse.json(
+        {
+          uuid: newCommentUuid,
+          message: 'Comment added',
+        },
+        { status: 201 },
+      );
+    }
+
+    // Otherwise, this is a new line comment
     if (!filePath || lineNumber === undefined || !content) {
       return NextResponse.json(
         { error: 'Missing required fields: filePath, lineNumber, content' },

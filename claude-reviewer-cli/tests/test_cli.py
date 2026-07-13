@@ -307,6 +307,28 @@ class TestPrintComment:
         output = capsys.readouterr().out
         assert "a.py:1  ·" in output
 
+    def test_shows_commit_message_location_for_a_commit_message_comment(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A comment on a commit's message shows 'commit message' instead of file:line."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="",
+            line_number=0,
+            end_line_number=0,
+            content="please explain why, not just what",
+            commit_sha="0123456789abcdef",
+            target_type="commit_message",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "commit message [0123456]" in output
+        assert "a.py" not in output
+
 
 class TestAuthorsCommands:
     """Tests for the `authors` command group."""

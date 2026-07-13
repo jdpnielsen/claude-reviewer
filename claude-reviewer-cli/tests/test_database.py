@@ -238,6 +238,35 @@ class TestComments:
         assert cumulative.commit_sha is None
         assert scoped.commit_sha == "abc1234"
 
+    def test_add_comment_defaults_target_type_to_line(self, temp_db: Path) -> None:
+        """Test that target_type defaults to 'line' and can be set to 'commit_message'."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        db.add_comment(pr_uuid=uuid, file_path="targeted.py", line_number=1, content="line")
+        db.add_comment(
+            pr_uuid=uuid,
+            file_path="",
+            line_number=0,
+            content="commit message comment",
+            commit_sha="def5678",
+            target_type="commit_message",
+        )
+
+        comments = db.get_comments(uuid)
+        line = next(c for c in comments if c.content == "line")
+        commit_message = next(c for c in comments if c.content == "commit message comment")
+        assert line.target_type == "line"
+        assert commit_message.target_type == "commit_message"
+        assert commit_message.commit_sha == "def5678"
+
     def test_get_comments(self, temp_db: Path) -> None:
         """Test retrieving comments."""
         uuid = db.create_pr(
