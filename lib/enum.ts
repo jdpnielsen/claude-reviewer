@@ -27,6 +27,12 @@ export const LineType = {
 } as const;
 export type LineType = (typeof LineType)[keyof typeof LineType];
 
+export const CommentTargetType = {
+  Line: 'line',
+  CommitMessage: 'commit_message',
+} as const;
+export type CommentTargetType = (typeof CommentTargetType)[keyof typeof CommentTargetType];
+
 export const ChangeType = {
   Added: 'added',
   Modified: 'modified',

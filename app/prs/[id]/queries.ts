@@ -3,7 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import type { CommentReply, CommentWithReplies, PRData } from './types';
 import { apiClient, buildQuery } from '@/lib/api-client';
-import { AuthorKind, ReviewAction } from '@/lib/enum';
+import { AuthorKind, CommentTargetType, ReviewAction } from '@/lib/enum';
 import type { LineType } from '@/lib/enum';
 
 export const prQueryKey = (id: string, commit: string | null) => ['pr', id, { commit }] as const;
@@ -46,12 +46,15 @@ function updateComments(
 }
 
 interface AddCommentParams {
-  filePath: string;
-  lineNumber: number;
-  endLineNumber: number;
-  lineType: LineType;
-  commitSha: string | null;
   content: string;
+  commitSha: string | null;
+  targetType?: CommentTargetType;
+  // Required for a line comment; unused (sentinel values applied server-side)
+  // for a commit_message comment, which has no file/line to anchor to.
+  filePath?: string;
+  lineNumber?: number;
+  endLineNumber?: number;
+  lineType?: LineType;
 }
 
 export function useAddCommentMutation(id: string) {
@@ -65,11 +68,12 @@ export function useAddCommentMutation(id: string) {
         comment: {
           id: Date.now(),
           uuid: tempUuid,
-          file_path: params.filePath,
-          line_number: params.lineNumber,
-          end_line_number: params.endLineNumber,
+          file_path: params.filePath ?? '',
+          line_number: params.lineNumber ?? 0,
+          end_line_number: params.endLineNumber ?? 0,
           commit_sha: params.commitSha,
-          line_type: params.lineType,
+          target_type: params.targetType ?? CommentTargetType.Line,
+          line_type: params.lineType ?? 'new',
           content: params.content,
           resolved: false,
           created_at: new Date().toISOString(),

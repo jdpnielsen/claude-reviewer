@@ -46,14 +46,17 @@ def print_comment(
     side_note = " [dim]\\[old-side][/dim]" if c.line_type == "old" else ""
     commit_note = f" [dim]\\[{c.commit_sha[:7]}][/dim]" if c.commit_sha else ""
     resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
-    line_ref = (
-        f"{c.line_number}-{c.end_line_number}"
-        if c.end_line_number != c.line_number
-        else str(c.line_number)
-    )
+    if c.target_type == "commit_message":
+        location = "[cyan]commit message[/cyan]"
+    else:
+        line_ref = (
+            f"{c.line_number}-{c.end_line_number}"
+            if c.end_line_number != c.line_number
+            else str(c.line_number)
+        )
+        location = f"[cyan]{c.file_path}:{line_ref}[/cyan]"
     console.print(
-        f"{indent}[cyan]{c.file_path}:{line_ref}[/cyan]{side_note}{commit_note}{resolved_note}  "
-        f"[dim]· {c.uuid}[/dim]",
+        f"{indent}{location}{side_note}{commit_note}{resolved_note}  " f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
     console.print(f"{indent}  {c.content}", highlight=False)
@@ -249,6 +252,7 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
                     "line": c.line_number,
                     "end_line": c.end_line_number,
                     "commit_sha": c.commit_sha,
+                    "target_type": c.target_type,
                     "line_type": c.line_type,
                     "text": c.content,
                     "resolved": c.resolved,

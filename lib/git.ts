@@ -9,6 +9,7 @@ export interface CommitInfo {
   sha: string;
   shortSha: string;
   message: string;
+  body: string;
   author: string;
   date: string;
 }
@@ -49,19 +50,27 @@ export function listCommits(
     'git',
     [
       'log',
+      // NUL-terminates each commit's record instead of the default blank
+      // line, so records split unambiguously even though %b (body) may
+      // itself contain blank lines/newlines - a plain '\n' split (safe when
+      // the format was subject-only) would otherwise fragment a single
+      // commit's body across multiple "records". A literal NUL can't be
+      // embedded in an argv string (Node/execve both reject it), so this
+      // relies on git's own -z flag to emit it in the output instead.
+      '-z',
       '--reverse',
-      `--format=%H${FIELD_SEP}%h${FIELD_SEP}%s${FIELD_SEP}%an${FIELD_SEP}%aI`,
+      `--format=%H${FIELD_SEP}%h${FIELD_SEP}%s${FIELD_SEP}%b${FIELD_SEP}%an${FIELD_SEP}%aI`,
       `${baseCommit}..${headCommit}`,
     ],
     { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
   );
 
   return output
-    .split('\n')
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const [sha, shortSha, message, author, date] = line.split(FIELD_SEP);
-      return { sha, shortSha, message, author, date };
+    .split('\0')
+    .filter((record) => record.length > 0)
+    .map((record) => {
+      const [sha, shortSha, message, body, author, date] = record.split(FIELD_SEP);
+      return { sha, shortSha, message, body, author, date };
     });
 }
 

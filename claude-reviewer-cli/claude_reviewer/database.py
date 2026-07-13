@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS comments (
     line_number INTEGER NOT NULL,
     end_line_number INTEGER,
     commit_sha TEXT,
+    target_type TEXT NOT NULL DEFAULT 'line',
     line_type TEXT DEFAULT 'new',
     content TEXT NOT NULL,
     resolved BOOLEAN DEFAULT FALSE,
@@ -236,6 +237,7 @@ def init_db(db_path: Path | None = None) -> None:
         _seed_authors(conn)
         _migrate_comments_end_line(conn)
         _migrate_comments_commit_sha(conn)
+        _migrate_comments_target_type(conn)
 
 
 def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
@@ -325,6 +327,21 @@ def _migrate_comments_commit_sha(conn: sqlite3.Connection) -> None:
                 raise
 
 
+def _migrate_comments_target_type(conn: sqlite3.Connection) -> None:
+    """Add target_type for databases created before commit-message review existed.
+
+    DEFAULT 'line' backfills every existing row correctly - every pre-existing
+    comment is, in fact, a line comment.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "target_type" for col in columns):
+        try:
+            conn.execute("ALTER TABLE comments ADD COLUMN target_type TEXT NOT NULL DEFAULT 'line'")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
     """Convert a database row to a PullRequest object."""
     return PullRequest(
@@ -353,6 +370,7 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         line_number=row["line_number"],
         end_line_number=row["end_line_number"],
         commit_sha=row["commit_sha"],
+        target_type=row["target_type"],
         line_type=row["line_type"],
         content=row["content"],
         resolved=bool(row["resolved"]),
@@ -567,6 +585,7 @@ def add_comment(
     line_type: str = "new",
     end_line_number: int | None = None,
     commit_sha: str | None = None,
+    target_type: str = "line",
 ) -> str:
     """Add a comment to a PR and return its UUID."""
     comment_uuid = generate_uuid()
@@ -583,8 +602,8 @@ def add_comment(
 
         conn.execute(
             """
-            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, line_type, content)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 comment_uuid,
@@ -593,6 +612,7 @@ def add_comment(
                 line_number,
                 resolved_end_line,
                 commit_sha,
+                target_type,
                 line_type,
                 content,
             ),

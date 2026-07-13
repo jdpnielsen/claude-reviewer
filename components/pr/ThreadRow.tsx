@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import CommentThread from './CommentThread';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
+import { CommentTargetType } from '@/lib/enum';
 
 interface ThreadRowProps {
   item: CommentWithReplies;
@@ -38,6 +39,7 @@ export default function ThreadRow({
 }: ThreadRowProps) {
   const { comment } = item;
   const commitAt = comment.commit_sha ? commits.find((c) => c.sha === comment.commit_sha) : null;
+  const isCommitMessage = comment.target_type === CommentTargetType.CommitMessage;
 
   return (
     <div className={`thread-row ${comment.resolved ? 'resolved' : ''}`}>
@@ -54,8 +56,14 @@ export default function ThreadRow({
         }}
       >
         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="thread-file">{comment.file_path}</span>
-        <span className="thread-line">:{comment.line_number}</span>
+        {isCommitMessage ? (
+          <span className="thread-file">Commit message</span>
+        ) : (
+          <>
+            <span className="thread-file">{comment.file_path}</span>
+            <span className="thread-line">:{comment.line_number}</span>
+          </>
+        )}
         <span
           className="thread-commit-badge"
           title={
@@ -86,11 +94,11 @@ export default function ThreadRow({
           className="view-file-btn"
           onClick={(e) => {
             e.stopPropagation();
-            onJumpToFile(comment.file_path, comment.commit_sha);
+            onJumpToFile(isCommitMessage ? '' : comment.file_path, comment.commit_sha);
           }}
         >
           <File size={14} />
-          View in Files
+          {isCommitMessage ? 'View commit' : 'View in Files'}
         </button>
       </div>
 

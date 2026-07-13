@@ -3,7 +3,14 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 
-import { AuthorKind, ConversationStatus, LineType, PullRequestStatus, ReviewAction } from './enum';
+import {
+  AuthorKind,
+  CommentTargetType,
+  ConversationStatus,
+  LineType,
+  PullRequestStatus,
+  ReviewAction,
+} from './enum';
 import { getGitUserIdentity } from './git';
 
 // Types
@@ -30,6 +37,7 @@ export interface Comment {
   line_number: number;
   end_line_number: number;
   commit_sha: string | null;
+  target_type: CommentTargetType;
   line_type: LineType;
   content: string;
   resolved: boolean;
@@ -223,6 +231,7 @@ function initSchema(db: Database.Database): void {
         line_number INTEGER NOT NULL,
         end_line_number INTEGER,
         commit_sha TEXT,
+        target_type TEXT NOT NULL DEFAULT 'line',
         line_type TEXT DEFAULT 'new',
         content TEXT NOT NULL,
         resolved BOOLEAN DEFAULT FALSE,
@@ -314,6 +323,7 @@ function initSchema(db: Database.Database): void {
   seedAuthors(db);
   migrateCommentsEndLine(db);
   migrateCommentsCommitSha(db);
+  migrateCommentsTargetType(db);
 }
 
 // A database created before the authors table existed has comment_replies/
@@ -400,6 +410,23 @@ function migrateCommentsCommitSha(db: Database.Database): void {
   if (!columns.some((c) => c.name === 'commit_sha')) {
     try {
       db.exec('ALTER TABLE comments ADD COLUMN commit_sha TEXT');
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+    }
+  }
+  checkpoint();
+}
+
+// Adds target_type for databases created before commit-message review existed.
+// DEFAULT 'line' backfills every existing row correctly - every pre-existing
+// comment is, in fact, a line comment.
+function migrateCommentsTargetType(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'target_type')) {
+    try {
+      db.exec("ALTER TABLE comments ADD COLUMN target_type TEXT NOT NULL DEFAULT 'line'");
     } catch (e) {
       // A concurrent process (the Python CLI, or another reconnect) may have
       // added the column between the check above and this ALTER.
@@ -576,6 +603,7 @@ export function addComment(
   lineType: LineType = LineType.New,
   endLineNumber: number = lineNumber,
   commitSha: string | null = null,
+  targetType: CommentTargetType = CommentTargetType.Line,
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -587,9 +615,19 @@ export function addComment(
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, line_type, content)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(commentUuid, pr.id, filePath, lineNumber, endLineNumber, commitSha, lineType, content);
+      INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      commentUuid,
+      pr.id,
+      filePath,
+      lineNumber,
+      endLineNumber,
+      commitSha,
+      targetType,
+      lineType,
+      content,
+    );
 
     db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);
   });

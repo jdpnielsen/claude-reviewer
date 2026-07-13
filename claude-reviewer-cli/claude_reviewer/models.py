@@ -46,6 +46,7 @@ class Comment:
     end_line_number: int
     content: str
     commit_sha: Optional[str] = None
+    target_type: str = "line"
     resolved: bool = False
     line_type: str = "new"
     created_at: Optional[datetime] = None

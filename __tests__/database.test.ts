@@ -44,7 +44,7 @@ import {
   listRepoConversations,
   getRepoConversationWithMessages,
 } from '../lib/database';
-import { AuthorKind, LineType, PullRequestStatus, ReviewAction } from '../lib/enum';
+import { AuthorKind, CommentTargetType, LineType, PullRequestStatus, ReviewAction } from '../lib/enum';
 
 describe('Database Module', () => {
   afterAll(() => {
@@ -236,6 +236,29 @@ describe('Database Module', () => {
 
       expect(cumulative?.commit_sha).toBeNull();
       expect(scoped?.commit_sha).toBe('abc1234');
+    });
+
+    test('addComment defaults target_type to line and stores commit_message when provided', () => {
+      const lineUuid = addComment(prUuid, 'targeted.py', 1, 'line comment');
+      const commitMessageUuid = addComment(
+        prUuid,
+        '',
+        0,
+        'commit message comment',
+        LineType.New,
+        0,
+        'def5678',
+        CommentTargetType.CommitMessage,
+      );
+
+      const line = getComments(prUuid, { filePath: 'targeted.py' }).find(
+        (c) => c.uuid === lineUuid,
+      );
+      const commitMessage = getComments(prUuid).find((c) => c.uuid === commitMessageUuid);
+
+      expect(line?.target_type).toBe(CommentTargetType.Line);
+      expect(commitMessage?.target_type).toBe(CommentTargetType.CommitMessage);
+      expect(commitMessage?.commit_sha).toBe('def5678');
     });
   });
 
