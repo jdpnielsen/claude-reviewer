@@ -4,7 +4,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { CommentReply, CommentWithReplies, PRData } from './types';
 import { apiClient, buildQuery } from '@/lib/api-client';
 import { AuthorKind, CommentTargetType, ReviewAction } from '@/lib/enum';
-import type { LineType } from '@/lib/enum';
+import type { LineType, PullRequestStatus } from '@/lib/enum';
 
 export const prQueryKey = (id: string, commit: string | null) => ['pr', id, { commit }] as const;
 export const prCommentsQueryKey = (id: string) => ['pr-comments', id] as const;
@@ -25,8 +25,9 @@ export function usePRQuery(id: string, commit: string | null) {
 }
 
 // Deliberately separate from usePRQuery and polled every 5s on its own: only
-// comments/status are refreshed in the background, so a large diff never
-// gets silently re-fetched/re-rendered just because the polling tick fired.
+// comments/status/commits are refreshed in the background, so a large diff
+// never gets silently re-fetched/re-rendered just because the polling tick
+// fired.
 export function usePRCommentsPollQuery(id: string) {
   return useQuery({
     queryKey: prCommentsQueryKey(id),
@@ -273,5 +274,33 @@ export function useRequestAIReviewMutation(id: string) {
     mutationFn: () => apiClient.post(`/api/prs/${id}/ai-review`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
     onError: (error) => alert(`AI Review failed: ${error.message}`),
+  });
+}
+
+// Open/close a PR from the web UI (close -> 'closed', reopen -> 'pending').
+// Invalidates the polled query since that's the source of `pr.status` in the
+// merged page data (see usePRCommentsPollQuery and page.tsx's `data`).
+export function useSetPRStatusMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (status: PullRequestStatus) => apiClient.patch(`/api/prs/${id}`, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error updating PR status'),
+  });
+}
+
+// Re-pull the branch diff (web-UI equivalent of the CLI's `update`). This
+// rewrites the diff/files/commits *and* resets status to pending, so it
+// invalidates both the main PR query (all commit-filtered variants, matched by
+// the `['pr', id]` key prefix) and the polled comments/status query.
+export function useSyncPRMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post(`/api/prs/${id}/sync`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pr', id] });
+      queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) });
+    },
+    onError: (error) => alert(`Sync failed: ${error.message}`),
   });
 }

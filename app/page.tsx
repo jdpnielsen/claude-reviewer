@@ -16,7 +16,7 @@ const statusConfig = {
 };
 
 export default function Home() {
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('default');
   const { data, isLoading } = usePRsQuery(statusFilter);
   const prs = data?.prs ?? [];
 
@@ -50,11 +50,13 @@ export default function Home() {
         <div className="filter-bar">
           <Filter size={16} />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="default">Default</option>
             <option value="all">All</option>
             <option value="pending">Pending</option>
             <option value="changes_requested">Changes Requested</option>
             <option value="approved">Approved</option>
             <option value="merged">Merged</option>
+            <option value="closed">Closed</option>
           </select>
         </div>
       </div>

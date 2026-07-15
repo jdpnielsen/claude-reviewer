@@ -85,6 +85,27 @@ export function getCommitDiff(repoPath: string, sha: string): string {
   });
 }
 
+/**
+ * Diff a PR's whole range, `baseRef...headRef` (three-dot: changes on the head
+ * branch since it diverged from base). This mirrors the CLI's `update` command
+ * (git_ops.py get_diff) exactly so a web-triggered sync produces the same diff
+ * snapshot the CLI would.
+ */
+export function getRefDiff(repoPath: string, baseRef: string, headRef: string): string {
+  const cwd = resolveRepoPath(repoPath);
+  return execFileSync('git', ['diff', '--no-color', `${baseRef}...${headRef}`], {
+    cwd,
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
+/** Resolve a ref (branch/tag/sha) to its full commit SHA. */
+export function resolveRefSha(repoPath: string, ref: string): string {
+  const cwd = resolveRepoPath(repoPath);
+  return execFileSync('git', ['rev-parse', `${ref}^{commit}`], { cwd, encoding: 'utf-8' }).trim();
+}
+
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}/;
 
 export function blameCommit(

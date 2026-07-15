@@ -1,9 +1,9 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useQueryState } from 'nuqs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQueryState } from 'nuqs';
 import { useState, useEffect, use } from 'react';
 
 import {
@@ -15,7 +15,9 @@ import {
   usePRQuery,
   useRequestAIReviewMutation,
   useResolveCommentMutation,
+  useSetPRStatusMutation,
   useSubmitReviewMutation,
+  useSyncPRMutation,
 } from '@/app/prs/[id]/queries';
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
 import { statusConfig } from '@/app/prs/[id]/utils';
@@ -24,19 +26,16 @@ import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
 import ConversationTab from '@/components/pr/ConversationTab';
 import FileDiffCard from '@/components/pr/FileDiffCard';
+import FileViewControls from '@/components/pr/FileViewControls';
 import PRHeader from '@/components/pr/PRHeader';
 import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
 import { apiClient } from '@/lib/api-client';
-import { CommentTargetType, ReviewAction } from '@/lib/enum';
+import { ChangeType, CommentTargetType, PullRequestStatus, ReviewAction } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
 
-export default function PRPage({
-  params,
-}: {
-  params: Promise<{ id: string; tab?: string[] }>;
-}) {
+export default function PRPage({ params }: { params: Promise<{ id: string; tab?: string[] }> }) {
   const { id, tab } = use(params);
   const activeTab: PRViewTab = tab?.[0] === 'conversation' ? 'conversation' : 'files';
   const router = useRouter();
@@ -83,27 +82,34 @@ export default function PRPage({
   const deleteCommentMutation = useDeleteCommentMutation(id);
   const submitReviewMutation = useSubmitReviewMutation(id);
   const requestAIReviewMutation = useRequestAIReviewMutation(id);
+  const setPRStatusMutation = useSetPRStatusMutation(id);
+  const syncPRMutation = useSyncPRMutation(id);
 
   const data: PRData | undefined = prQuery.data && {
     ...prQuery.data,
     comments: commentsQuery.data?.comments ?? prQuery.data.comments,
+    commits: commentsQuery.data?.commits ?? prQuery.data.commits,
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
-  // For large PRs (>10 files), only expand first 3 files by default -
-  // files with comments are always expanded regardless (see isFileExpanded).
-  // For smaller PRs, expand all. Re-runs whenever a genuinely new file list
-  // arrives (initial load, or switching commits) - `prQuery.data` keeps its
-  // previous reference while a refetch is in flight (`keepPreviousData`), so
-  // this doesn't fire on every render, only on an actual new response. Manual
-  // collapses are reset here too, since a new file list means a fresh view.
+  // For large PRs (>10 files), only expand first 3 files by default; for
+  // smaller PRs, expand all. Deleted files are left collapsed by default (their
+  // whole content is just the removed lines, rarely worth reading in full) -
+  // but a file with comments is always expanded regardless (see isFileExpanded),
+  // so a deleted file that has review discussion still opens. Re-runs whenever a
+  // genuinely new file list arrives (initial load, or switching commits) -
+  // `prQuery.data` keeps its previous reference while a refetch is in flight
+  // (`keepPreviousData`), so this doesn't fire on every render, only on an actual
+  // new response. Manual collapses are reset here too, since a new file list
+  // means a fresh view.
   useEffect(() => {
     if (!prQuery.data) return;
     const files = prQuery.data.files;
+    const defaultOpen = files.filter((f) => f.changeType !== ChangeType.Deleted);
     if (files.length > 10) {
-      setExpandedFiles(new Set(files.slice(0, 3).map((f) => f.path)));
+      setExpandedFiles(new Set(defaultOpen.slice(0, 3).map((f) => f.path)));
     } else {
-      setExpandedFiles(new Set(files.map((f) => f.path)));
+      setExpandedFiles(new Set(defaultOpen.map((f) => f.path)));
     }
     setCollapsedFiles(new Set());
     // Only re-run when the file list itself changes identity, not on every
@@ -350,6 +356,13 @@ export default function PRPage({
 
   const { pr, diff, files, comments } = data;
   const config = statusConfig[pr.status];
+
+  const closePR = async () => {
+    const confirmed = await confirm(`Close PR "${pr.title}" without merging?`, { danger: true });
+    if (confirmed) setPRStatusMutation.mutate(PullRequestStatus.Closed);
+  };
+  const reopenPR = () => setPRStatusMutation.mutate(PullRequestStatus.Pending);
+  const syncPR = () => syncPRMutation.mutate();
   const unresolvedCount = comments.filter((c) => !c.comment.resolved).length;
   const effectiveExpandedFiles = new Set(
     files.filter((f) => isFileExpanded(f.path)).map((f) => f.path),
@@ -367,10 +380,12 @@ export default function PRPage({
         pr={pr}
         config={config}
         requestingAI={requestAIReviewMutation.isPending}
-        showFileControls={activeTab === 'files'}
-        onExpandAll={expandAll}
-        onCollapseAll={collapseAll}
+        statusChanging={setPRStatusMutation.isPending}
+        syncing={syncPRMutation.isPending}
         onRequestAIReview={requestAIReview}
+        onClose={closePR}
+        onReopen={reopenPR}
+        onSync={syncPR}
       />
 
       <div className="pr-tabbar">
@@ -383,11 +398,14 @@ export default function PRPage({
             unresolvedCount={unresolvedCount}
           />
           {activeTab === 'files' && (
-            <CommitSelector
-              commits={data.commits}
-              selectedCommit={selectedCommit}
-              selectCommit={selectCommit}
-            />
+            <>
+              <CommitSelector
+                commits={data.commits}
+                selectedCommit={selectedCommit}
+                selectCommit={selectCommit}
+              />
+              <FileViewControls onExpandAll={expandAll} onCollapseAll={collapseAll} />
+            </>
           )}
         </div>
         <ReviewPanel

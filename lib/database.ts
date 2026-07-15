@@ -505,10 +505,11 @@ export function listPRs(
     repoPath?: string;
     status?: string;
     limit?: number;
+    excludeClosed?: boolean;
   } = {},
 ): PullRequest[] {
   const db = getDatabase();
-  const { repoPath, status, limit = 50 } = options;
+  const { repoPath, status, limit = 50, excludeClosed = false } = options;
 
   let query = 'SELECT * FROM pull_requests WHERE 1=1';
   const params: (string | number)[] = [];
@@ -521,6 +522,12 @@ export function listPRs(
   if (status) {
     query += ' AND status = ?';
     params.push(status);
+  } else if (excludeClosed) {
+    // The web UI's default "All" filter hides closed PRs; they stay reachable
+    // via the explicit "Closed" filter (which sets `status` above). An explicit
+    // status always wins, so this only applies to the unfiltered listing.
+    query += ' AND status != ?';
+    params.push(PullRequestStatus.Closed);
   }
 
   query += ' ORDER BY updated_at DESC LIMIT ?';
