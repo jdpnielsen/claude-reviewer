@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, getLatestDiff, updatePRStatus, getCommentsWithReplies } from '@/lib/database';
-import { ChangeType } from '@/lib/enum';
+import { ChangeType, PullRequestStatus } from '@/lib/enum';
 import { listCommits, getCommitDiff } from '@/lib/git';
 
 interface RouteParams {
@@ -62,7 +62,19 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    if (body.status) {
+    if (body.status !== undefined) {
+      const validStatuses = Object.values(PullRequestStatus) as string[];
+      if (!validStatuses.includes(body.status)) {
+        return NextResponse.json({ error: `Invalid status: ${body.status}` }, { status: 400 });
+      }
+      // A merged PR is terminal - its history is already merged, so there is
+      // nothing to reopen/close into.
+      if (pr.status === PullRequestStatus.Merged) {
+        return NextResponse.json(
+          { error: 'Cannot change the status of a merged PR' },
+          { status: 409 },
+        );
+      }
       updatePRStatus(id, body.status);
     }
 

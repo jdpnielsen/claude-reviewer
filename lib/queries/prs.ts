@@ -23,7 +23,15 @@ export function usePRsQuery(status: string) {
     queryKey: prsQueryKey(status),
     queryFn: () =>
       apiClient.get<{ prs: PullRequest[] }>(
-        `/api/prs${buildQuery({ limit: 50, status: status === 'all' ? undefined : status })}`,
+        `/api/prs${buildQuery({
+          limit: 50,
+          // 'default' and 'all' are virtual filters (no single status); every
+          // other value is a real status matched exactly.
+          status: status === 'all' || status === 'default' ? undefined : status,
+          // 'default' hides closed PRs; 'all' includes them (and 'closed' shows
+          // only closed).
+          excludeClosed: status === 'default' ? true : undefined,
+        })}`,
       ),
   });
 }

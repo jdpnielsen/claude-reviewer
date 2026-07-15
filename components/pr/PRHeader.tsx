@@ -1,29 +1,42 @@
 'use client';
 
-import { ArrowLeft, GitPullRequest, Loader2, Maximize2, Minimize2, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  GitPullRequest,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 
 import type { PullRequest } from '@/app/prs/[id]/types';
+import { PullRequestStatus } from '@/lib/enum';
 
 interface PRHeaderProps {
   pr: PullRequest;
   config: { icon: LucideIcon; color: string; label: string };
   requestingAI: boolean;
-  showFileControls: boolean;
-  onExpandAll: () => void;
-  onCollapseAll: () => void;
+  statusChanging: boolean;
+  syncing: boolean;
   onRequestAIReview: () => void;
+  onClose: () => void;
+  onReopen: () => void;
+  onSync: () => void;
 }
 
 export default function PRHeader({
   pr,
   config,
   requestingAI,
-  showFileControls,
-  onExpandAll,
-  onCollapseAll,
+  statusChanging,
+  syncing,
   onRequestAIReview,
+  onClose,
+  onReopen,
+  onSync,
 }: PRHeaderProps) {
   const StatusIcon = config.icon;
 
@@ -38,48 +51,87 @@ export default function PRHeader({
         <GitPullRequest size={24} className="pr-icon" />
         <h1>{pr.title}</h1>
         <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
-          {showFileControls && (
-            <>
+          {pr.status !== PullRequestStatus.Merged &&
+            (pr.status === PullRequestStatus.Closed ? (
               <button
-                onClick={onExpandAll}
-                title="Expand All"
+                onClick={onReopen}
+                disabled={statusChanging}
+                title="Reopen this PR for review"
                 style={{
-                  padding: '0.25rem 0.5rem',
+                  padding: '0.25rem 0.75rem',
                   background: '#21262d',
-                  color: '#58a6ff',
+                  color: '#3fb950',
                   fontSize: '0.75rem',
                   border: '1px solid #30363d',
                   borderRadius: '4px',
-                  cursor: 'pointer',
+                  cursor: statusChanging ? 'wait' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.25rem',
+                  opacity: statusChanging ? 0.7 : 1,
                 }}
               >
-                <Maximize2 size={12} />
-                Expand All
+                {statusChanging ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <RotateCcw size={12} />
+                )}
+                Reopen
               </button>
-              <button
-                onClick={onCollapseAll}
-                title="Collapse All"
-                style={{
-                  padding: '0.25rem 0.5rem',
-                  background: '#21262d',
-                  color: '#8b949e',
-                  fontSize: '0.75rem',
-                  border: '1px solid #30363d',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
-                }}
-              >
-                <Minimize2 size={12} />
-                Collapse All
-              </button>
-            </>
-          )}
+            ) : (
+              <>
+                <button
+                  onClick={onSync}
+                  disabled={syncing}
+                  title="Re-pull the branch diff (new commits, amend, rebase) and reset to pending for re-review"
+                  style={{
+                    padding: '0.25rem 0.75rem',
+                    background: '#21262d',
+                    color: '#58a6ff',
+                    fontSize: '0.75rem',
+                    border: '1px solid #30363d',
+                    borderRadius: '4px',
+                    cursor: syncing ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    opacity: syncing ? 0.7 : 1,
+                  }}
+                >
+                  {syncing ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={12} />
+                  )}
+                  {syncing ? 'Syncing...' : 'Sync'}
+                </button>
+                <button
+                  onClick={onClose}
+                  disabled={statusChanging}
+                  title="Close this PR without merging"
+                  style={{
+                    padding: '0.25rem 0.75rem',
+                    background: '#21262d',
+                    color: '#f85149',
+                    fontSize: '0.75rem',
+                    border: '1px solid #30363d',
+                    borderRadius: '4px',
+                    cursor: statusChanging ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    opacity: statusChanging ? 0.7 : 1,
+                  }}
+                >
+                  {statusChanging ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <XCircle size={12} />
+                  )}
+                  Close
+                </button>
+              </>
+            ))}
           <button
             onClick={onRequestAIReview}
             disabled={requestingAI}

@@ -30,7 +30,8 @@ export default function ReviewPanel({
   const ref = useClickOutside(() => setOpen(false));
   useHotkeys([['Escape', () => setOpen(false)]]);
 
-  if (status === PullRequestStatus.Merged) return null;
+  // A merged or closed PR is not an open review target - reopen it first.
+  if (status === PullRequestStatus.Merged || status === PullRequestStatus.Closed) return null;
 
   const handleSubmit = () => {
     submitReview(action);
