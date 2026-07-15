@@ -44,7 +44,13 @@ import {
   listRepoConversations,
   getRepoConversationWithMessages,
 } from '../lib/database';
-import { AuthorKind, CommentTargetType, LineType, PullRequestStatus, ReviewAction } from '../lib/enum';
+import {
+  AuthorKind,
+  CommentTargetType,
+  LineType,
+  PullRequestStatus,
+  ReviewAction,
+} from '../lib/enum';
 
 describe('Database Module', () => {
   afterAll(() => {
@@ -120,6 +126,44 @@ describe('Database Module', () => {
       const prs = listPRs({ status: PullRequestStatus.Pending });
       expect(prs.length).toBeGreaterThanOrEqual(1);
       prs.forEach((pr) => expect(pr.status).toBe(PullRequestStatus.Pending));
+    });
+
+    test('listPRs excludeClosed hides closed PRs from the unfiltered listing', () => {
+      const openUuid = createPR('/repo/exclude', 'Open PR', 'main', 'f', 'a', 'b', 'd');
+      const closedUuid = createPR('/repo/exclude', 'Closed PR', 'main', 'f', 'a', 'b', 'd');
+      updatePRStatus(closedUuid, PullRequestStatus.Closed);
+
+      const withClosed = listPRs({ repoPath: '/repo/exclude' });
+      expect(withClosed.map((pr) => pr.uuid)).toEqual(
+        expect.arrayContaining([openUuid, closedUuid]),
+      );
+
+      const withoutClosed = listPRs({ repoPath: '/repo/exclude', excludeClosed: true });
+      const uuids = withoutClosed.map((pr) => pr.uuid);
+      expect(uuids).toContain(openUuid);
+      expect(uuids).not.toContain(closedUuid);
+    });
+
+    test('listPRs excludeClosed only hides "closed" status, not other terminal states', () => {
+      const mergedUuid = createPR('/repo/exclude2', 'Merged PR', 'main', 'f', 'a', 'b', 'd');
+      updatePRStatus(mergedUuid, PullRequestStatus.Merged);
+
+      const prs = listPRs({ repoPath: '/repo/exclude2', excludeClosed: true });
+      expect(prs.map((pr) => pr.uuid)).toContain(mergedUuid);
+    });
+
+    test('listPRs excludeClosed is ignored when an explicit status is given', () => {
+      const closedUuid = createPR('/repo/exclude3', 'Closed PR', 'main', 'f', 'a', 'b', 'd');
+      updatePRStatus(closedUuid, PullRequestStatus.Closed);
+
+      // An explicit `status` always wins - excludeClosed must not suppress a
+      // deliberate request for closed PRs.
+      const prs = listPRs({
+        repoPath: '/repo/exclude3',
+        status: PullRequestStatus.Closed,
+        excludeClosed: true,
+      });
+      expect(prs.map((pr) => pr.uuid)).toContain(closedUuid);
     });
 
     test('updatePRStatus updates PR status', () => {

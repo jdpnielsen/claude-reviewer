@@ -7,6 +7,8 @@ import {
   resolveRepoPath,
   listCommits,
   getCommitDiff,
+  getRefDiff,
+  resolveRefSha,
   blameCommit,
   getGitUserIdentity,
 } from '../lib/git';
@@ -122,6 +124,101 @@ describe('getCommitDiff', () => {
 
     expect(diff).toContain('b.txt');
     expect(diff).not.toContain('a.txt');
+  });
+});
+
+describe('getRefDiff', () => {
+  let repoDir: string;
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-git-test-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    // main: base commit, then a commit that only main has.
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    runGit(repoDir, ['commit', '-m', 'base commit']);
+    runGit(repoDir, ['branch', '-M', 'main']);
+
+    // feature diverges from base and adds its own file.
+    runGit(repoDir, ['checkout', '-b', 'feature']);
+    fs.writeFileSync(path.join(repoDir, 'feature.txt'), 'feature work\n');
+    runGit(repoDir, ['add', 'feature.txt']);
+    runGit(repoDir, ['commit', '-m', 'add feature']);
+
+    // A commit landing on main *after* feature diverged. With three-dot
+    // semantics this must NOT appear in the base...feature diff.
+    runGit(repoDir, ['checkout', 'main']);
+    fs.writeFileSync(path.join(repoDir, 'main-only.txt'), 'main only\n');
+    runGit(repoDir, ['add', 'main-only.txt']);
+    runGit(repoDir, ['commit', '-m', 'main moves on']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('returns only changes on the head branch since it diverged from base', () => {
+    const diff = getRefDiff(repoDir, 'main', 'feature');
+
+    // feature's own work is present...
+    expect(diff).toContain('feature.txt');
+    expect(diff).toContain('feature work');
+    // ...but commits made on base/main after the fork point are not (this is
+    // the three-dot `main...feature` behavior, not a two-dot `main..feature`).
+    expect(diff).not.toContain('main-only.txt');
+  });
+
+  test('resolves both branch names and raw SHAs as refs', () => {
+    const baseSha = runGit(repoDir, ['rev-parse', 'main~1']);
+    const headSha = runGit(repoDir, ['rev-parse', 'feature']);
+    const diff = getRefDiff(repoDir, baseSha, headSha);
+    expect(diff).toContain('feature.txt');
+  });
+
+  test('returns an empty string when the head ref has no changes over base', () => {
+    const diff = getRefDiff(repoDir, 'feature', 'feature');
+    expect(diff).toBe('');
+  });
+});
+
+describe('resolveRefSha', () => {
+  let repoDir: string;
+  let headSha: string;
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-git-test-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    runGit(repoDir, ['commit', '-m', 'base commit']);
+    runGit(repoDir, ['branch', '-M', 'main']);
+    headSha = runGit(repoDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('resolves a branch name to its full 40-char commit SHA', () => {
+    const sha = resolveRefSha(repoDir, 'main');
+    expect(sha).toBe(headSha);
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test('peels an annotated tag to the commit it points at (^{commit})', () => {
+    runGit(repoDir, ['tag', '-a', 'v1', '-m', 'release one']);
+    // The tag object's own SHA differs from the commit SHA; `^{commit}` must
+    // dereference through it to the underlying commit.
+    const tagObjectSha = runGit(repoDir, ['rev-parse', 'v1']);
+    const resolved = resolveRefSha(repoDir, 'v1');
+    expect(resolved).toBe(headSha);
+    expect(resolved).not.toBe(tagObjectSha);
   });
 });
 
