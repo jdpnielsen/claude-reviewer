@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getPRByUuid, getLatestDiff, updatePRStatus, getCommentsWithReplies } from '@/lib/database';
+import {
+  getPRByUuid,
+  getLatestDiff,
+  updatePRStatus,
+  getCommentsWithReplies,
+  lookupCommitRelocation,
+} from '@/lib/database';
 import { ChangeType, PullRequestStatus } from '@/lib/enum';
 import { listCommits, getCommitDiff } from '@/lib/git';
 
@@ -26,7 +32,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     let diff: string | null;
     if (commitParam) {
       if (!commits.some((c) => c.sha === commitParam)) {
-        return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
+        // The commit may have been rewritten (rebase/amend/force-push) since
+        // this link was generated - relocatedTo tells the client where it
+        // ended up, if relocateComments() has ever recorded that mapping for
+        // this PR. Null means either it's genuinely unknown or was never
+        // part of this PR - the client can't tell those apart from this.
+        const relocatedTo = lookupCommitRelocation(id, commitParam);
+        return NextResponse.json(
+          { error: 'Unknown commit for this PR', relocatedTo },
+          { status: 400 },
+        );
       }
       diff = getCommitDiff(pr.repo_path, commitParam);
     } else {

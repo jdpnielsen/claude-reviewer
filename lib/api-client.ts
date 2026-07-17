@@ -5,11 +5,16 @@
 
 export class ApiError extends Error {
   status: number;
+  // The full parsed error body, when the response was JSON - lets callers
+  // read fields beyond `error` (e.g. the sync route's `relocatedTo`) without
+  // a second fetch.
+  data?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, data?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -17,16 +22,16 @@ interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
 }
 
-async function extractErrorMessage(res: Response): Promise<string> {
+async function parseErrorBody(res: Response): Promise<{ message: string; data?: unknown }> {
   try {
     const data: unknown = await res.clone().json();
     if (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string') {
-      return data.error;
+      return { message: data.error, data };
     }
   } catch {
     // Body wasn't JSON (or was empty) - fall back to statusText below.
   }
-  return res.statusText || `Request failed with status ${res.status}`;
+  return { message: res.statusText || `Request failed with status ${res.status}` };
 }
 
 async function parseResponseBody<T>(res: Response): Promise<T> {
@@ -49,7 +54,8 @@ async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise
   });
 
   if (!res.ok) {
-    throw new ApiError(await extractErrorMessage(res), res.status);
+    const { message, data } = await parseErrorBody(res);
+    throw new ApiError(message, res.status, data);
   }
 
   return parseResponseBody<T>(res);

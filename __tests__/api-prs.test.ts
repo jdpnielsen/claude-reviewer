@@ -17,7 +17,7 @@ const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-tes
 process.env.DATABASE_DIR = testDbDir;
 process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
-import { PATCH } from '../app/api/prs/[id]/route';
+import { GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
 import { POST as syncRoute } from '../app/api/prs/[id]/sync/route';
 import { GET as listPRsRoute } from '../app/api/prs/route';
 import {
@@ -25,6 +25,7 @@ import {
   getPRByUuid,
   getLatestDiff,
   updatePRStatus,
+  upsertCommitRelocation,
   closeDatabase,
 } from '../lib/database';
 import { PullRequestStatus } from '../lib/enum';
@@ -211,6 +212,79 @@ describe('POST /api/prs/[id]/sync', () => {
     expect(res.status).toBe(409);
     const json = await res.json();
     expect(json.error).toBe('Cannot sync a merged PR');
+  });
+});
+
+describe('GET /api/prs/[id] - stale ?commit= handling', () => {
+  let repoDir: string;
+  let baseCommit: string;
+  let headCommit: string;
+
+  function getReq(id: string, query: string): Request {
+    return new Request(`http://test/api/prs/${id}${query}`);
+  }
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-commit-repo-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    runGit(repoDir, ['commit', '-m', 'base commit']);
+    runGit(repoDir, ['branch', '-M', 'main']);
+    baseCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+
+    runGit(repoDir, ['checkout', '-b', 'feature']);
+    fs.writeFileSync(path.join(repoDir, 'feature.txt'), 'first\n');
+    runGit(repoDir, ['add', 'feature.txt']);
+    runGit(repoDir, ['commit', '-m', 'feature v1']);
+    headCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('a stale commit with a known relocation comes back as relocatedTo', async () => {
+    const uuid = createPR(repoDir, 'stale link', 'main', 'feature', baseCommit, headCommit, 'diff');
+    const staleSha = '1111111111111111111111111111111111111111';
+    upsertCommitRelocation(uuid, staleSha, headCommit);
+
+    const res = await prGetRoute(getReq(uuid, `?commit=${staleSha}`) as never, routeParams(uuid));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Unknown commit for this PR');
+    expect(json.relocatedTo).toBe(headCommit);
+  });
+
+  test('relocatedTo is null when no relocation is known for the SHA', async () => {
+    const uuid = createPR(
+      repoDir,
+      'truly unknown commit',
+      'main',
+      'feature',
+      baseCommit,
+      headCommit,
+      'diff',
+    );
+    const unknownSha = '2222222222222222222222222222222222222222';
+
+    const res = await prGetRoute(getReq(uuid, `?commit=${unknownSha}`) as never, routeParams(uuid));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Unknown commit for this PR');
+    expect(json.relocatedTo).toBeNull();
+  });
+
+  test('a valid commit still returns its diff normally', async () => {
+    const uuid = createPR(repoDir, 'valid commit', 'main', 'feature', baseCommit, headCommit, 'diff');
+
+    const res = await prGetRoute(getReq(uuid, `?commit=${headCommit}`) as never, routeParams(uuid));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.diff).toContain('feature.txt');
   });
 });
 

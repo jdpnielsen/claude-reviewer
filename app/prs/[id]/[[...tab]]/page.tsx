@@ -31,7 +31,7 @@ import PRHeader from '@/components/pr/PRHeader';
 import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, ApiError } from '@/lib/api-client';
 import { ChangeType, CommentTargetType, PullRequestStatus, ReviewAction } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
 
@@ -64,6 +64,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // Set by jumpToFile (from the Conversation tab) so the scroll can happen
   // once the Files tab has actually mounted - see the effect below.
   const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null);
+  // Set when a `?commit=` link turned out to be stale (rebase/amend/force-push
+  // rewrote it) and couldn't be redirected to where it ended up - see the
+  // effect below.
+  const [commitNotice, setCommitNotice] = useState<string | null>(null);
 
   // Switching `selectedCommit` changes this query's key; `keepPreviousData`
   // keeps the sidebar/diff pane mounted with the previous commit's data
@@ -91,6 +95,34 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     commits: commentsQuery.data?.commits ?? prQuery.data.commits,
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
+
+  // A `?commit=<sha>` link goes stale the moment a rebase/amend/force-push
+  // changes that commit's SHA - the API 400s with 'Unknown commit for this
+  // PR' rather than erroring the whole page. Detected here (not just inside
+  // the effect below) so the render-gate further down can treat it as a
+  // loading state rather than flashing the dead-end error screen for a tick
+  // before the redirect below takes effect.
+  const unknownCommitError =
+    prQuery.error instanceof ApiError && prQuery.error.status === 400
+      ? (prQuery.error.data as { relocatedTo?: string | null } | undefined)
+      : undefined;
+  const isUnknownCommitError = Boolean(unknownCommitError && 'relocatedTo' in unknownCommitError);
+
+  // If relocateComments() has ever recorded where that SHA ended up, jump
+  // straight there (URL self-heals, no error ever shown); otherwise fall
+  // back to the cumulative view with a dismissible notice instead.
+  useEffect(() => {
+    if (!isUnknownCommitError) return;
+    if (unknownCommitError?.relocatedTo) {
+      setSelectedCommit(unknownCommitError.relocatedTo);
+    } else {
+      setCommitNotice('This commit is no longer part of the PR - showing the latest diff instead.');
+      setSelectedCommit(null);
+    }
+    // Only re-run when a new failed fetch produces a new error object, not
+    // on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prQuery.error]);
 
   // For large PRs (>10 files), only expand first 3 files by default; for
   // smaller PRs, expand all. Deleted files are left collapsed by default (their
@@ -337,7 +369,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     return getFileComments(filePath).length > 0;
   };
 
-  if (prQuery.isPending) {
+  if (prQuery.isPending || isUnknownCommitError) {
     return (
       <main className="container">
         <div className="loading">Loading PR...</div>
@@ -376,6 +408,19 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
 
   return (
     <main className="container pr-detail">
+      {commitNotice && (
+        <div className="commit-notice">
+          <span>{commitNotice}</span>
+          <button
+            type="button"
+            className="commit-notice-dismiss"
+            aria-label="Dismiss"
+            onClick={() => setCommitNotice(null)}
+          >
+            &times;
+          </button>
+        </div>
+      )}
       <PRHeader
         pr={pr}
         config={config}
