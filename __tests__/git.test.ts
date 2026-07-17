@@ -11,10 +11,25 @@ import {
   resolveRefSha,
   blameCommit,
   getGitUserIdentity,
+  getFileAtCommit,
+  computeCommitCorrespondence,
 } from '../lib/git';
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
+}
+
+// Explicit author/committer dates so two commits with identical tree +
+// message + parent still get distinct SHAs (git hashes the dates too) -
+// needed to simulate "the same logical commit, replayed by a rebase" without
+// relying on wall-clock granularity, which real rebases bump anyway.
+function commitWithDate(cwd: string, message: string, date: string): string {
+  execFileSync('git', ['commit', '-m', message], {
+    cwd,
+    encoding: 'utf-8',
+    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  });
+  return runGit(cwd, ['rev-parse', 'HEAD']);
 }
 
 describe('resolveRepoPath', () => {
@@ -298,5 +313,149 @@ describe('getGitUserIdentity', () => {
     const identity = getGitUserIdentity();
     expect(identity.name).toBeNull();
     expect(identity.email).toBeNull();
+  });
+});
+
+describe('getFileAtCommit', () => {
+  let repoDir: string;
+  let sha: string;
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-getfile-test-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'line one\nline two\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    runGit(repoDir, ['commit', '-m', 'add a']);
+    sha = runGit(repoDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('reads a file as of a specific commit', () => {
+    expect(getFileAtCommit(repoDir, sha, 'a.txt')).toBe('line one\nline two\n');
+  });
+
+  test('returns null for a file that does not exist at that commit', () => {
+    expect(getFileAtCommit(repoDir, sha, 'nope.txt')).toBeNull();
+  });
+
+  test('returns null for a commit that does not exist', () => {
+    expect(getFileAtCommit(repoDir, '0'.repeat(40), 'a.txt')).toBeNull();
+  });
+});
+
+describe('computeCommitCorrespondence', () => {
+  let repoDir: string;
+  let base: string;
+
+  beforeEach(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-correspondence-test-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    base = commitWithDate(repoDir, 'base commit', '2024-01-01T00:00:00');
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('matches a pure rebase (identical content, different SHAs) by patch-id', () => {
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const oldA = commitWithDate(repoDir, 'add a', '2024-01-02T00:00:00');
+
+    fs.writeFileSync(path.join(repoDir, 'b.txt'), 'content b\n');
+    runGit(repoDir, ['add', 'b.txt']);
+    const oldB = commitWithDate(repoDir, 'add b', '2024-01-03T00:00:00');
+
+    // Simulate a rebase: replay the same diffs/messages on top of the same
+    // base, at a later date - same patch-id, different SHA.
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const newA = commitWithDate(repoDir, 'add a', '2024-02-01T00:00:00');
+
+    fs.writeFileSync(path.join(repoDir, 'b.txt'), 'content b\n');
+    runGit(repoDir, ['add', 'b.txt']);
+    const newB = commitWithDate(repoDir, 'add b', '2024-02-02T00:00:00');
+
+    expect(newA).not.toBe(oldA);
+    expect(newB).not.toBe(oldB);
+
+    const result = computeCommitCorrespondence(repoDir, base, oldB, base, newB);
+    expect(Object.fromEntries(result.matched)).toEqual({ [oldA]: newA, [oldB]: newB });
+    expect(result.unmatched).toEqual([]);
+  });
+
+  test('falls back to matching by commit message when content changed (amend)', () => {
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const oldA = commitWithDate(repoDir, 'add a', '2024-01-02T00:00:00');
+
+    // Same message, different content - patch-id can't match this, only the
+    // message fallback can.
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a, amended\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const newA = commitWithDate(repoDir, 'add a', '2024-02-01T00:00:00');
+
+    const result = computeCommitCorrespondence(repoDir, base, oldA, base, newA);
+    expect(Object.fromEntries(result.matched)).toEqual({ [oldA]: newA });
+    expect(result.unmatched).toEqual([]);
+  });
+
+  test('leaves a dropped commit unmatched', () => {
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const oldA = commitWithDate(repoDir, 'add a', '2024-01-02T00:00:00');
+
+    fs.writeFileSync(path.join(repoDir, 'b.txt'), 'content b\n');
+    runGit(repoDir, ['add', 'b.txt']);
+    const oldB = commitWithDate(repoDir, 'add b', '2024-01-03T00:00:00');
+
+    // Rebase that drops "add b" entirely (e.g. `rebase -i` with `drop`).
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const newA = commitWithDate(repoDir, 'add a', '2024-02-01T00:00:00');
+
+    const result = computeCommitCorrespondence(repoDir, base, oldB, base, newA);
+    expect(Object.fromEntries(result.matched)).toEqual({ [oldA]: newA });
+    expect(result.unmatched).toEqual([oldB]);
+  });
+
+  test('leaves everything unmatched after an unrelated force-push', () => {
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'content a\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const oldA = commitWithDate(repoDir, 'add a', '2024-01-02T00:00:00');
+
+    fs.writeFileSync(path.join(repoDir, 'b.txt'), 'content b\n');
+    runGit(repoDir, ['add', 'b.txt']);
+    const oldB = commitWithDate(repoDir, 'add b', '2024-01-03T00:00:00');
+
+    // A completely unrelated new history on top of the same base.
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(path.join(repoDir, 'unrelated.txt'), 'unrelated content\n');
+    runGit(repoDir, ['add', 'unrelated.txt']);
+    const newCommit = commitWithDate(repoDir, 'unrelated change', '2024-03-01T00:00:00');
+
+    const result = computeCommitCorrespondence(repoDir, base, oldB, base, newCommit);
+    expect(result.matched.size).toBe(0);
+    expect(result.unmatched.sort()).toEqual([oldA, oldB].sort());
+  });
+
+  test('returns nothing to do when the old range has no commits', () => {
+    const result = computeCommitCorrespondence(repoDir, base, base, base, base);
+    expect(result.matched.size).toBe(0);
+    expect(result.unmatched).toEqual([]);
   });
 });

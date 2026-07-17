@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from claude_reviewer import database as db
-from claude_reviewer.models import PRStatus, ReviewAction
+from claude_reviewer.models import (
+    CommentRelocationStatus,
+    CommentRelocationUpdate,
+    PRStatus,
+    ReviewAction,
+)
 
 
 class TestPullRequests:
@@ -153,7 +158,7 @@ class TestPullRequests:
         assert pr.status == PRStatus.APPROVED
 
     def test_update_pr_diff(self, temp_db: Path) -> None:
-        """Test updating PR diff."""
+        """Test updating PR diff, and that the pre-update commits come back."""
         uuid = db.create_pr(
             repo_path="/repo",
             title="PR",
@@ -164,8 +169,10 @@ class TestPullRequests:
             diff="original diff",
         )
 
-        new_revision = db.update_pr_diff(uuid, "new diff content", "newcommit", "newbase")
-        assert new_revision == 2
+        result = db.update_pr_diff(uuid, "new diff content", "newcommit", "newbase")
+        assert result.revision == 2
+        assert result.old_base_commit == "a"
+        assert result.old_head_commit == "b"
 
         diff = db.get_latest_diff(uuid)
         assert diff == "new diff content"
@@ -332,6 +339,144 @@ class TestComments:
         comments = db.get_comments(uuid)
         assert len(comments) == 1
         assert comments[0].resolved is True
+
+    def test_new_comment_has_no_anchor_and_defaults_to_active(self, temp_db: Path) -> None:
+        """The CLI never writes an anchor (only the web app's comments route
+        does, at creation time) - but the columns must exist and default
+        sensibly for a comment the CLI only reads."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        comment_uuid = db.add_comment(uuid, "file.py", 10, "a comment")
+
+        comment = db.get_comment_by_uuid(comment_uuid)
+        assert comment is not None
+        assert comment.anchor_content is None
+        assert comment.anchor_context_before is None
+        assert comment.anchor_context_after is None
+        assert comment.status == CommentRelocationStatus.ACTIVE
+
+
+class TestCommentRelocation:
+    """Tests for apply_comment_relocations/upsert_commit_relocation/lookup_commit_relocation."""
+
+    def test_apply_comment_relocations_mutates_coordinates_and_status(self, temp_db: Path) -> None:
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(
+            uuid, "moved.py", 10, "a comment", commit_sha="oldsha", end_line_number=10
+        )
+        comment = db.get_comment_by_uuid(comment_uuid)
+        assert comment is not None
+
+        db.apply_comment_relocations(
+            [
+                CommentRelocationUpdate(
+                    comment_id=comment.id,
+                    commit_sha="newsha",
+                    file_path="renamed.py",
+                    line_number=20,
+                    end_line_number=21,
+                    status=CommentRelocationStatus.ACTIVE,
+                )
+            ]
+        )
+
+        relocated = db.get_comment_by_uuid(comment_uuid)
+        assert relocated is not None
+        assert relocated.commit_sha == "newsha"
+        assert relocated.file_path == "renamed.py"
+        assert relocated.line_number == 20
+        assert relocated.end_line_number == 21
+        assert relocated.status == CommentRelocationStatus.ACTIVE
+
+    def test_apply_comment_relocations_can_mark_orphaned(self, temp_db: Path) -> None:
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(uuid, "dropped.py", 1, "a comment", commit_sha="oldsha2")
+        comment = db.get_comment_by_uuid(comment_uuid)
+        assert comment is not None
+
+        db.apply_comment_relocations(
+            [
+                CommentRelocationUpdate(
+                    comment_id=comment.id,
+                    commit_sha=comment.commit_sha,
+                    file_path=comment.file_path,
+                    line_number=comment.line_number,
+                    end_line_number=comment.end_line_number,
+                    status=CommentRelocationStatus.ORPHANED,
+                )
+            ]
+        )
+
+        orphaned = db.get_comment_by_uuid(comment_uuid)
+        assert orphaned is not None
+        assert orphaned.status == CommentRelocationStatus.ORPHANED
+
+    def test_apply_comment_relocations_is_a_noop_for_an_empty_list(self, temp_db: Path) -> None:
+        db.apply_comment_relocations([])  # should not raise
+
+    def test_upsert_and_lookup_commit_relocation_round_trip(self, temp_db: Path) -> None:
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        assert db.lookup_commit_relocation(uuid, "sha-a") is None
+
+        db.upsert_commit_relocation(uuid, "sha-a", "sha-b")
+        assert db.lookup_commit_relocation(uuid, "sha-a") == "sha-b"
+
+    def test_upsert_commit_relocation_collapses_chains(self, temp_db: Path) -> None:
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        db.upsert_commit_relocation(uuid, "chain-a", "chain-b")
+        assert db.lookup_commit_relocation(uuid, "chain-a") == "chain-b"
+
+        # A second sync relocates chain-b -> chain-c. The first sync's
+        # mapping should now point straight at chain-c, not still chain-b.
+        db.upsert_commit_relocation(uuid, "chain-b", "chain-c")
+        assert db.lookup_commit_relocation(uuid, "chain-a") == "chain-c"
+        assert db.lookup_commit_relocation(uuid, "chain-b") == "chain-c"
+
+    def test_upsert_commit_relocation_raises_for_nonexistent_pr(self, temp_db: Path) -> None:
+        with pytest.raises(ValueError, match="PR nonexistent not found"):
+            db.upsert_commit_relocation("nonexistent", "a", "b")
 
 
 class TestReviews:

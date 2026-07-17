@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 
 import {
   AuthorKind,
+  CommentRelocationStatus,
   CommentTargetType,
   ConversationStatus,
   LineType,
@@ -41,6 +42,23 @@ export interface Comment {
   line_type: LineType;
   content: string;
   resolved: boolean;
+  anchor_content: string | null;
+  anchor_context_before: string | null;
+  anchor_context_after: string | null;
+  status: CommentRelocationStatus;
+  created_at: string;
+}
+
+// Durable "this SHA used to mean that SHA" mapping for a PR, built up by
+// relocateComments() on every sync. Lets a stale `?commit=<old sha>` link
+// (and any comment's commit_sha) resolve to where that commit ended up after
+// a rebase/amend/force-push, without walking a chain of intermediate syncs -
+// see upsertCommitRelocation, which collapses chains eagerly on write.
+export interface CommitRelocation {
+  id: number;
+  pr_id: number;
+  old_sha: string;
+  new_sha: string;
   created_at: string;
 }
 
@@ -235,11 +253,28 @@ function initSchema(db: Database.Database): void {
         line_type TEXT DEFAULT 'new',
         content TEXT NOT NULL,
         resolved BOOLEAN DEFAULT FALSE,
+        anchor_content TEXT,
+        anchor_context_before TEXT,
+        anchor_context_after TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_comments_pr ON comments(pr_id);
     CREATE INDEX IF NOT EXISTS idx_comments_file ON comments(pr_id, file_path);
+
+    -- Durable historical-SHA -> current-SHA mapping per PR, populated by
+    -- relocateComments() on every sync. See CommitRelocation above.
+    CREATE TABLE IF NOT EXISTS commit_relocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+        old_sha TEXT NOT NULL,
+        new_sha TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(pr_id, old_sha)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_commit_relocations_pr ON commit_relocations(pr_id);
 
     -- Reviews table
     CREATE TABLE IF NOT EXISTS reviews (
@@ -324,6 +359,8 @@ function initSchema(db: Database.Database): void {
   migrateCommentsEndLine(db);
   migrateCommentsCommitSha(db);
   migrateCommentsTargetType(db);
+  migrateCommentsAnchor(db);
+  migrateCommentsStatus(db);
 }
 
 // A database created before the authors table existed has comment_replies/
@@ -427,6 +464,42 @@ function migrateCommentsTargetType(db: Database.Database): void {
   if (!columns.some((c) => c.name === 'target_type')) {
     try {
       db.exec("ALTER TABLE comments ADD COLUMN target_type TEXT NOT NULL DEFAULT 'line'");
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+    }
+  }
+  checkpoint();
+}
+
+// Adds the content-anchor columns for databases created before comment
+// relocation existed. NULL on every pre-existing row - relocateComments()
+// treats a NULL anchor as "can't content-relocate this one" and falls back to
+// commit_sha-only relocation for it.
+function migrateCommentsAnchor(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  for (const column of ['anchor_content', 'anchor_context_before', 'anchor_context_after']) {
+    if (!columns.some((c) => c.name === column)) {
+      try {
+        db.exec(`ALTER TABLE comments ADD COLUMN ${column} TEXT`);
+      } catch (e) {
+        // A concurrent process (the Python CLI, or another reconnect) may have
+        // added the column between the check above and this ALTER.
+        if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+      }
+    }
+  }
+  checkpoint();
+}
+
+// Adds status for databases created before comment relocation existed.
+// DEFAULT 'active' is correct for every pre-existing row.
+function migrateCommentsStatus(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'status')) {
+    try {
+      db.exec("ALTER TABLE comments ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
     } catch (e) {
       // A concurrent process (the Python CLI, or another reconnect) may have
       // added the column between the check above and this ALTER.
@@ -566,17 +639,26 @@ export function getLatestDiff(uuid: string): string | null {
   return row?.diff_content || null;
 }
 
+export interface UpdatePRDiffResult {
+  revision: number;
+  // The base/head commits pull_requests held just before this call
+  // overwrote them - callers pass these into relocateComments() alongside
+  // the new commits to re-anchor anything keyed to the old SHAs.
+  oldBaseCommit: string;
+  oldHeadCommit: string;
+}
+
 export function updatePRDiff(
   uuid: string,
   diff: string,
   headCommit: string,
   baseCommit: string,
-): number {
+): UpdatePRDiffResult {
   const db = getDatabase();
 
-  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as
-    | { id: number }
-    | undefined;
+  const pr = db
+    .prepare('SELECT id, base_commit, head_commit FROM pull_requests WHERE uuid = ?')
+    .get(uuid) as { id: number; base_commit: string; head_commit: string } | undefined;
   if (!pr) throw new Error(`PR ${uuid} not found`);
 
   const maxRev = db
@@ -600,12 +682,18 @@ export function updatePRDiff(
 
   transaction();
   checkpoint();
-  return newRevision;
+  return { revision: newRevision, oldBaseCommit: pr.base_commit, oldHeadCommit: pr.head_commit };
 }
 
 // =============================================================================
 // Comment Operations
 // =============================================================================
+
+export interface CommentAnchor {
+  content: string;
+  contextBefore: string;
+  contextAfter: string;
+}
 
 export function addComment(
   prUuid: string,
@@ -616,6 +704,7 @@ export function addComment(
   endLineNumber: number = lineNumber,
   commitSha: string | null = null,
   targetType: CommentTargetType = CommentTargetType.Line,
+  anchor: CommentAnchor | null = null,
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -627,8 +716,11 @@ export function addComment(
 
   const transaction = db.transaction(() => {
     db.prepare(`
-      INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO comments (
+        uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type,
+        content, anchor_content, anchor_context_before, anchor_context_after
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       commentUuid,
       pr.id,
@@ -639,6 +731,9 @@ export function addComment(
       targetType,
       lineType,
       content,
+      anchor?.content ?? null,
+      anchor?.contextBefore ?? null,
+      anchor?.contextAfter ?? null,
     );
 
     db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);
@@ -701,6 +796,85 @@ export function deleteComment(commentUuid: string): boolean {
   const result = db.prepare('DELETE FROM comments WHERE uuid = ?').run(commentUuid);
   checkpoint();
   return result.changes > 0;
+}
+
+// A relocated comment's new coordinates, computed by relocateComments() and
+// applied here in one shot. Always the full set of columns (not a partial
+// update) - the caller always resolves a definite value (even "unchanged")
+// for each, so there's no ambiguity about which fields a given call touches.
+export interface CommentRelocationUpdate {
+  commentId: number;
+  commitSha: string | null;
+  filePath: string;
+  lineNumber: number;
+  endLineNumber: number;
+  status: CommentRelocationStatus;
+}
+
+export function applyCommentRelocations(relocations: CommentRelocationUpdate[]): void {
+  if (relocations.length === 0) return;
+  const db = getDatabase();
+
+  const transaction = db.transaction(() => {
+    for (const r of relocations) {
+      db.prepare(`
+        UPDATE comments
+        SET commit_sha = ?, file_path = ?, line_number = ?, end_line_number = ?, status = ?
+        WHERE id = ?
+      `).run(r.commitSha, r.filePath, r.lineNumber, r.endLineNumber, r.status, r.commentId);
+    }
+  });
+
+  transaction();
+  checkpoint();
+}
+
+// Upserts an old-SHA -> new-SHA mapping for a PR, collapsing chains eagerly:
+// any existing row whose new_sha *was* oldSha (from an earlier sync) is
+// rewritten to point straight at newSha, so a link from several syncs ago
+// still resolves in a single indexed lookup (see lookupCommitRelocation)
+// instead of needing to walk a chain.
+export function upsertCommitRelocation(prUuid: string, oldSha: string, newSha: string): void {
+  const db = getDatabase();
+
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) throw new Error(`PR ${prUuid} not found`);
+
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      UPDATE commit_relocations SET new_sha = ? WHERE pr_id = ? AND new_sha = ?
+    `).run(newSha, pr.id, oldSha);
+
+    db.prepare(`
+      INSERT INTO commit_relocations (pr_id, old_sha, new_sha)
+      VALUES (?, ?, ?)
+      ON CONFLICT(pr_id, old_sha) DO UPDATE SET new_sha = excluded.new_sha
+    `).run(pr.id, oldSha, newSha);
+  });
+
+  transaction();
+  checkpoint();
+}
+
+// Resolves a historical SHA (from a stale `?commit=` link, or a comment's
+// commit_sha) to whatever it currently maps to, if this PR has ever seen a
+// sync that rewrote it. Null means either the SHA is still current or was
+// never part of this PR - the caller can't distinguish those from this alone.
+export function lookupCommitRelocation(prUuid: string, oldSha: string): string | null {
+  const db = getDatabase();
+
+  const row = db
+    .prepare(`
+    SELECT cr.new_sha as new_sha
+    FROM commit_relocations cr
+    JOIN pull_requests pr ON pr.id = cr.pr_id
+    WHERE pr.uuid = ? AND cr.old_sha = ?
+  `)
+    .get(prUuid, oldSha) as { new_sha: string } | undefined;
+
+  return row?.new_sha ?? null;
 }
 
 // =============================================================================

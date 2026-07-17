@@ -20,6 +20,15 @@ class ReviewAction(str, Enum):
     COMMENT = "comment"
 
 
+class CommentRelocationStatus(str, Enum):
+    """Whether a comment's commit/line coordinates still resolve after a
+    rebase/amend/force-push, distinct from the reviewer-facing `resolved`
+    (thread addressed) flag on the same table."""
+
+    ACTIVE = "active"
+    ORPHANED = "orphaned"
+
+
 @dataclass
 class PullRequest:
     id: int
@@ -49,7 +58,54 @@ class Comment:
     target_type: str = "line"
     resolved: bool = False
     line_type: str = "new"
+    anchor_content: Optional[str] = None
+    anchor_context_before: Optional[str] = None
+    anchor_context_after: Optional[str] = None
+    status: CommentRelocationStatus = CommentRelocationStatus.ACTIVE
     created_at: Optional[datetime] = None
+
+
+@dataclass
+class CommitRelocation:
+    """Durable "this SHA used to mean that SHA" mapping for a PR, built up by
+    relocate_comments() on every sync. Lets a stale `?commit=<old sha>` link
+    (and any comment's commit_sha) resolve to where that commit ended up after
+    a rebase/amend/force-push, without walking a chain of intermediate syncs -
+    see upsert_commit_relocation, which collapses chains eagerly on write."""
+
+    id: int
+    pr_id: int
+    old_sha: str
+    new_sha: str
+    created_at: Optional[datetime] = None
+
+
+@dataclass
+class UpdatePRDiffResult:
+    """Return value of update_pr_diff(): the new revision number, plus the
+    base/head commits pull_requests held just before this call overwrote
+    them - callers pass these into relocate_comments() alongside the new
+    commits to re-anchor anything keyed to the old SHAs."""
+
+    revision: int
+    old_base_commit: str
+    old_head_commit: str
+
+
+@dataclass
+class CommentRelocationUpdate:
+    """A relocated comment's new coordinates, computed by
+    relocate_comments() and applied in one shot. Always the full set of
+    fields (not a partial update) - the caller always resolves a definite
+    value (even "unchanged") for each, so there's no ambiguity about which
+    fields a given call touches."""
+
+    comment_id: int
+    commit_sha: Optional[str]
+    file_path: str
+    line_number: int
+    end_line_number: int
+    status: CommentRelocationStatus
 
 
 @dataclass

@@ -24,6 +24,9 @@ import {
   getComments,
   resolveComment,
   deleteComment,
+  applyCommentRelocations,
+  upsertCommitRelocation,
+  lookupCommitRelocation,
   submitReview,
   getReviews,
   closeDatabase,
@@ -46,6 +49,7 @@ import {
 } from '../lib/database';
 import {
   AuthorKind,
+  CommentRelocationStatus,
   CommentTargetType,
   LineType,
   PullRequestStatus,
@@ -184,9 +188,11 @@ describe('Database Module', () => {
       expect(diff).toBeNull();
     });
 
-    test('updatePRDiff adds new revision', () => {
-      const newRevision = updatePRDiff(testPRUuid, 'new diff content', 'newcommit', 'newbase');
-      expect(newRevision).toBe(2);
+    test('updatePRDiff adds new revision and returns the pre-update commits', () => {
+      const result = updatePRDiff(testPRUuid, 'new diff content', 'newcommit', 'newbase');
+      expect(result.revision).toBe(2);
+      expect(result.oldHeadCommit).toBe('def456');
+      expect(result.oldBaseCommit).toBe('abc123');
 
       const diff = getLatestDiff(testPRUuid);
       expect(diff).toBe('new diff content');
@@ -307,6 +313,115 @@ describe('Database Module', () => {
       expect(line?.target_type).toBe(CommentTargetType.Line);
       expect(commitMessage?.target_type).toBe(CommentTargetType.CommitMessage);
       expect(commitMessage?.commit_sha).toBe('def5678');
+    });
+
+    test('addComment stores an anchor when provided, and defaults status to active', () => {
+      const anchoredUuid = addComment(
+        prUuid,
+        'anchored.py',
+        5,
+        'anchored comment',
+        LineType.New,
+        5,
+        null,
+        CommentTargetType.Line,
+        { content: 'the line', contextBefore: 'before1\nbefore2', contextAfter: 'after1\nafter2' },
+      );
+      const unanchoredUuid = addComment(prUuid, 'anchored.py', 6, 'no anchor');
+
+      const comments = getComments(prUuid, { filePath: 'anchored.py' });
+      const anchored = comments.find((c) => c.uuid === anchoredUuid);
+      const unanchored = comments.find((c) => c.uuid === unanchoredUuid);
+
+      expect(anchored?.anchor_content).toBe('the line');
+      expect(anchored?.anchor_context_before).toBe('before1\nbefore2');
+      expect(anchored?.anchor_context_after).toBe('after1\nafter2');
+      expect(anchored?.status).toBe(CommentRelocationStatus.Active);
+      expect(unanchored?.anchor_content).toBeNull();
+      expect(unanchored?.status).toBe(CommentRelocationStatus.Active);
+    });
+  });
+
+  describe('Comment Relocation Operations', () => {
+    let prUuid: string;
+
+    beforeAll(() => {
+      prUuid = createPR('/repo/relocation', 'Relocation Test PR', 'main', 'feature', 'a', 'b', 'diff');
+    });
+
+    test('applyCommentRelocations mutates coordinates and status in one shot', () => {
+      const commentUuid = addComment(prUuid, 'moved.py', 10, 'a comment', LineType.New, 10, 'oldsha');
+      const comment = getComments(prUuid, { filePath: 'moved.py' }).find(
+        (c) => c.uuid === commentUuid,
+      )!;
+
+      applyCommentRelocations([
+        {
+          commentId: comment.id,
+          commitSha: 'newsha',
+          filePath: 'renamed.py',
+          lineNumber: 20,
+          endLineNumber: 21,
+          status: CommentRelocationStatus.Active,
+        },
+      ]);
+
+      const relocated = getComments(prUuid, { filePath: 'renamed.py' }).find(
+        (c) => c.uuid === commentUuid,
+      );
+      expect(relocated?.commit_sha).toBe('newsha');
+      expect(relocated?.line_number).toBe(20);
+      expect(relocated?.end_line_number).toBe(21);
+      expect(relocated?.status).toBe(CommentRelocationStatus.Active);
+    });
+
+    test('applyCommentRelocations can mark a comment orphaned', () => {
+      const commentUuid = addComment(prUuid, 'dropped.py', 1, 'a comment', LineType.New, 1, 'oldsha2');
+      const comment = getComments(prUuid, { filePath: 'dropped.py' }).find(
+        (c) => c.uuid === commentUuid,
+      )!;
+
+      applyCommentRelocations([
+        {
+          commentId: comment.id,
+          commitSha: comment.commit_sha,
+          filePath: comment.file_path,
+          lineNumber: comment.line_number,
+          endLineNumber: comment.end_line_number,
+          status: CommentRelocationStatus.Orphaned,
+        },
+      ]);
+
+      const orphaned = getComments(prUuid, { filePath: 'dropped.py' }).find(
+        (c) => c.uuid === commentUuid,
+      );
+      expect(orphaned?.status).toBe(CommentRelocationStatus.Orphaned);
+    });
+
+    test('applyCommentRelocations is a no-op for an empty list', () => {
+      expect(() => applyCommentRelocations([])).not.toThrow();
+    });
+
+    test('upsertCommitRelocation + lookupCommitRelocation round-trip', () => {
+      expect(lookupCommitRelocation(prUuid, 'sha-a')).toBeNull();
+
+      upsertCommitRelocation(prUuid, 'sha-a', 'sha-b');
+      expect(lookupCommitRelocation(prUuid, 'sha-a')).toBe('sha-b');
+    });
+
+    test('upsertCommitRelocation collapses chains so old links resolve in one lookup', () => {
+      upsertCommitRelocation(prUuid, 'chain-a', 'chain-b');
+      expect(lookupCommitRelocation(prUuid, 'chain-a')).toBe('chain-b');
+
+      // A second sync relocates chain-b -> chain-c. The first sync's mapping
+      // should now point straight at chain-c, not still at chain-b.
+      upsertCommitRelocation(prUuid, 'chain-b', 'chain-c');
+      expect(lookupCommitRelocation(prUuid, 'chain-a')).toBe('chain-c');
+      expect(lookupCommitRelocation(prUuid, 'chain-b')).toBe('chain-c');
+    });
+
+    test('upsertCommitRelocation throws for a non-existent PR', () => {
+      expect(() => upsertCommitRelocation('nonexistent', 'a', 'b')).toThrow('PR nonexistent not found');
     });
   });
 

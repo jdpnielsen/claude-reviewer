@@ -39,6 +39,8 @@ from .git_ops import get_global_git_user
 from .models import (
     Author,
     Comment,
+    CommentRelocationStatus,
+    CommentRelocationUpdate,
     CommentReply,
     PRStatus,
     PullRequest,
@@ -46,6 +48,7 @@ from .models import (
     RepoConversationMessage,
     RepoConversationStatus,
     ReviewAction,
+    UpdatePRDiffResult,
 )
 
 # Re-export for CLI
@@ -110,11 +113,28 @@ CREATE TABLE IF NOT EXISTS comments (
     line_type TEXT DEFAULT 'new',
     content TEXT NOT NULL,
     resolved BOOLEAN DEFAULT FALSE,
+    anchor_content TEXT,
+    anchor_context_before TEXT,
+    anchor_context_after TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_pr ON comments(pr_id);
 CREATE INDEX IF NOT EXISTS idx_comments_file ON comments(pr_id, file_path);
+
+-- Durable historical-SHA -> current-SHA mapping per PR, populated by
+-- relocate_comments() on every sync. See CommitRelocation model.
+CREATE TABLE IF NOT EXISTS commit_relocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+    old_sha TEXT NOT NULL,
+    new_sha TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(pr_id, old_sha)
+);
+
+CREATE INDEX IF NOT EXISTS idx_commit_relocations_pr ON commit_relocations(pr_id);
 
 -- Reviews table
 CREATE TABLE IF NOT EXISTS reviews (
@@ -238,6 +258,8 @@ def init_db(db_path: Path | None = None) -> None:
         _migrate_comments_end_line(conn)
         _migrate_comments_commit_sha(conn)
         _migrate_comments_target_type(conn)
+        _migrate_comments_anchor(conn)
+        _migrate_comments_status(conn)
 
 
 def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
@@ -342,6 +364,37 @@ def _migrate_comments_target_type(conn: sqlite3.Connection) -> None:
                 raise
 
 
+def _migrate_comments_anchor(conn: sqlite3.Connection) -> None:
+    """Add the content-anchor columns for databases created before comment
+    relocation existed. NULL on every pre-existing row - relocate_comments()
+    treats a NULL anchor as "can't content-relocate this one" and falls back
+    to commit_sha-only relocation for it.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    existing = {col["name"] for col in columns}
+    for column in ("anchor_content", "anchor_context_before", "anchor_context_after"):
+        if column not in existing:
+            try:
+                conn.execute(f"ALTER TABLE comments ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
+
+
+def _migrate_comments_status(conn: sqlite3.Connection) -> None:
+    """Add status for databases created before comment relocation existed.
+
+    DEFAULT 'active' is correct for every pre-existing row.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "status" for col in columns):
+        try:
+            conn.execute("ALTER TABLE comments ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
     """Convert a database row to a PullRequest object."""
     return PullRequest(
@@ -374,6 +427,10 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         line_type=row["line_type"],
         content=row["content"],
         resolved=bool(row["resolved"]),
+        anchor_content=row["anchor_content"],
+        anchor_context_before=row["anchor_context_before"],
+        anchor_context_after=row["anchor_context_after"],
+        status=CommentRelocationStatus(row["status"]),
         created_at=row["created_at"],
     )
 
@@ -506,7 +563,9 @@ def delete_pr(pr_uuid: str) -> bool:
         return bool(cursor.rowcount > 0)
 
 
-def update_pr_diff(pr_uuid: str, diff: str, head_commit: str, base_commit: str) -> int:
+def update_pr_diff(
+    pr_uuid: str, diff: str, head_commit: str, base_commit: str
+) -> UpdatePRDiffResult:
     """Add a new diff snapshot and return the new revision number.
 
     Refreshes both head_commit and base_commit: the base branch may have moved
@@ -515,9 +574,9 @@ def update_pr_diff(pr_uuid: str, diff: str, head_commit: str, base_commit: str) 
     picking up whatever landed on the base branch in the meantime.
     """
     with get_connection() as conn:
-        # Get PR ID and current max revision
+        # Get PR ID, current commits, and current max revision
         pr = conn.execute(
-            "SELECT id FROM pull_requests WHERE uuid = ?",
+            "SELECT id, base_commit, head_commit FROM pull_requests WHERE uuid = ?",
             (pr_uuid,),
         ).fetchone()
 
@@ -553,7 +612,11 @@ def update_pr_diff(pr_uuid: str, diff: str, head_commit: str, base_commit: str) 
             (head_commit, base_commit, pr_id),
         )
 
-        return new_revision
+        return UpdatePRDiffResult(
+            revision=new_revision,
+            old_base_commit=pr["base_commit"],
+            old_head_commit=pr["head_commit"],
+        )
 
 
 def get_latest_diff(pr_uuid: str) -> str | None:
@@ -672,6 +735,78 @@ def resolve_comment(comment_uuid: str, resolved: bool = True) -> bool:
             (resolved, comment_uuid),
         )
         return bool(cursor.rowcount > 0)
+
+
+def apply_comment_relocations(relocations: list[CommentRelocationUpdate]) -> None:
+    """Apply a batch of relocated coordinates to comments in one transaction."""
+    if not relocations:
+        return
+    with get_connection() as conn:
+        for r in relocations:
+            conn.execute(
+                """
+                UPDATE comments
+                SET commit_sha = ?, file_path = ?, line_number = ?, end_line_number = ?, status = ?
+                WHERE id = ?
+                """,
+                (
+                    r.commit_sha,
+                    r.file_path,
+                    r.line_number,
+                    r.end_line_number,
+                    r.status.value,
+                    r.comment_id,
+                ),
+            )
+
+
+def upsert_commit_relocation(pr_uuid: str, old_sha: str, new_sha: str) -> None:
+    """Upsert an old-SHA -> new-SHA mapping for a PR, collapsing chains
+    eagerly: any existing row whose new_sha *was* old_sha (from an earlier
+    sync) is rewritten to point straight at new_sha, so a link from several
+    syncs ago still resolves in a single indexed lookup (see
+    lookup_commit_relocation) instead of needing to walk a chain.
+    """
+    with get_connection() as conn:
+        pr = conn.execute(
+            "SELECT id FROM pull_requests WHERE uuid = ?",
+            (pr_uuid,),
+        ).fetchone()
+        if not pr:
+            raise ValueError(f"PR {pr_uuid} not found")
+
+        conn.execute(
+            "UPDATE commit_relocations SET new_sha = ? WHERE pr_id = ? AND new_sha = ?",
+            (new_sha, pr["id"], old_sha),
+        )
+        conn.execute(
+            """
+            INSERT INTO commit_relocations (pr_id, old_sha, new_sha)
+            VALUES (?, ?, ?)
+            ON CONFLICT(pr_id, old_sha) DO UPDATE SET new_sha = excluded.new_sha
+            """,
+            (pr["id"], old_sha, new_sha),
+        )
+
+
+def lookup_commit_relocation(pr_uuid: str, old_sha: str) -> str | None:
+    """Resolves a historical SHA (from a stale `?commit=` link, or a
+    comment's commit_sha) to whatever it currently maps to, if this PR has
+    ever seen a sync that rewrote it. None means either the SHA is still
+    current or was never part of this PR - the caller can't distinguish
+    those from this alone.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT cr.new_sha as new_sha
+            FROM commit_relocations cr
+            JOIN pull_requests pr ON pr.id = cr.pr_id
+            WHERE pr.uuid = ? AND cr.old_sha = ?
+            """,
+            (pr_uuid, old_sha),
+        ).fetchone()
+        return row["new_sha"] if row else None
 
 
 # =============================================================================
