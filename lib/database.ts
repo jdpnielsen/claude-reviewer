@@ -566,7 +566,12 @@ export function getLatestDiff(uuid: string): string | null {
   return row?.diff_content || null;
 }
 
-export function updatePRDiff(uuid: string, diff: string, headCommit: string): number {
+export function updatePRDiff(
+  uuid: string,
+  diff: string,
+  headCommit: string,
+  baseCommit: string,
+): number {
   const db = getDatabase();
 
   const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as
@@ -588,9 +593,9 @@ export function updatePRDiff(uuid: string, diff: string, headCommit: string): nu
 
     db.prepare(`
       UPDATE pull_requests
-      SET head_commit = ?, updated_at = CURRENT_TIMESTAMP
+      SET head_commit = ?, base_commit = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(headCommit, pr.id);
+    `).run(headCommit, baseCommit, pr.id);
   });
 
   transaction();

@@ -164,11 +164,16 @@ class TestPullRequests:
             diff="original diff",
         )
 
-        new_revision = db.update_pr_diff(uuid, "new diff content", "newcommit")
+        new_revision = db.update_pr_diff(uuid, "new diff content", "newcommit", "newbase")
         assert new_revision == 2
 
         diff = db.get_latest_diff(uuid)
         assert diff == "new diff content"
+
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.head_commit == "newcommit"
+        assert pr.base_commit == "newbase"
 
     def test_get_latest_diff(self, temp_db: Path) -> None:
         """Test getting latest diff."""
