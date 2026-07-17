@@ -33,6 +33,195 @@ def _try_global_git_config(key: str) -> str | None:
         return None
 
 
+def get_file_at_commit(repo_path: str | Path, sha: str, file_path: str) -> str | None:
+    """Read a file's content as of a specific commit (`git show sha:path`)."""
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{sha}:{file_path}"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError:
+        # The file doesn't exist at this commit (added later, deleted,
+        # renamed, or the commit itself no longer exists) - None means
+        # "nothing to anchor against here" (mirrors lib/git.ts's
+        # getFileAtCommit convention).
+        return None
+
+
+class CommitCorrespondence(TypedDict):
+    """matched: old sha -> new sha. unmatched: old shas nothing could be
+    matched to (dropped, squashed away, or a split this couldn't safely
+    attribute to one side)."""
+
+    matched: dict[str, str]
+    unmatched: list[str]
+
+
+_FIELD_SEP = "\x1f"
+
+
+def _list_commit_shas(repo_path: str | Path, range_: str) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "log", "--reverse", "--format=%H", range_],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return []
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def _compute_patch_ids(repo_path: str | Path, range_: str) -> dict[str, str]:
+    """`git log -p <range> | git patch-id --stable`, piped through Python
+    instead of a shell. Each output line is `<patch-id> <commit-sha>` -
+    patch-id hashes a commit's diff content only, so it survives being
+    replayed onto a different base (a pure rebase), unlike the commit's own
+    SHA. Returns sha -> patch-id.
+    """
+    try:
+        log = subprocess.run(
+            ["git", "log", "-p", "--no-color", "--reverse", range_],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except subprocess.CalledProcessError:
+        return {}
+    if not log.strip():
+        return {}
+
+    patch_id_output = subprocess.run(
+        ["git", "patch-id", "--stable"],
+        cwd=repo_path,
+        input=log,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    by_sha: dict[str, str] = {}
+    for line in patch_id_output.strip().splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            patch_id, sha = parts[0], parts[1]
+            by_sha[sha] = patch_id
+    return by_sha
+
+
+def _compute_messages(repo_path: str | Path, range_: str) -> dict[str, str]:
+    """sha -> subject+body, for commit-message-based fallback matching."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "-z", "--reverse", f"--format=%H{_FIELD_SEP}%s{_FIELD_SEP}%b", range_],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return {}
+    messages: dict[str, str] = {}
+    for record in result.stdout.split("\0"):
+        if not record:
+            continue
+        parts = record.split(_FIELD_SEP)
+        if len(parts) >= 3:
+            sha, subject, body = parts[0], parts[1], parts[2]
+            messages[sha] = f"{subject}\n{body}"
+    return messages
+
+
+def compute_commit_correspondence(
+    repo_path: str | Path,
+    old_base: str,
+    old_head: str,
+    new_base: str,
+    new_head: str,
+) -> CommitCorrespondence:
+    """Match commits from an old `old_base..old_head` range to their
+    counterparts in a new `new_base..new_head` range after a
+    rebase/amend/force-push, so callers can relocate anything keyed to the
+    old SHAs (comments, `commit_relocations` rows). Two-tier, in order,
+    greedy and deterministic (oldest-first, per each range's own commit
+    order) - no positional/index-based fallback, so a commit split into
+    several (or dropped outright) is left unmatched rather than guessed at:
+
+    1. Patch-id: survives a pure rebase/reorder (diff content unchanged).
+    2. Commit message: catches an amend that changed the diff but kept the
+       message.
+
+    `old_shas` (from a plain commit listing, not the patch-id/message passes)
+    is the ground truth for which old commits need an answer - if patch-id
+    computation fails outright for the old range (e.g. its objects were
+    garbage-collected before this ran), every old commit still comes back
+    unmatched rather than silently vanishing from both `matched` and
+    `unmatched`.
+    """
+    old_range = f"{old_base}..{old_head}"
+    new_range = f"{new_base}..{new_head}"
+
+    old_shas = _list_commit_shas(repo_path, old_range)
+    if not old_shas:
+        return {"matched": {}, "unmatched": []}
+
+    old_patch_ids = _compute_patch_ids(repo_path, old_range)
+    new_patch_ids = _compute_patch_ids(repo_path, new_range)
+
+    new_by_patch_id: dict[str, list[str]] = {}
+    for sha, patch_id in new_patch_ids.items():
+        new_by_patch_id.setdefault(patch_id, []).append(sha)
+
+    matched: dict[str, str] = {}
+    claimed_new_shas: set[str] = set()
+    after_patch_id: list[str] = []
+
+    for sha in old_shas:
+        old_patch_id = old_patch_ids.get(sha)
+        candidates = new_by_patch_id.get(old_patch_id) if old_patch_id else None
+        if candidates:
+            next_sha = candidates.pop(0)
+            matched[sha] = next_sha
+            claimed_new_shas.add(next_sha)
+        else:
+            after_patch_id.append(sha)
+
+    if not after_patch_id:
+        return {"matched": matched, "unmatched": []}
+
+    # Message fallback for anything patch-id couldn't match - join on
+    # identical subject+body among commits not already claimed on the new
+    # side.
+    old_messages = _compute_messages(repo_path, old_range)
+    new_messages = _compute_messages(repo_path, new_range)
+
+    new_by_message: dict[str, list[str]] = {}
+    for sha, message in new_messages.items():
+        if sha in claimed_new_shas:
+            continue
+        new_by_message.setdefault(message, []).append(sha)
+
+    unmatched: list[str] = []
+    for sha in after_patch_id:
+        old_message = old_messages.get(sha)
+        candidates = new_by_message.get(old_message) if old_message else None
+        if candidates:
+            next_sha = candidates.pop(0)
+            matched[sha] = next_sha
+            claimed_new_shas.add(next_sha)
+        else:
+            unmatched.append(sha)
+
+    return {"matched": matched, "unmatched": unmatched}
+
+
 class GitResult(TypedDict, total=False):
     """Result of a git operation."""
 

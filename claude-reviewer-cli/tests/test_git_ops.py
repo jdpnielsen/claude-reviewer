@@ -2,13 +2,43 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import tempfile
 from pathlib import Path
 
 import pytest
 from git import Repo
 
-from claude_reviewer.git_ops import GitOps, get_global_git_user
+from claude_reviewer.git_ops import (
+    GitOps,
+    compute_commit_correspondence,
+    get_file_at_commit,
+    get_global_git_user,
+)
+
+
+def _run_git(cwd: Path, args: list[str]) -> str:
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def _commit_with_date(cwd: Path, message: str, date: str) -> str:
+    """Explicit author/committer dates so two commits with identical tree +
+    message + parent still get distinct SHAs (git hashes the dates too) -
+    needed to simulate "the same logical commit, replayed by a rebase"
+    without relying on wall-clock granularity, which real rebases bump
+    anyway."""
+    env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+    subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return _run_git(cwd, ["rev-parse", "HEAD"])
 
 
 @pytest.fixture
@@ -224,3 +254,121 @@ class TestGetGlobalGitUser:
             name, email = get_global_git_user()
             assert name is None
             assert email is None
+
+
+class TestGetFileAtCommit:
+    """Tests for get_file_at_commit."""
+
+    def test_reads_a_file_as_of_a_specific_commit(self, temp_git_repo: Path) -> None:
+        sha = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+        assert get_file_at_commit(temp_git_repo, sha, "test.txt") == "initial content"
+
+    def test_returns_none_for_a_file_that_does_not_exist_at_that_commit(
+        self, temp_git_repo: Path
+    ) -> None:
+        sha = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+        assert get_file_at_commit(temp_git_repo, sha, "nope.txt") is None
+
+    def test_returns_none_for_a_commit_that_does_not_exist(self, temp_git_repo: Path) -> None:
+        assert get_file_at_commit(temp_git_repo, "0" * 40, "test.txt") is None
+
+
+class TestComputeCommitCorrespondence:
+    """Tests for compute_commit_correspondence."""
+
+    def test_matches_a_pure_rebase_by_patch_id(self, temp_git_repo: Path) -> None:
+        base = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+
+        (temp_git_repo / "a.txt").write_text("content a\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        old_a = _commit_with_date(temp_git_repo, "add a", "2024-01-02T00:00:00")
+
+        (temp_git_repo / "b.txt").write_text("content b\n")
+        _run_git(temp_git_repo, ["add", "b.txt"])
+        old_b = _commit_with_date(temp_git_repo, "add b", "2024-01-03T00:00:00")
+
+        # Simulate a rebase: replay the same diffs/messages on top of the
+        # same base, at a later date - same patch-id, different SHA.
+        _run_git(temp_git_repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (temp_git_repo / "a.txt").write_text("content a\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        new_a = _commit_with_date(temp_git_repo, "add a", "2024-02-01T00:00:00")
+
+        (temp_git_repo / "b.txt").write_text("content b\n")
+        _run_git(temp_git_repo, ["add", "b.txt"])
+        new_b = _commit_with_date(temp_git_repo, "add b", "2024-02-02T00:00:00")
+
+        assert new_a != old_a
+        assert new_b != old_b
+
+        result = compute_commit_correspondence(temp_git_repo, base, old_b, base, new_b)
+        assert result["matched"] == {old_a: new_a, old_b: new_b}
+        assert result["unmatched"] == []
+
+    def test_falls_back_to_message_when_content_changed(self, temp_git_repo: Path) -> None:
+        base = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+
+        (temp_git_repo / "a.txt").write_text("content a\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        old_a = _commit_with_date(temp_git_repo, "add a", "2024-01-02T00:00:00")
+
+        # Same message, different content - patch-id can't match this, only
+        # the message fallback can.
+        _run_git(temp_git_repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (temp_git_repo / "a.txt").write_text("content a, amended\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        new_a = _commit_with_date(temp_git_repo, "add a", "2024-02-01T00:00:00")
+
+        result = compute_commit_correspondence(temp_git_repo, base, old_a, base, new_a)
+        assert result["matched"] == {old_a: new_a}
+        assert result["unmatched"] == []
+
+    def test_leaves_a_dropped_commit_unmatched(self, temp_git_repo: Path) -> None:
+        base = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+
+        (temp_git_repo / "a.txt").write_text("content a\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        old_a = _commit_with_date(temp_git_repo, "add a", "2024-01-02T00:00:00")
+
+        (temp_git_repo / "b.txt").write_text("content b\n")
+        _run_git(temp_git_repo, ["add", "b.txt"])
+        old_b = _commit_with_date(temp_git_repo, "add b", "2024-01-03T00:00:00")
+
+        # Rebase that drops "add b" entirely (e.g. `rebase -i` with `drop`).
+        _run_git(temp_git_repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (temp_git_repo / "a.txt").write_text("content a\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        new_a = _commit_with_date(temp_git_repo, "add a", "2024-02-01T00:00:00")
+
+        result = compute_commit_correspondence(temp_git_repo, base, old_b, base, new_a)
+        assert result["matched"] == {old_a: new_a}
+        assert result["unmatched"] == [old_b]
+
+    def test_leaves_everything_unmatched_after_unrelated_force_push(
+        self, temp_git_repo: Path
+    ) -> None:
+        base = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+
+        (temp_git_repo / "a.txt").write_text("content a\n")
+        _run_git(temp_git_repo, ["add", "a.txt"])
+        old_a = _commit_with_date(temp_git_repo, "add a", "2024-01-02T00:00:00")
+
+        (temp_git_repo / "b.txt").write_text("content b\n")
+        _run_git(temp_git_repo, ["add", "b.txt"])
+        old_b = _commit_with_date(temp_git_repo, "add b", "2024-01-03T00:00:00")
+
+        # A completely unrelated new history on top of the same base.
+        _run_git(temp_git_repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (temp_git_repo / "unrelated.txt").write_text("unrelated content\n")
+        _run_git(temp_git_repo, ["add", "unrelated.txt"])
+        new_commit = _commit_with_date(temp_git_repo, "unrelated change", "2024-03-01T00:00:00")
+
+        result = compute_commit_correspondence(temp_git_repo, base, old_b, base, new_commit)
+        assert result["matched"] == {}
+        assert sorted(result["unmatched"]) == sorted([old_a, old_b])
+
+    def test_returns_nothing_to_do_when_old_range_has_no_commits(self, temp_git_repo: Path) -> None:
+        base = _run_git(temp_git_repo, ["rev-parse", "HEAD"])
+        result = compute_commit_correspondence(temp_git_repo, base, base, base, base)
+        assert result["matched"] == {}
+        assert result["unmatched"] == []

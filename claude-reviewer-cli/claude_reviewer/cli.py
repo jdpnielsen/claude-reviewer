@@ -21,6 +21,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from . import database as db
+from .comment_relocation import relocate_comments
 from .git_ops import GitOps
 from .models import (
     Comment,
@@ -437,14 +438,17 @@ def update(pr_id: str, repo: str | None) -> None:
     base_commit = git.get_commit_sha(pr.base_ref)
 
     # Update in database
-    new_revision = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
+    result = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
+    relocate_comments(
+        pr_id, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
+    )
 
     # Reset status to pending for re-review
     db.update_pr_status(pr_id, PRStatus.PENDING)
 
     console.print(
         Panel(
-            f"[green]PR #{pr_id} updated to revision {new_revision}[/green]\n\n"
+            f"[green]PR #{pr_id} updated to revision {result.revision}[/green]\n\n"
             f"Status reset to [yellow]pending[/yellow] for re-review",
             title="PR Updated",
         )
@@ -1586,11 +1590,17 @@ Your response (just the message content, no prefixes):"""
                         diff = git.get_diff(matching_pr.base_ref, matching_pr.head_ref)
                         head_commit = git.get_commit_sha(matching_pr.head_ref)
                         base_commit = git.get_commit_sha(matching_pr.base_ref)
-                        new_revision = db.update_pr_diff(
-                            matching_pr.uuid, diff, head_commit, base_commit
+                        result = db.update_pr_diff(matching_pr.uuid, diff, head_commit, base_commit)
+                        relocate_comments(
+                            matching_pr.uuid,
+                            repo_path,
+                            result.old_base_commit,
+                            result.old_head_commit,
+                            base_commit,
+                            head_commit,
                         )
                         console.print(
-                            f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {new_revision})[/green]"
+                            f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {result.revision})[/green]"
                         )
                 else:
                     console.print("[yellow]No changes to commit[/yellow]")
@@ -1702,8 +1712,16 @@ Your response (just the message content, no prefixes):"""
                     diff = git.get_diff(pr.base_ref, pr.head_ref)
                     head_commit = git.get_commit_sha(pr.head_ref)
                     base_commit = git.get_commit_sha(pr.base_ref)
-                    new_revision = db.update_pr_diff(pr.uuid, diff, head_commit, base_commit)
-                    console.print(f"[green]✓ Updated PR diff (revision {new_revision})[/green]")
+                    result = db.update_pr_diff(pr.uuid, diff, head_commit, base_commit)
+                    relocate_comments(
+                        pr.uuid,
+                        repo_path,
+                        result.old_base_commit,
+                        result.old_head_commit,
+                        base_commit,
+                        head_commit,
+                    )
+                    console.print(f"[green]✓ Updated PR diff (revision {result.revision})[/green]")
                 else:
                     console.print("[yellow]No changes to commit[/yellow]")
         except Exception as e:

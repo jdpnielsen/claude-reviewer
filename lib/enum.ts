@@ -33,6 +33,16 @@ export const CommentTargetType = {
 } as const;
 export type CommentTargetType = (typeof CommentTargetType)[keyof typeof CommentTargetType];
 
+// Whether a comment's commit/line coordinates still resolve after a
+// rebase/amend/force-push, distinct from the reviewer-facing `resolved`
+// (thread addressed) flag on the same table.
+export const CommentRelocationStatus = {
+  Active: 'active',
+  Orphaned: 'orphaned',
+} as const;
+export type CommentRelocationStatus =
+  (typeof CommentRelocationStatus)[keyof typeof CommentRelocationStatus];
+
 export const ChangeType = {
   Added: 'added',
   Modified: 'modified',

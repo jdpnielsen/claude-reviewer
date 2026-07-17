@@ -130,6 +130,194 @@ export function blameCommit(
   }
 }
 
+/** Read a file's content as of a specific commit (`git show sha:path`). */
+export function getFileAtCommit(repoPath: string, sha: string, filePath: string): string | null {
+  const cwd = resolveRepoPath(repoPath);
+  try {
+    return execFileSync('git', ['show', `${sha}:${filePath}`], {
+      cwd,
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    // The file doesn't exist at this commit (added later, deleted, renamed,
+    // or the commit itself no longer exists) - null means "nothing to anchor
+    // against here," same convention as blameCommit.
+    return null;
+  }
+}
+
+interface PatchIdEntry {
+  sha: string;
+  patchId: string;
+}
+
+/**
+ * `git log -p <range> | git patch-id --stable`, piped through Node instead of
+ * a shell (execFileSync's `input` option feeds the first command's stdout as
+ * the second command's stdin) so no shell interpretation of `range` is
+ * needed. Each output line is `<patch-id> <commit-sha>` - patch-id hashes a
+ * commit's diff content only, so it survives being replayed onto a different
+ * base (a pure rebase), unlike the commit's own SHA.
+ */
+function computePatchIdEntries(cwd: string, range: string): PatchIdEntry[] {
+  let log: string;
+  try {
+    log = execFileSync('git', ['log', '-p', '--no-color', '--reverse', range], {
+      cwd,
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+    });
+  } catch {
+    return [];
+  }
+  if (!log.trim()) return [];
+
+  const output = execFileSync('git', ['patch-id', '--stable'], {
+    cwd,
+    encoding: 'utf-8',
+    input: log,
+    maxBuffer: 50 * 1024 * 1024,
+  });
+
+  return output
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line): PatchIdEntry | null => {
+      const [patchId, sha] = line.split(' ');
+      return patchId && sha ? { sha, patchId } : null;
+    })
+    .filter((entry): entry is PatchIdEntry => entry !== null);
+}
+
+interface MessageEntry {
+  sha: string;
+  message: string;
+}
+
+function computeMessageEntries(cwd: string, range: string): MessageEntry[] {
+  let output: string;
+  try {
+    output = execFileSync(
+      'git',
+      ['log', '-z', '--reverse', `--format=%H${FIELD_SEP}%s${FIELD_SEP}%b`, range],
+      { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
+    );
+  } catch {
+    return [];
+  }
+  return output
+    .split('\0')
+    .filter((record) => record.length > 0)
+    .map((record) => {
+      const [sha, subject, body] = record.split(FIELD_SEP);
+      return { sha, message: `${subject}\n${body}` };
+    });
+}
+
+export interface CommitCorrespondence {
+  /** oldSha -> newSha, for every old commit a matching new commit was found for. */
+  matched: Map<string, string>;
+  /** oldSha, for every old commit nothing could be matched to (dropped, squashed
+   * away, or a split this couldn't safely attribute to one side). */
+  unmatched: string[];
+}
+
+/**
+ * Match commits from an old `oldBase..oldHead` range to their counterparts in
+ * a new `newBase..newHead` range after a rebase/amend/force-push, so callers
+ * can relocate anything keyed to the old SHAs (comments, `commit_relocations`
+ * rows). Two-tier, in order, greedy and deterministic (oldest-first, per each
+ * range's own commit order) - no positional/index-based fallback, so a commit
+ * split into several (or dropped outright) is left unmatched rather than
+ * guessed at:
+ *
+ * 1. Patch-id: survives a pure rebase/reorder (diff content unchanged).
+ * 2. Commit message: catches an amend that changed the diff but kept the
+ *    message.
+ *
+ * `oldShas` (from `listCommits`, not from the patch-id/message passes) is the
+ * ground truth for which old commits need an answer - if patch-id/log
+ * computation fails outright for the old range (e.g. its objects were
+ * garbage-collected before this ran), every old commit still comes back
+ * unmatched rather than silently vanishing from both `matched` and
+ * `unmatched`.
+ */
+export function computeCommitCorrespondence(
+  repoPath: string,
+  oldBase: string,
+  oldHead: string,
+  newBase: string,
+  newHead: string,
+): CommitCorrespondence {
+  const cwd = resolveRepoPath(repoPath);
+
+  let oldShas: string[];
+  try {
+    oldShas = listCommits(repoPath, oldBase, oldHead).map((c) => c.sha);
+  } catch {
+    oldShas = [];
+  }
+  if (oldShas.length === 0) return { matched: new Map(), unmatched: [] };
+
+  const oldPatchIdBySha = new Map(
+    computePatchIdEntries(cwd, `${oldBase}..${oldHead}`).map((e) => [e.sha, e.patchId]),
+  );
+  const newByPatchId = new Map<string, string[]>();
+  for (const { sha, patchId } of computePatchIdEntries(cwd, `${newBase}..${newHead}`)) {
+    const list = newByPatchId.get(patchId);
+    if (list) list.push(sha);
+    else newByPatchId.set(patchId, [sha]);
+  }
+
+  const matched = new Map<string, string>();
+  const claimedNewShas = new Set<string>();
+  const afterPatchId: string[] = [];
+
+  for (const sha of oldShas) {
+    const patchId = oldPatchIdBySha.get(sha);
+    const candidates = patchId ? newByPatchId.get(patchId) : undefined;
+    const next = candidates?.shift();
+    if (next) {
+      matched.set(sha, next);
+      claimedNewShas.add(next);
+    } else {
+      afterPatchId.push(sha);
+    }
+  }
+
+  if (afterPatchId.length === 0) return { matched, unmatched: [] };
+
+  // Message fallback for anything patch-id couldn't match - join on identical
+  // subject+body among commits not already claimed on the new side.
+  const oldMessageBySha = new Map(
+    computeMessageEntries(cwd, `${oldBase}..${oldHead}`).map((e) => [e.sha, e.message]),
+  );
+  const newByMessage = new Map<string, string[]>();
+  for (const { sha, message } of computeMessageEntries(cwd, `${newBase}..${newHead}`)) {
+    if (claimedNewShas.has(sha)) continue;
+    const list = newByMessage.get(message);
+    if (list) list.push(sha);
+    else newByMessage.set(message, [sha]);
+  }
+
+  const unmatched: string[] = [];
+  for (const sha of afterPatchId) {
+    const message = oldMessageBySha.get(sha);
+    const candidates = message ? newByMessage.get(message) : undefined;
+    const next = candidates?.shift();
+    if (next) {
+      matched.set(sha, next);
+      claimedNewShas.add(next);
+    } else {
+      unmatched.push(sha);
+    }
+  }
+
+  return { matched, unmatched };
+}
+
 export function getGitUserIdentity(): { name: string | null; email: string | null } {
   return {
     name: tryGlobalGitConfig('user.name'),
