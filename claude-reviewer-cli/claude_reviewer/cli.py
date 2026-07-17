@@ -434,9 +434,10 @@ def update(pr_id: str, repo: str | None) -> None:
     # Get new diff
     diff = git.get_diff(pr.base_ref, pr.head_ref)
     head_commit = git.get_commit_sha(pr.head_ref)
+    base_commit = git.get_commit_sha(pr.base_ref)
 
     # Update in database
-    new_revision = db.update_pr_diff(pr_id, diff, head_commit)
+    new_revision = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
 
     # Reset status to pending for re-review
     db.update_pr_status(pr_id, PRStatus.PENDING)
@@ -1584,7 +1585,10 @@ Your response (just the message content, no prefixes):"""
                     if matching_pr:
                         diff = git.get_diff(matching_pr.base_ref, matching_pr.head_ref)
                         head_commit = git.get_commit_sha(matching_pr.head_ref)
-                        new_revision = db.update_pr_diff(matching_pr.uuid, diff, head_commit)
+                        base_commit = git.get_commit_sha(matching_pr.base_ref)
+                        new_revision = db.update_pr_diff(
+                            matching_pr.uuid, diff, head_commit, base_commit
+                        )
                         console.print(
                             f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {new_revision})[/green]"
                         )
@@ -1697,7 +1701,8 @@ Your response (just the message content, no prefixes):"""
                     # Update the PR diff
                     diff = git.get_diff(pr.base_ref, pr.head_ref)
                     head_commit = git.get_commit_sha(pr.head_ref)
-                    new_revision = db.update_pr_diff(pr.uuid, diff, head_commit)
+                    base_commit = git.get_commit_sha(pr.base_ref)
+                    new_revision = db.update_pr_diff(pr.uuid, diff, head_commit, base_commit)
                     console.print(f"[green]✓ Updated PR diff (revision {new_revision})[/green]")
                 else:
                     console.print("[yellow]No changes to commit[/yellow]")

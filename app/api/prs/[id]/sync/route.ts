@@ -8,11 +8,11 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// POST /api/prs/[id]/sync - Re-pull the branch diff after the head branch
-// changed (new commits, amend, rebase). Web-UI equivalent of the CLI's
-// `claude-reviewer update`: append a fresh diff snapshot, refresh head_commit,
-// and reset status to pending for re-review. base_commit stays pinned, matching
-// the CLI.
+// POST /api/prs/[id]/sync - Re-pull the branch diff after the head or base
+// branch changed (new commits, amend, rebase, or the base branch advancing).
+// Web-UI equivalent of the CLI's `claude-reviewer update`: append a fresh diff
+// snapshot, refresh head_commit and base_commit, and reset status to pending
+// for re-review.
 export async function POST(_req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -30,8 +30,9 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
 
     const diff = getRefDiff(pr.repo_path, pr.base_ref, pr.head_ref);
     const headCommit = resolveRefSha(pr.repo_path, pr.head_ref);
+    const baseCommit = resolveRefSha(pr.repo_path, pr.base_ref);
 
-    const revision = updatePRDiff(id, diff, headCommit);
+    const revision = updatePRDiff(id, diff, headCommit, baseCommit);
     updatePRStatus(id, PullRequestStatus.Pending);
 
     return NextResponse.json({

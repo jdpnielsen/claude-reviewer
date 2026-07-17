@@ -185,16 +185,20 @@ describe('Database Module', () => {
     });
 
     test('updatePRDiff adds new revision', () => {
-      const newRevision = updatePRDiff(testPRUuid, 'new diff content', 'newcommit');
+      const newRevision = updatePRDiff(testPRUuid, 'new diff content', 'newcommit', 'newbase');
       expect(newRevision).toBe(2);
 
       const diff = getLatestDiff(testPRUuid);
       expect(diff).toBe('new diff content');
+
+      const pr = getPRByUuid(testPRUuid);
+      expect(pr?.head_commit).toBe('newcommit');
+      expect(pr?.base_commit).toBe('newbase');
     });
 
     test('updatePRDiff throws for non-existent PR', () => {
       expect(() => {
-        updatePRDiff('nonexistent', 'diff', 'commit');
+        updatePRDiff('nonexistent', 'diff', 'commit', 'base');
       }).toThrow('PR nonexistent not found');
     });
   });

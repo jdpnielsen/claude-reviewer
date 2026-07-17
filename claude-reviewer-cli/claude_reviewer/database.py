@@ -506,8 +506,14 @@ def delete_pr(pr_uuid: str) -> bool:
         return bool(cursor.rowcount > 0)
 
 
-def update_pr_diff(pr_uuid: str, diff: str, head_commit: str) -> int:
-    """Add a new diff snapshot and return the new revision number."""
+def update_pr_diff(pr_uuid: str, diff: str, head_commit: str, base_commit: str) -> int:
+    """Add a new diff snapshot and return the new revision number.
+
+    Refreshes both head_commit and base_commit: the base branch may have moved
+    since the PR was created (or last updated), and re-resolving base_ref each
+    time keeps the diff scoped to the PR's actual changes instead of also
+    picking up whatever landed on the base branch in the meantime.
+    """
     with get_connection() as conn:
         # Get PR ID and current max revision
         pr = conn.execute(
@@ -537,14 +543,14 @@ def update_pr_diff(pr_uuid: str, diff: str, head_commit: str) -> int:
             (pr_id, new_revision, diff, head_commit),
         )
 
-        # Update PR head commit and timestamp
+        # Update PR head/base commits and timestamp
         conn.execute(
             """
             UPDATE pull_requests
-            SET head_commit = ?, updated_at = CURRENT_TIMESTAMP
+            SET head_commit = ?, base_commit = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (head_commit, pr_id),
+            (head_commit, base_commit, pr_id),
         )
 
         return new_revision
