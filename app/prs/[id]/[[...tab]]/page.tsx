@@ -48,6 +48,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const [commentingAt, setCommentingAt] = useState<CommentingAt | null>(null);
   const [commentingOnCommitMessage, setCommentingOnCommitMessage] = useState(false);
   const [lastClickedLine, setLastClickedLine] = useState<LastClickedLine | null>(null);
+  // True from mousedown on a gutter line until mouseup, however far away that
+  // lands - suppresses the comment form while true so a drag-select doesn't
+  // shift the page layout under the pointer mid-drag (commentingAt itself
+  // still updates live, so the range highlight grows as you drag).
+  const [isSelectingComment, setIsSelectingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [editingComment, setEditingComment] = useState<EditingComment | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -123,6 +128,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     // on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prQuery.error]);
+
+  // Ends a gutter drag-select regardless of where the pointer is released -
+  // over a diff line, off the edge of the page, wherever - so isSelectingComment
+  // never gets stuck true if the mouseup happens somewhere untracked.
+  useEffect(() => {
+    const onMouseUp = () => setIsSelectingComment(false);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => window.removeEventListener('mouseup', onMouseUp);
+  }, []);
 
   // For large PRs (>10 files), only expand first 3 files by default; for
   // smaller PRs, expand all. Deleted files are left collapsed by default (their
@@ -312,6 +326,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
       lineType: commentingAt.lineType,
       commitSha: selectedCommit,
       content: newComment,
+      pairedLineNumber: commentingAt.pairedStartLine,
+      pairedEndLineNumber: commentingAt.pairedEndLine,
     });
     setNewComment('');
     setCommentingAt(null);
@@ -576,6 +592,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   openLineComment={openLineComment}
                   lastClickedLine={lastClickedLine}
                   setLastClickedLine={setLastClickedLine}
+                  isSelectingComment={isSelectingComment}
+                  setIsSelectingComment={setIsSelectingComment}
                   newComment={newComment}
                   setNewComment={setNewComment}
                   addComment={addComment}

@@ -985,6 +985,11 @@ textarea {
   min-height: 20px;
 }
 
+.line-gutter {
+  display: flex;
+  cursor: pointer;
+}
+
 .line-num {
   width: 40px;
   min-width: 40px;
@@ -992,10 +997,9 @@ textarea {
   text-align: right;
   color: #8b949e;
   user-select: none;
-  cursor: pointer;
 }
 
-.line-num:hover {
+.diff-line:hover .line-num {
   color: #c9d1d9;
 }
 
@@ -1011,10 +1015,9 @@ textarea {
   flex: 1;
   padding: 0 16px 0 8px;
   white-space: pre;
-  cursor: pointer;
 }
 
-.line-content:hover {
+.diff-line:hover .line-content {
   background: rgba(56, 139, 253, 0.15) !important;
 }
 
@@ -1406,8 +1409,14 @@ textarea {
   border: 1px solid #30363d;
 }
 
-.comment-actions button.suggest-change-btn:hover {
+.comment-actions button.suggest-change-btn:hover:not(:disabled) {
   background: #30363d;
+}
+
+.comment-actions button.suggest-change-btn:disabled {
+  color: #8b949e;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .loading,

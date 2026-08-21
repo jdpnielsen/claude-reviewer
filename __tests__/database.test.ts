@@ -340,17 +340,59 @@ describe('Database Module', () => {
       expect(unanchored?.anchor_content).toBeNull();
       expect(unanchored?.status).toBe(CommentRelocationStatus.Active);
     });
+
+    test('addComment stores a paired (cross-side) range when provided, and defaults to null', () => {
+      const pairedUuid = addComment(
+        prUuid,
+        'paired.py',
+        10,
+        'spans the deleted line too',
+        LineType.New,
+        11,
+        null,
+        CommentTargetType.Line,
+        null,
+        8,
+        9,
+      );
+      const unpairedUuid = addComment(prUuid, 'paired.py', 1, 'single-sided');
+
+      const comments = getComments(prUuid, { filePath: 'paired.py' });
+      const paired = comments.find((c) => c.uuid === pairedUuid);
+      const unpaired = comments.find((c) => c.uuid === unpairedUuid);
+
+      expect(paired?.paired_line_number).toBe(8);
+      expect(paired?.paired_end_line_number).toBe(9);
+      expect(unpaired?.paired_line_number).toBeNull();
+      expect(unpaired?.paired_end_line_number).toBeNull();
+    });
   });
 
   describe('Comment Relocation Operations', () => {
     let prUuid: string;
 
     beforeAll(() => {
-      prUuid = createPR('/repo/relocation', 'Relocation Test PR', 'main', 'feature', 'a', 'b', 'diff');
+      prUuid = createPR(
+        '/repo/relocation',
+        'Relocation Test PR',
+        'main',
+        'feature',
+        'a',
+        'b',
+        'diff',
+      );
     });
 
     test('applyCommentRelocations mutates coordinates and status in one shot', () => {
-      const commentUuid = addComment(prUuid, 'moved.py', 10, 'a comment', LineType.New, 10, 'oldsha');
+      const commentUuid = addComment(
+        prUuid,
+        'moved.py',
+        10,
+        'a comment',
+        LineType.New,
+        10,
+        'oldsha',
+      );
       const comment = getComments(prUuid, { filePath: 'moved.py' }).find(
         (c) => c.uuid === commentUuid,
       )!;
@@ -363,6 +405,8 @@ describe('Database Module', () => {
           lineNumber: 20,
           endLineNumber: 21,
           status: CommentRelocationStatus.Active,
+          pairedLineNumber: null,
+          pairedEndLineNumber: null,
         },
       ]);
 
@@ -376,7 +420,15 @@ describe('Database Module', () => {
     });
 
     test('applyCommentRelocations can mark a comment orphaned', () => {
-      const commentUuid = addComment(prUuid, 'dropped.py', 1, 'a comment', LineType.New, 1, 'oldsha2');
+      const commentUuid = addComment(
+        prUuid,
+        'dropped.py',
+        1,
+        'a comment',
+        LineType.New,
+        1,
+        'oldsha2',
+      );
       const comment = getComments(prUuid, { filePath: 'dropped.py' }).find(
         (c) => c.uuid === commentUuid,
       )!;
@@ -389,6 +441,8 @@ describe('Database Module', () => {
           lineNumber: comment.line_number,
           endLineNumber: comment.end_line_number,
           status: CommentRelocationStatus.Orphaned,
+          pairedLineNumber: null,
+          pairedEndLineNumber: null,
         },
       ]);
 
@@ -421,7 +475,9 @@ describe('Database Module', () => {
     });
 
     test('upsertCommitRelocation throws for a non-existent PR', () => {
-      expect(() => upsertCommitRelocation('nonexistent', 'a', 'b')).toThrow('PR nonexistent not found');
+      expect(() => upsertCommitRelocation('nonexistent', 'a', 'b')).toThrow(
+        'PR nonexistent not found',
+      );
     });
   });
 

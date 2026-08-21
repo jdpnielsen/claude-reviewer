@@ -80,6 +80,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       commentUuid,
       commitSha,
       targetType,
+      pairedLineNumber,
+      pairedEndLineNumber,
     } = body;
 
     const pr = getPRByUuid(id);
@@ -162,6 +164,32 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'endLineNumber must be >= lineNumber' }, { status: 400 });
     }
 
+    // A paired range (the comment also covers an adjacent deleted-line
+    // block - see getCrossSideRange) is always Old-side, so it only makes
+    // sense alongside a New-side primary range, and must be given as a
+    // complete pair.
+    const hasPairedRange = pairedLineNumber !== undefined || pairedEndLineNumber !== undefined;
+    if (hasPairedRange) {
+      if (typeof pairedLineNumber !== 'number' || typeof pairedEndLineNumber !== 'number') {
+        return NextResponse.json(
+          { error: 'pairedLineNumber and pairedEndLineNumber must both be provided together' },
+          { status: 400 },
+        );
+      }
+      if (pairedEndLineNumber < pairedLineNumber) {
+        return NextResponse.json(
+          { error: 'pairedEndLineNumber must be >= pairedLineNumber' },
+          { status: 400 },
+        );
+      }
+      if (lineType !== undefined && lineType !== LineType.New) {
+        return NextResponse.json(
+          { error: 'pairedLineNumber is only valid for a new-side comment' },
+          { status: 400 },
+        );
+      }
+    }
+
     const resolvedCommitSha = typeof commitSha === 'string' ? commitSha : null;
     const resolvedLineType = lineType || LineType.New;
     const blobSha = resolvedCommitSha
@@ -183,6 +211,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       resolvedCommitSha,
       CommentTargetType.Line,
       anchor,
+      hasPairedRange ? pairedLineNumber : null,
+      hasPairedRange ? pairedEndLineNumber : null,
     );
 
     return NextResponse.json(

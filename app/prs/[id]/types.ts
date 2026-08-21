@@ -34,6 +34,10 @@ export interface Comment {
   content: string;
   resolved: boolean;
   created_at: string;
+  // Old-side range, when this comment spans an adjacent deleted+added line
+  // pair. NULL for an ordinary single-side comment.
+  paired_line_number: number | null;
+  paired_end_line_number: number | null;
 }
 
 export interface CommentWithReplies {
@@ -74,20 +78,29 @@ export interface FolderNode {
 }
 
 // In-progress line-range selection for a not-yet-submitted comment.
+// `pairedStartLine`/`pairedEndLine` (always Old-side, since `lineType` is
+// always New whenever they're set) are populated by a shift-click across an
+// adjacent deleted+added line pair - see getCrossSideRange.
 export interface CommentingAt {
   file: string;
   startLine: number;
   endLine: number;
   lineType: LineType;
+  pairedStartLine?: number;
+  pairedEndLine?: number;
 }
 
 // Anchor for shift-click range selection, tracked separately from
 // `CommentingAt` because it must survive across repeated shift-clicks.
+// `rowIdx` is this line's position in the file's parsed diffLines array,
+// used to detect whether a cross-side shift-click lands in the same
+// contiguous change block as the anchor (see getCrossSideRange).
 export interface LastClickedLine {
   file: string;
   hunkIndex: number;
   line: number;
   lineType: LineType;
+  rowIdx: number;
 }
 
 // In-progress edit of an existing comment's content.

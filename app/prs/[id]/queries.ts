@@ -56,6 +56,10 @@ interface AddCommentParams {
   lineNumber?: number;
   endLineNumber?: number;
   lineType?: LineType;
+  // Old-side range, when the comment also spans an adjacent deleted-line
+  // block - see CommentingAt.pairedStartLine/pairedEndLine.
+  pairedLineNumber?: number;
+  pairedEndLineNumber?: number;
 }
 
 export function useAddCommentMutation(id: string) {
@@ -78,6 +82,8 @@ export function useAddCommentMutation(id: string) {
           content: params.content,
           resolved: false,
           created_at: new Date().toISOString(),
+          paired_line_number: params.pairedLineNumber ?? null,
+          paired_end_line_number: params.pairedEndLineNumber ?? null,
         },
         replies: [],
       };

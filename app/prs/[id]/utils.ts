@@ -173,6 +173,66 @@ export const getRangeTextFromDiff = (
   return result;
 };
 
+// A shift-click range whose two ends fall on opposite sides (an added line
+// and a removed line) can only become one comment when the rows between
+// them, inclusive, are ALL '+'/'-' lines - i.e. one contiguous "replace"
+// block in the hunk, with no context line or hunk header in between. That's
+// the only shape where "the deleted line" and "the added line" are
+// unambiguously the same change. Bounded strictly by the two clicked rows
+// (not expanded to the block's full extent), mirroring the same-side
+// shift-click behavior in FileDiffCard.
+export const getCrossSideRange = (
+  diffLines: string[],
+  rowIdxA: number,
+  rowIdxB: number,
+): { oldStart: number; oldEnd: number; newStart: number; newEnd: number } | null => {
+  const lo = Math.min(rowIdxA, rowIdxB);
+  const hi = Math.max(rowIdxA, rowIdxB);
+
+  for (let i = lo; i <= hi; i++) {
+    if (!diffLines[i].startsWith('+') && !diffLines[i].startsWith('-')) return null;
+  }
+
+  let oldLineNum = 0;
+  let newLineNum = 0;
+  let oldStart: number | null = null;
+  let oldEnd = 0;
+  let newStart: number | null = null;
+  let newEnd = 0;
+
+  for (let i = 0; i <= hi; i++) {
+    const line = diffLines[i];
+    if (line.startsWith('@@')) {
+      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+      if (match) {
+        oldLineNum = parseInt(match[1]) - 1;
+        newLineNum = parseInt(match[2]) - 1;
+      }
+      continue;
+    }
+
+    if (line.startsWith('+')) {
+      newLineNum++;
+      if (i >= lo) {
+        if (newStart === null) newStart = newLineNum;
+        newEnd = newLineNum;
+      }
+    } else if (line.startsWith('-')) {
+      oldLineNum++;
+      if (i >= lo) {
+        if (oldStart === null) oldStart = oldLineNum;
+        oldEnd = oldLineNum;
+      }
+    } else {
+      oldLineNum++;
+      newLineNum++;
+    }
+  }
+
+  if (oldStart === null || newStart === null) return null;
+  return { oldStart, oldEnd, newStart, newEnd };
+};
+
 export const isMarkdownFile = (path: string) => {
   const ext = path.split('.').pop()?.toLowerCase();
   return ext === 'md' || ext === 'markdown';

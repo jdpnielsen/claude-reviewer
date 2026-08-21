@@ -47,6 +47,14 @@ export interface Comment {
   anchor_context_after: string | null;
   status: CommentRelocationStatus;
   created_at: string;
+  // The opposite side's range, when this comment spans an adjacent
+  // deleted+added line pair (shift-click across the gutter from one side to
+  // the other) - line_number/end_line_number stay New-side, this is Old-side.
+  // NULL for an ordinary single-side comment. Not independently
+  // content-anchored: relocateComments() shifts it by the same delta as the
+  // primary (New-side) range rather than re-searching for it on its own blob.
+  paired_line_number: number | null;
+  paired_end_line_number: number | null;
 }
 
 // Durable "this SHA used to mean that SHA" mapping for a PR, built up by
@@ -361,6 +369,7 @@ function initSchema(db: Database.Database): void {
   migrateCommentsTargetType(db);
   migrateCommentsAnchor(db);
   migrateCommentsStatus(db);
+  migrateCommentsPairedRange(db);
 }
 
 // A database created before the authors table existed has comment_replies/
@@ -504,6 +513,26 @@ function migrateCommentsStatus(db: Database.Database): void {
       // A concurrent process (the Python CLI, or another reconnect) may have
       // added the column between the check above and this ALTER.
       if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+    }
+  }
+  checkpoint();
+}
+
+// Adds the opposite-side range for databases created before cross-side
+// (deleted+added adjacent pair) comments existed. NULL on every pre-existing
+// row - every pre-existing comment is, in fact, single-sided.
+function migrateCommentsPairedRange(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  const existing = new Set(columns.map((c) => c.name));
+  for (const column of ['paired_line_number', 'paired_end_line_number']) {
+    if (!existing.has(column)) {
+      try {
+        db.exec(`ALTER TABLE comments ADD COLUMN ${column} INTEGER`);
+      } catch (e) {
+        // A concurrent process (the Python CLI, or another reconnect) may have
+        // added the column between the check above and this ALTER.
+        if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+      }
     }
   }
   checkpoint();
@@ -705,6 +734,8 @@ export function addComment(
   commitSha: string | null = null,
   targetType: CommentTargetType = CommentTargetType.Line,
   anchor: CommentAnchor | null = null,
+  pairedLineNumber: number | null = null,
+  pairedEndLineNumber: number | null = null,
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -718,9 +749,10 @@ export function addComment(
     db.prepare(`
       INSERT INTO comments (
         uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type,
-        content, anchor_content, anchor_context_before, anchor_context_after
+        content, anchor_content, anchor_context_before, anchor_context_after,
+        paired_line_number, paired_end_line_number
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       commentUuid,
       pr.id,
@@ -734,6 +766,8 @@ export function addComment(
       anchor?.content ?? null,
       anchor?.contextBefore ?? null,
       anchor?.contextAfter ?? null,
+      pairedLineNumber,
+      pairedEndLineNumber,
     );
 
     db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);
@@ -809,6 +843,8 @@ export interface CommentRelocationUpdate {
   lineNumber: number;
   endLineNumber: number;
   status: CommentRelocationStatus;
+  pairedLineNumber: number | null;
+  pairedEndLineNumber: number | null;
 }
 
 export function applyCommentRelocations(relocations: CommentRelocationUpdate[]): void {
@@ -819,9 +855,19 @@ export function applyCommentRelocations(relocations: CommentRelocationUpdate[]):
     for (const r of relocations) {
       db.prepare(`
         UPDATE comments
-        SET commit_sha = ?, file_path = ?, line_number = ?, end_line_number = ?, status = ?
+        SET commit_sha = ?, file_path = ?, line_number = ?, end_line_number = ?, status = ?,
+            paired_line_number = ?, paired_end_line_number = ?
         WHERE id = ?
-      `).run(r.commitSha, r.filePath, r.lineNumber, r.endLineNumber, r.status, r.commentId);
+      `).run(
+        r.commitSha,
+        r.filePath,
+        r.lineNumber,
+        r.endLineNumber,
+        r.status,
+        r.pairedLineNumber,
+        r.pairedEndLineNumber,
+        r.commentId,
+      );
     }
   });
 

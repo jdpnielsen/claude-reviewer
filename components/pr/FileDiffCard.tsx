@@ -17,6 +17,7 @@ import type {
   LastClickedLine,
 } from '@/app/prs/[id]/types';
 import {
+  getCrossSideRange,
   getFileContentFromDiff,
   getLanguage,
   getRangeTextFromDiff,
@@ -44,6 +45,8 @@ interface FileDiffCardProps {
   openLineComment: (target: CommentingAt) => void;
   lastClickedLine: LastClickedLine | null;
   setLastClickedLine: Dispatch<SetStateAction<LastClickedLine | null>>;
+  isSelectingComment: boolean;
+  setIsSelectingComment: Dispatch<SetStateAction<boolean>>;
   newComment: string;
   setNewComment: Dispatch<SetStateAction<string>>;
   addComment: () => void;
@@ -77,6 +80,8 @@ export default function FileDiffCard({
   openLineComment,
   lastClickedLine,
   setLastClickedLine,
+  isSelectingComment,
+  setIsSelectingComment,
   newComment,
   setNewComment,
   addComment,
@@ -226,26 +231,42 @@ export default function FileDiffCard({
                     return sideMatches && anchorLine === c.comment.end_line_number;
                   });
 
-                  // Persistent highlight for every line within a saved comment's range
+                  // Persistent highlight for every line within a saved comment's range,
+                  // including its Old-side paired range (a deleted+added line pair), if any.
                   const isInSavedCommentRange = fileComments.some((c) => {
                     if (line.startsWith('@@')) return false;
                     const sideMatches = line.startsWith('-')
                       ? c.comment.line_type === LineType.Old
                       : c.comment.line_type !== LineType.Old;
-                    return (
+                    if (
                       sideMatches &&
                       anchorLine >= c.comment.line_number &&
                       anchorLine <= c.comment.end_line_number
+                    ) {
+                      return true;
+                    }
+                    return (
+                      line.startsWith('-') &&
+                      c.comment.paired_line_number !== null &&
+                      c.comment.paired_end_line_number !== null &&
+                      anchorLine >= c.comment.paired_line_number &&
+                      anchorLine <= c.comment.paired_end_line_number
                     );
                   });
 
-                  // Persistent highlight for the in-progress (not yet submitted) selection
+                  // Persistent highlight for the in-progress (not yet submitted) selection,
+                  // including its paired range, if any.
                   const isInPendingSelection =
                     !!commentingAt &&
                     commentingAt.file === file.path &&
-                    commentingAt.lineType === anchorLineType &&
-                    anchorLine >= commentingAt.startLine &&
-                    anchorLine <= commentingAt.endLine;
+                    ((commentingAt.lineType === anchorLineType &&
+                      anchorLine >= commentingAt.startLine &&
+                      anchorLine <= commentingAt.endLine) ||
+                      (line.startsWith('-') &&
+                        commentingAt.pairedStartLine !== undefined &&
+                        commentingAt.pairedEndLine !== undefined &&
+                        anchorLine >= commentingAt.pairedStartLine &&
+                        anchorLine <= commentingAt.pairedEndLine));
 
                   const rangeClass = isInPendingSelection
                     ? 'line-selecting'
@@ -282,20 +303,58 @@ export default function FileDiffCard({
                   const expandedUpCount = expandedUpLines.length;
                   const expandedDownCount = expandedDownLines.length;
 
+                  // Extends the in-progress comment range from the current shift-click/drag
+                  // anchor (lastClickedLine) to this row, mirroring GitHub's line-range
+                  // selection - either a same-side range, or (for an adjacent deleted+added
+                  // pair) a cross-side one. Returns false if this row can't extend the
+                  // anchor at all (different file/hunk, or a non-adjacent cross-side jump),
+                  // so the caller can fall back to starting a fresh single-line selection.
+                  // Deliberately never updates lastClickedLine itself, so repeated
+                  // shift-clicks and a continued drag keep extending from the original
+                  // anchor rather than a moving one.
+                  const extendCommentRange = (): boolean => {
+                    if (
+                      !lastClickedLine ||
+                      lastClickedLine.file !== file.path ||
+                      lastClickedLine.hunkIndex !== currentHunkIndex
+                    ) {
+                      return false;
+                    }
+                    if (lastClickedLine.lineType === anchorLineType) {
+                      setCommentingAt({
+                        file: file.path,
+                        startLine: Math.min(lastClickedLine.line, anchorLine),
+                        endLine: Math.max(lastClickedLine.line, anchorLine),
+                        lineType: anchorLineType,
+                      });
+                      return true;
+                    }
+                    // A cross-side link only becomes one comment when it lands in the same
+                    // contiguous deleted+added block as the anchor - see getCrossSideRange.
+                    const crossSideRange = getCrossSideRange(
+                      diffLines,
+                      lastClickedLine.rowIdx,
+                      idx,
+                    );
+                    if (!crossSideRange) return false;
+                    setCommentingAt({
+                      file: file.path,
+                      startLine: crossSideRange.newStart,
+                      endLine: crossSideRange.newEnd,
+                      lineType: LineType.New,
+                      pairedStartLine: crossSideRange.oldStart,
+                      pairedEndLine: crossSideRange.oldEnd,
+                    });
+                    return true;
+                  };
+
                   return (
                     <div key={idx}>
                       {/* Hide @@ header, just show expand buttons */}
                       {!line.startsWith('@@') && (
                         <div className={`diff-line ${lineClasses}`}>
-                          <span className={`line-num line-num-old ${lineClasses}`}>
-                            {displayOldLine}
-                          </span>
-                          <span className={`line-num line-num-new ${lineClasses}`}>
-                            {displayNewLine}
-                          </span>
-                          <span className={`line-indicator ${lineClasses}`}>{indicator}</span>
                           <span
-                            className={`line-content ${lineClasses}`}
+                            className="line-gutter"
                             role="button"
                             tabIndex={0}
                             onKeyDown={(e) => {
@@ -312,41 +371,50 @@ export default function FileDiffCard({
                                   hunkIndex: currentHunkIndex,
                                   line: anchorLine,
                                   lineType: anchorLineType,
+                                  rowIdx: idx,
                                 });
                               }
                             }}
-                            onClick={(e) => {
-                              if (
-                                e.shiftKey &&
-                                lastClickedLine &&
-                                lastClickedLine.file === file.path &&
-                                lastClickedLine.hunkIndex === currentHunkIndex &&
-                                lastClickedLine.lineType === anchorLineType
-                              ) {
-                                setCommentingAt({
-                                  file: file.path,
-                                  startLine: Math.min(lastClickedLine.line, anchorLine),
-                                  endLine: Math.max(lastClickedLine.line, anchorLine),
-                                  lineType: anchorLineType,
-                                });
-                                // Intentionally do not update lastClickedLine, so repeated
-                                // shift-clicks keep extending from the original anchor.
-                              } else {
-                                openLineComment({
-                                  file: file.path,
-                                  startLine: anchorLine,
-                                  endLine: anchorLine,
-                                  lineType: anchorLineType,
-                                });
-                                setLastClickedLine({
-                                  file: file.path,
-                                  hunkIndex: currentHunkIndex,
-                                  line: anchorLine,
-                                  lineType: anchorLineType,
-                                });
-                              }
+                            onMouseDown={(e) => {
+                              if (e.button !== 0) return;
+                              // Blocks native text-selection-drag from starting here, so a
+                              // drag across gutter rows is unambiguously a range selection.
+                              e.preventDefault();
+                              // Suppresses the comment form until mouseup - see
+                              // isSelectingComment's doc comment in page.tsx.
+                              setIsSelectingComment(true);
+                              if (e.shiftKey && extendCommentRange()) return;
+                              openLineComment({
+                                file: file.path,
+                                startLine: anchorLine,
+                                endLine: anchorLine,
+                                lineType: anchorLineType,
+                              });
+                              setLastClickedLine({
+                                file: file.path,
+                                hunkIndex: currentHunkIndex,
+                                line: anchorLine,
+                                lineType: anchorLineType,
+                                rowIdx: idx,
+                              });
+                            }}
+                            onMouseEnter={(e) => {
+                              // A drag (left button held while entering a new row) extends
+                              // the selection exactly like a shift-click onto this row. A
+                              // row that can't extend the anchor just leaves the drag
+                              // stalled at the last valid range, rather than resetting it.
+                              if (e.buttons === 1) extendCommentRange();
                             }}
                           >
+                            <span className={`line-num line-num-old ${lineClasses}`}>
+                              {displayOldLine}
+                            </span>
+                            <span className={`line-num line-num-new ${lineClasses}`}>
+                              {displayNewLine}
+                            </span>
+                            <span className={`line-indicator ${lineClasses}`}>{indicator}</span>
+                          </span>
+                          <span className={`line-content ${lineClasses}`}>
                             <SyntaxLine
                               code={
                                 line.startsWith('+') || line.startsWith('-') ? line.slice(1) : line
@@ -419,8 +487,11 @@ export default function FileDiffCard({
                         />
                       ))}
 
-                      {/* New comment form */}
-                      {commentingAt?.file === file.path &&
+                      {/* New comment form - hidden mid-drag (see isSelectingComment) so
+                          the range highlight can grow without the form's insertion
+                          shifting rows out from under the pointer. */}
+                      {!isSelectingComment &&
+                        commentingAt?.file === file.path &&
                         commentingAt?.lineType === anchorLineType &&
                         commentingAt?.endLine === anchorLine && (
                           <NewCommentForm

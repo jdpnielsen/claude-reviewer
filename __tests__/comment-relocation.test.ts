@@ -143,7 +143,10 @@ describe('relocateComments', () => {
     // by one - patch-id can't match this (content changed), but the message
     // fallback should, and the anchor search should re-find the line.
     runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
-    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'inserted line\nline one\nline two\nline three\n');
+    fs.writeFileSync(
+      path.join(repoDir, 'a.txt'),
+      'inserted line\nline one\nline two\nline three\n',
+    );
     runGit(repoDir, ['add', 'a.txt']);
     const amendedA = commitWithDate(repoDir, 'add a', '2024-02-01T00:00:00');
 
@@ -182,6 +185,50 @@ describe('relocateComments', () => {
     expect(orphaned?.commit_sha).toBe(oldCommitB); // frozen at the last-known (now-gone) SHA
     expect(orphaned?.status).toBe(CommentRelocationStatus.Orphaned);
     expect(lookupCommitRelocation(prUuid, oldCommitB)).toBeNull();
+  });
+
+  test("relocates a comment's paired (cross-side) range by the same delta as its primary range", () => {
+    const prUuid = createPR(
+      repoDir,
+      'Paired Range PR',
+      'main',
+      'feature',
+      base,
+      oldCommitA,
+      'diff',
+    );
+
+    const commentUuid = addComment(
+      prUuid,
+      'a.txt',
+      2,
+      'a paired comment',
+      LineType.New,
+      2,
+      oldCommitA,
+      CommentTargetType.Line,
+      { content: 'line two', contextBefore: 'line one', contextAfter: 'line three' },
+      1,
+      1,
+    );
+
+    // Amend: insert a line above, shifting every line - primary and paired
+    // alike - down by one.
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(
+      path.join(repoDir, 'a.txt'),
+      'inserted line\nline one\nline two\nline three\n',
+    );
+    runGit(repoDir, ['add', 'a.txt']);
+    const amendedA = commitWithDate(repoDir, 'add a', '2024-02-01T00:00:02');
+
+    relocateComments(prUuid, repoDir, base, oldCommitA, base, amendedA);
+
+    const relocated = getComments(prUuid).find((c) => c.uuid === commentUuid);
+    expect(relocated?.line_number).toBe(3);
+    expect(relocated?.paired_line_number).toBe(2);
+    expect(relocated?.paired_end_line_number).toBe(2);
+    expect(relocated?.status).toBe(CommentRelocationStatus.Active);
   });
 
   test('is a no-op when the commit range has not actually changed', () => {

@@ -120,6 +120,8 @@ function orphanUpdate(comment: Comment, commitSha: string | null): CommentReloca
     lineNumber: comment.line_number,
     endLineNumber: comment.end_line_number,
     status: CommentRelocationStatus.Orphaned,
+    pairedLineNumber: comment.paired_line_number,
+    pairedEndLineNumber: comment.paired_end_line_number,
   };
 }
 
@@ -139,7 +141,8 @@ function planRelocation(
     if (!comment.commit_sha) return null; // shouldn't happen, nothing to relocate
     const newSha = matched.get(comment.commit_sha);
     if (newSha) {
-      if (newSha === comment.commit_sha && comment.status === CommentRelocationStatus.Active) return null;
+      if (newSha === comment.commit_sha && comment.status === CommentRelocationStatus.Active)
+        return null;
       return {
         commentId: comment.id,
         commitSha: newSha,
@@ -147,6 +150,8 @@ function planRelocation(
         lineNumber: comment.line_number,
         endLineNumber: comment.end_line_number,
         status: CommentRelocationStatus.Active,
+        pairedLineNumber: comment.paired_line_number,
+        pairedEndLineNumber: comment.paired_end_line_number,
       };
     }
     if (unmatched.includes(comment.commit_sha)) return orphanUpdate(comment, comment.commit_sha);
@@ -177,6 +182,8 @@ function planRelocation(
       lineNumber: comment.line_number,
       endLineNumber: comment.end_line_number,
       status: comment.status,
+      pairedLineNumber: comment.paired_line_number,
+      pairedEndLineNumber: comment.paired_end_line_number,
     };
   }
 
@@ -225,6 +232,13 @@ function planRelocation(
     lineNumber: newLineNumber,
     endLineNumber: comment.end_line_number + delta,
     status: CommentRelocationStatus.Active,
+    // Not independently re-anchored (see the Comment.paired_line_number
+    // doc comment) - shifted by the same delta as the primary range, which
+    // is correct as long as the whole adjacent pair moved together.
+    pairedLineNumber:
+      comment.paired_line_number === null ? null : comment.paired_line_number + delta,
+    pairedEndLineNumber:
+      comment.paired_end_line_number === null ? null : comment.paired_end_line_number + delta,
   };
 }
 
@@ -259,7 +273,15 @@ export function relocateComments(
 
   const updates: CommentRelocationUpdate[] = [];
   for (const comment of comments) {
-    const update = planRelocation(comment, repoPath, correspondence, oldBase, oldHead, newBase, newHead);
+    const update = planRelocation(
+      comment,
+      repoPath,
+      correspondence,
+      oldBase,
+      oldHead,
+      newBase,
+      newHead,
+    );
     if (update) updates.push(update);
   }
 
