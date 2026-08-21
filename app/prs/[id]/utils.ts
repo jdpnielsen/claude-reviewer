@@ -6,6 +6,38 @@ import { LineType } from '@/lib/enum';
 // Limit lines rendered per file for performance on large diffs.
 export const MAX_LINES_DEFAULT = 300;
 
+// Generated/vendored lockfiles whose diffs are rarely worth reading
+// line-by-line - collapsed by default regardless of size. Matched on
+// basename so they're caught in any subdirectory (e.g. a monorepo package).
+const NOISY_DEFAULT_COLLAPSE_FILENAMES = new Set([
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lock',
+  'bun.lockb',
+  'Cargo.lock',
+  'poetry.lock',
+  'Pipfile.lock',
+  'uv.lock',
+  'composer.lock',
+  'Gemfile.lock',
+  'go.sum',
+  'mix.lock',
+  'flake.lock',
+]);
+
+// A file starts collapsed if it's a known-noisy lockfile, or if its diff is
+// large enough to hit the MAX_LINES_DEFAULT render cap anyway - in both
+// cases expanding it by default just adds scroll weight nobody reads.
+// Everything else opens expanded so reviewers see the change without extra
+// clicks.
+export const shouldCollapseByDefault = (file: FileInfo): boolean => {
+  const basename = file.path.split('/').pop() ?? file.path;
+  if (NOISY_DEFAULT_COLLAPSE_FILENAMES.has(basename)) return true;
+  return file.additions + file.deletions > MAX_LINES_DEFAULT;
+};
+
 // Map file extensions to Prism language identifiers
 export const getLanguage = (filePath: string): string => {
   const ext = filePath.split('.').pop()?.toLowerCase() || '';

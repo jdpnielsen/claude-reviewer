@@ -20,7 +20,7 @@ import {
   useSyncPRMutation,
 } from '@/app/prs/[id]/queries';
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
-import { statusConfig } from '@/app/prs/[id]/utils';
+import { shouldCollapseByDefault, statusConfig } from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
 import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
@@ -138,25 +138,24 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     return () => window.removeEventListener('mouseup', onMouseUp);
   }, []);
 
-  // For large PRs (>10 files), only expand first 3 files by default; for
-  // smaller PRs, expand all. Deleted files are left collapsed by default (their
-  // whole content is just the removed lines, rarely worth reading in full) -
-  // but a file with comments is always expanded regardless (see isFileExpanded),
-  // so a deleted file that has review discussion still opens. Re-runs whenever a
-  // genuinely new file list arrives (initial load, or switching commits) -
-  // `prQuery.data` keeps its previous reference while a refetch is in flight
-  // (`keepPreviousData`), so this doesn't fire on every render, only on an actual
-  // new response. Manual collapses are reset here too, since a new file list
-  // means a fresh view.
+  // Expand every file by default so reviewers see the whole change without
+  // extra clicks, except: deleted files (their whole content is just the
+  // removed lines, rarely worth reading in full), and files shouldCollapseByDefault
+  // flags as noisy lockfiles or large enough to hit the per-file render cap
+  // (see utils.ts). A file with comments is always expanded regardless (see
+  // isFileExpanded), so a deleted/noisy/huge file that has review discussion
+  // still opens. Re-runs whenever a genuinely new file list arrives (initial
+  // load, or switching commits) - `prQuery.data` keeps its previous reference
+  // while a refetch is in flight (`keepPreviousData`), so this doesn't fire on
+  // every render, only on an actual new response. Manual collapses are reset
+  // here too, since a new file list means a fresh view.
   useEffect(() => {
     if (!prQuery.data) return;
     const files = prQuery.data.files;
-    const defaultOpen = files.filter((f) => f.changeType !== ChangeType.Deleted);
-    if (files.length > 10) {
-      setExpandedFiles(new Set(defaultOpen.slice(0, 3).map((f) => f.path)));
-    } else {
-      setExpandedFiles(new Set(defaultOpen.map((f) => f.path)));
-    }
+    const defaultOpen = files.filter(
+      (f) => f.changeType !== ChangeType.Deleted && !shouldCollapseByDefault(f),
+    );
+    setExpandedFiles(new Set(defaultOpen.map((f) => f.path)));
     setCollapsedFiles(new Set());
     // Only re-run when the file list itself changes identity, not on every
     // render - see comment above.
@@ -412,11 +411,19 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
 
   // A file with comments is always shown expanded, so reviewers never miss
   // existing discussion - unless the user has explicitly collapsed it, which
-  // always wins. Absent either of those, fall back to the file-count default.
+  // always wins. Absent either of those, fall back to the same per-file
+  // default the data-load effect above seeds expandedFiles with. Computing
+  // it here too (rather than relying solely on that effect's setState)
+  // matters on the very first render after data arrives: expandedFiles is
+  // still empty at that point since effects run after paint, and without
+  // this fallback every file would flash "collapsed" for a frame before the
+  // effect catches up.
   const isFileExpanded = (filePath: string) => {
     if (collapsedFiles.has(filePath)) return false;
     if (expandedFiles.has(filePath)) return true;
-    return getFileComments(filePath).length > 0;
+    if (getFileComments(filePath).length > 0) return true;
+    const file = data?.files.find((f) => f.path === filePath);
+    return file ? file.changeType !== ChangeType.Deleted && !shouldCollapseByDefault(file) : false;
   };
 
   if (prQuery.isPending || isUnknownCommitError) {
@@ -499,7 +506,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 selectedCommit={selectedCommit}
                 selectCommit={selectCommit}
               />
-              <FileViewControls onExpandAll={expandAll} onCollapseAll={collapseAll} />
+              <FileViewControls
+                onExpandAll={expandAll}
+                onCollapseAll={collapseAll}
+                canExpand={effectiveExpandedFiles.size < files.length}
+              />
             </>
           )}
         </div>

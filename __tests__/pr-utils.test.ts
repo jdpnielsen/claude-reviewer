@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { getCrossSideRange, getRangeTextFromDiff } from '../app/prs/[id]/utils';
-import { LineType } from '../lib/enum';
+import type { FileInfo } from '../app/prs/[id]/types';
+import {
+  getCrossSideRange,
+  getRangeTextFromDiff,
+  MAX_LINES_DEFAULT,
+  shouldCollapseByDefault,
+} from '../app/prs/[id]/utils';
+import { ChangeType, LineType } from '../lib/enum';
 
 describe('getRangeTextFromDiff', () => {
   const diffLines = [
@@ -111,5 +117,62 @@ describe('getCrossSideRange', () => {
     ];
     // The hunk header itself (row 3) breaks the pure +/- span.
     expect(getCrossSideRange(multiHunk, 1, 4)).toBeNull();
+  });
+});
+
+describe('shouldCollapseByDefault', () => {
+  const file = (overrides: Partial<FileInfo>): FileInfo => ({
+    path: 'src/index.ts',
+    changeType: ChangeType.Modified,
+    additions: 5,
+    deletions: 5,
+    ...overrides,
+  });
+
+  it('leaves an ordinary small diff expanded', () => {
+    expect(shouldCollapseByDefault(file({}))).toBe(false);
+  });
+
+  it('collapses a diff whose line count exceeds the render cap', () => {
+    expect(
+      shouldCollapseByDefault(file({ additions: MAX_LINES_DEFAULT, deletions: 1 })),
+    ).toBe(true);
+  });
+
+  it('does not collapse a diff exactly at the render cap', () => {
+    const half = MAX_LINES_DEFAULT / 2;
+    expect(shouldCollapseByDefault(file({ additions: half, deletions: half }))).toBe(false);
+  });
+
+  it.each([
+    'package-lock.json',
+    'npm-shrinkwrap.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'bun.lock',
+    'bun.lockb',
+    'Cargo.lock',
+    'poetry.lock',
+    'Pipfile.lock',
+    'uv.lock',
+    'composer.lock',
+    'Gemfile.lock',
+    'go.sum',
+    'mix.lock',
+    'flake.lock',
+  ])('collapses known lockfile %s even when tiny', (filename) => {
+    expect(shouldCollapseByDefault(file({ path: filename, additions: 1, deletions: 0 }))).toBe(
+      true,
+    );
+  });
+
+  it('matches lockfiles nested in a subdirectory', () => {
+    expect(
+      shouldCollapseByDefault(file({ path: 'packages/web/package-lock.json', additions: 1 })),
+    ).toBe(true);
+  });
+
+  it('does not treat an unrelated file with a similar name as noisy', () => {
+    expect(shouldCollapseByDefault(file({ path: 'src/yarn.lock.md', additions: 1 }))).toBe(false);
   });
 });
