@@ -54,6 +54,7 @@ claude-reviewer watch a1b2c3d4
 
 # 4. Read every comment, including ones `watch` already printed
 claude-reviewer comments a1b2c3d4 --unresolved
+# a comment may include a suggested change - see below
 
 # 5. Make the fixes, commit them
 git add -A && git commit -m "Address review feedback"
@@ -74,6 +75,18 @@ claude-reviewer merge a1b2c3d4 --delete-branch
 Reply to *every* unresolved comment before calling `update`, even ones you disagree
 with — say why instead of silently ignoring them. A reviewer who gets ignored stops
 leaving comments.
+
+### Suggested changes
+
+A reviewer can propose exact replacement code for the lines a comment is anchored to,
+GitHub-style, instead of just describing the fix in prose. `comments` renders a
+suggestion as a labeled, syntax-highlighted block instead of raw fenced markdown; with
+`-f json` it's also broken out as a `suggestion` field (a list of the proposed lines,
+or `null` if the comment has none) so you don't have to re-parse the text yourself.
+Treat it like any other feedback: apply the suggested code with your own edit tools,
+then `reply` explaining what you did (or why you did something different) before
+`update`. There's no separate "apply" command — the CLI only surfaces the suggestion,
+it doesn't touch files.
 
 ### If asked to iterate without blocking
 
@@ -109,7 +122,7 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `list [-s status] [--all]` | List PRs (current repo only unless `--all`). |
 | `status <id>` | `pending` / `approved` / `changes_requested` / `merged` / `closed`. |
 | `show <id>` | Full PR detail + diff preview. |
-| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text. |
+| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
 | `update <id>` | Re-diff after new commits; resets status to pending. |

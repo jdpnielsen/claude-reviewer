@@ -269,6 +269,40 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, pendingScrollTarget, prQuery.isFetching]);
 
+  // Only one comment box (a diff line, or the commit message) is ever
+  // drafting at a time - they share the same newComment state, so opening a
+  // new one always starts from a blank slate and closes whichever else was
+  // open, rather than leaking an unsubmitted draft (text, or a suggestion
+  // fence) into an unrelated comment.
+  const openLineComment = (target: CommentingAt) => {
+    const isSameTarget =
+      commentingAt?.file === target.file &&
+      commentingAt?.startLine === target.startLine &&
+      commentingAt?.endLine === target.endLine &&
+      commentingAt?.lineType === target.lineType;
+    if (!isSameTarget) {
+      setCommentingOnCommitMessage(false);
+      setNewComment('');
+    }
+    setCommentingAt(target);
+  };
+
+  const openCommitMessageComment = () => {
+    setCommentingAt(null);
+    setNewComment('');
+    setCommentingOnCommitMessage(true);
+  };
+
+  // Switching commits changes which diff/commit message is even on screen -
+  // an in-progress draft no longer refers to anything visible, and
+  // submitting it would attach it to the wrong commit_sha.
+  useEffect(() => {
+    setCommentingAt(null);
+    setCommentingOnCommitMessage(false);
+    setNewComment('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCommit]);
+
   const addComment = () => {
     if (!commentingAt || !newComment.trim() || !data) return;
     addCommentMutation.mutate({
@@ -505,6 +539,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                       comments={getCommitMessageComments(selectedCommit)}
                       isCommenting={commentingOnCommitMessage}
                       setIsCommenting={setCommentingOnCommitMessage}
+                      openCommitMessageComment={openCommitMessageComment}
                       newComment={newComment}
                       setNewComment={setNewComment}
                       addComment={addCommitMessageComment}
@@ -538,6 +573,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   fetchContext={fetchContext}
                   commentingAt={commentingAt}
                   setCommentingAt={setCommentingAt}
+                  openLineComment={openLineComment}
                   lastClickedLine={lastClickedLine}
                   setLastClickedLine={setLastClickedLine}
                   newComment={newComment}

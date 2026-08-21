@@ -19,6 +19,7 @@ import type {
 import {
   getFileContentFromDiff,
   getLanguage,
+  getRangeTextFromDiff,
   isMarkdownFile,
   MAX_LINES_DEFAULT,
   parseFileDiff,
@@ -40,6 +41,7 @@ interface FileDiffCardProps {
   fetchContext: (filePath: string, startLine: number, endLine: number, key: string) => void;
   commentingAt: CommentingAt | null;
   setCommentingAt: Dispatch<SetStateAction<CommentingAt | null>>;
+  openLineComment: (target: CommentingAt) => void;
   lastClickedLine: LastClickedLine | null;
   setLastClickedLine: Dispatch<SetStateAction<LastClickedLine | null>>;
   newComment: string;
@@ -72,6 +74,7 @@ export default function FileDiffCard({
   fetchContext,
   commentingAt,
   setCommentingAt,
+  openLineComment,
   lastClickedLine,
   setLastClickedLine,
   newComment,
@@ -90,6 +93,15 @@ export default function FileDiffCard({
 }: FileDiffCardProps) {
   const diffLines = parseFileDiff(diff, file.path);
   const isMd = isMarkdownFile(file.path);
+  const seedSuggestionLines =
+    commentingAt?.file === file.path
+      ? getRangeTextFromDiff(
+          diffLines,
+          commentingAt.startLine,
+          commentingAt.endLine,
+          commentingAt.lineType,
+        )
+      : [];
 
   return (
     <div id={`file-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}`} className="file-diff">
@@ -289,7 +301,7 @@ export default function FileDiffCard({
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
-                                setCommentingAt({
+                                openLineComment({
                                   file: file.path,
                                   startLine: anchorLine,
                                   endLine: anchorLine,
@@ -320,7 +332,7 @@ export default function FileDiffCard({
                                 // Intentionally do not update lastClickedLine, so repeated
                                 // shift-clicks keep extending from the original anchor.
                               } else {
-                                setCommentingAt({
+                                openLineComment({
                                   file: file.path,
                                   startLine: anchorLine,
                                   endLine: anchorLine,
@@ -418,6 +430,7 @@ export default function FileDiffCard({
                             addComment={addComment}
                             setCommentingAt={setCommentingAt}
                             setLastClickedLine={setLastClickedLine}
+                            seedSuggestionLines={seedSuggestionLines}
                           />
                         )}
 

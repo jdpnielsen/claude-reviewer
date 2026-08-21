@@ -2,8 +2,11 @@
 
 import type { Dispatch, SetStateAction } from 'react';
 
+import { CodeHighlight } from './CodeBlock';
 import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
+import { getLanguage } from '@/app/prs/[id]/utils';
 import { AuthorKind } from '@/lib/enum';
+import { parseSuggestion } from '@/lib/suggestions';
 
 interface CommentThreadProps {
   item: CommentWithReplies;
@@ -32,6 +35,8 @@ export default function CommentThread({
   setReplyContent,
   addReply,
 }: CommentThreadProps) {
+  const suggestion = parseSuggestion(c.content);
+
   return (
     <div className={`inline-comment ${c.resolved ? 'resolved' : ''}`}>
       {editingComment?.uuid === c.uuid ? (
@@ -56,7 +61,17 @@ export default function CommentThread({
         </div>
       ) : (
         <>
-          <div className="comment-content">{c.content}</div>
+          {suggestion ? (
+            <>
+              {suggestion.prose && <div className="comment-content">{suggestion.prose}</div>}
+              <div className="suggestion-block">
+                <div className="suggestion-block-label">Suggested change</div>
+                <CodeHighlight code={suggestion.lines.join('\n')} language={getLanguage(c.file_path)} />
+              </div>
+            </>
+          ) : (
+            <div className="comment-content">{c.content}</div>
+          )}
           <div className="comment-buttons">
             {replies.length === 0 && (
               <button

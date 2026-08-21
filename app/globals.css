@@ -1102,6 +1102,23 @@ textarea {
 
 .comment-content {
   margin-bottom: 0.5rem;
+  white-space: pre-wrap;
+}
+
+.suggestion-block {
+  margin: 0.5rem 0;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.suggestion-block-label {
+  padding: 0.4rem 0.75rem;
+  background: #21262d;
+  color: #8b949e;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-bottom: 1px solid #30363d;
 }
 
 .comment-buttons {
@@ -1381,6 +1398,16 @@ textarea {
 .comment-actions button.cancel {
   background: #21262d;
   color: #8b949e;
+}
+
+.comment-actions button.suggest-change-btn {
+  background: #21262d;
+  color: #58a6ff;
+  border: 1px solid #30363d;
+}
+
+.comment-actions button.suggest-change-btn:hover {
+  background: #30363d;
 }
 
 .loading,

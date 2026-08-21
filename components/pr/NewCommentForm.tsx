@@ -3,6 +3,8 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import type { CommentingAt, LastClickedLine } from '@/app/prs/[id]/types';
+import { LineType } from '@/lib/enum';
+import { insertSuggestion, parseSuggestion } from '@/lib/suggestions';
 
 interface NewCommentFormProps {
   commentingAt: CommentingAt;
@@ -11,6 +13,7 @@ interface NewCommentFormProps {
   addComment: () => void;
   setCommentingAt: Dispatch<SetStateAction<CommentingAt | null>>;
   setLastClickedLine: Dispatch<SetStateAction<LastClickedLine | null>>;
+  seedSuggestionLines: string[];
 }
 
 export default function NewCommentForm({
@@ -20,7 +23,10 @@ export default function NewCommentForm({
   addComment,
   setCommentingAt,
   setLastClickedLine,
+  seedSuggestionLines,
 }: NewCommentFormProps) {
+  const canSuggest = commentingAt.lineType !== LineType.Old && parseSuggestion(newComment) === null;
+
   return (
     <div className="new-comment-form">
       {commentingAt.startLine !== commentingAt.endLine && (
@@ -37,6 +43,14 @@ export default function NewCommentForm({
       />
       <div className="comment-actions">
         <button onClick={addComment}>Add Comment</button>
+        {canSuggest && (
+          <button
+            className="suggest-change-btn"
+            onClick={() => setNewComment((prev) => insertSuggestion(prev, seedSuggestionLines))}
+          >
+            Suggest change
+          </button>
+        )}
         <button
           className="cancel"
           onClick={() => {

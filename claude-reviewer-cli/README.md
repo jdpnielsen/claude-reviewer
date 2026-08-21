@@ -72,7 +72,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `create` | Create a new PR from current branch |
 | `list` | List all PRs |
 | `status` | Check PR status |
-| `comments` | Get inline comments with file:line references |
+| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present |
 | `show` | Show detailed PR information |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
@@ -160,6 +160,7 @@ The web interface provides:
 ### PR Review
 - **Diff viewer** - Syntax-highlighted diffs with expandable context
 - **Inline comments** - Click any line to add a comment with threaded replies
+- **Suggested changes** - Propose exact replacement code inline; "Suggest change" seeds the comment box with the current lines to edit down
 - **File tree** - Navigate between changed files (organized by folder)
 - **Review actions** - Approve or request changes
 - **AI Review** - Request automated code review with full codebase context

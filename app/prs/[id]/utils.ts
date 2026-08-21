@@ -1,6 +1,7 @@
 import { CheckCircle, Clock, GitMerge, XCircle } from 'lucide-react';
 
 import type { FileInfo, FolderNode } from './types';
+import { LineType } from '@/lib/enum';
 
 // Limit lines rendered per file for performance on large diffs.
 export const MAX_LINES_DEFAULT = 300;
@@ -124,6 +125,52 @@ export const parseFileDiff = (diff: string, filePath: string): string[] => {
       !l.startsWith('---') &&
       !l.startsWith('+++'),
   );
+};
+
+// Extracts the current text of a line range on a given side of the diff,
+// for seeding a suggestion's fenced block with the code it would replace.
+// Replays the same hunk-relative old/new line-counting walk FileDiffCard
+// uses to compute anchorLine while rendering, so the line numbers here mean
+// the same thing they do everywhere else in the diff viewer.
+export const getRangeTextFromDiff = (
+  diffLines: string[],
+  startLine: number,
+  endLine: number,
+  lineType: LineType,
+): string[] => {
+  let oldLineNum = 0;
+  let newLineNum = 0;
+  const result: string[] = [];
+
+  for (const line of diffLines) {
+    if (line.startsWith('@@')) {
+      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+      if (match) {
+        oldLineNum = parseInt(match[1]) - 1;
+        newLineNum = parseInt(match[2]) - 1;
+      }
+      continue;
+    }
+
+    let anchorLine: number;
+    if (line.startsWith('+')) {
+      anchorLine = ++newLineNum;
+    } else if (line.startsWith('-')) {
+      anchorLine = ++oldLineNum;
+    } else {
+      oldLineNum++;
+      anchorLine = ++newLineNum;
+    }
+
+    const sideMatches = line.startsWith('-')
+      ? lineType === LineType.Old
+      : lineType !== LineType.Old;
+    if (sideMatches && anchorLine >= startLine && anchorLine <= endLine) {
+      result.push(line.slice(1));
+    }
+  }
+
+  return result;
 };
 
 export const isMarkdownFile = (path: string) => {

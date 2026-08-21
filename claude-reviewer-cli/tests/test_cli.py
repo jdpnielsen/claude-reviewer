@@ -329,6 +329,47 @@ class TestPrintComment:
         assert "commit message [0123456]" in output
         assert "a.py" not in output
 
+    def test_renders_a_suggestion_fence_distinctly(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A ```suggestion fence is rendered as a labeled code block, not raw markdown."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="Off by one.\n\n```suggestion\nreturn total - 1\n```",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "Off by one." in output
+        assert "Suggested change:" in output
+        assert "return total - 1" in output
+        assert "```suggestion" not in output
+
+    def test_comment_without_a_suggestion_prints_content_as_is(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="looks good",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "looks good" in output
+        assert "Suggested change:" not in output
+
 
 class TestAuthorsCommands:
     """Tests for the `authors` command group."""

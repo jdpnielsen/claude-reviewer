@@ -150,7 +150,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer create -t "Title"` | Create a new PR for the current branch |
 | `claude-reviewer list` | List all PRs |
 | `claude-reviewer status <id>` | Check PR status (pending/approved/changes_requested) |
-| `claude-reviewer comments <id>` | Get inline comments with file:line references |
+| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present |
 | `claude-reviewer show <id>` | Show detailed PR information |
 | `claude-reviewer reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment; `-a` defaults to `claude`, or use `-a me`/`-a <name>` |
 | `claude-reviewer authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities used for reply attribution |
@@ -198,6 +198,7 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 - **PR Dashboard** - View all PRs with status indicators
 - **GitHub-style Diff Viewer** - Syntax highlighted, unified diff view
 - **Inline Comments** - Click any line number to add a comment
+- **Suggested Changes** - Propose exact replacement code inline; "Suggest change" seeds the comment box with the current lines to edit down
 - **File Navigation** - Jump between changed files via sidebar
 - **Review Actions** - Approve or request changes with optional summary
 - **Comment Resolution** - Mark comments as resolved/unresolved
