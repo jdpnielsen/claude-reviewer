@@ -79,14 +79,15 @@ leaving comments.
 ### Suggested changes
 
 A reviewer can propose exact replacement code for the lines a comment is anchored to,
-GitHub-style, instead of just describing the fix in prose. `comments` renders a
-suggestion as a labeled, syntax-highlighted block instead of raw fenced markdown; with
-`-f json` it's also broken out as a `suggestion` field (a list of the proposed lines,
-or `null` if the comment has none) so you don't have to re-parse the text yourself.
-Treat it like any other feedback: apply the suggested code with your own edit tools,
-then `reply` explaining what you did (or why you did something different) before
-`update`. There's no separate "apply" command — the CLI only surfaces the suggestion,
-it doesn't touch files.
+GitHub-style, instead of just describing the fix in prose — and a single comment can
+contain more than one suggestion fence. `comments` renders each as a labeled,
+syntax-highlighted block instead of raw fenced markdown; with `-f json` they're also
+broken out as a `suggestions` field (a list of proposed-line-lists, empty if the
+comment has none) so you don't have to re-parse the text yourself. Treat it like any
+other feedback: apply the suggested code with your own edit tools, then `reply`
+explaining what you did (or why you did something different) before `update`. There's
+no separate "apply" command — the CLI only surfaces suggestions, it doesn't touch
+files.
 
 ### If asked to iterate without blocking
 

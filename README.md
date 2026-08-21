@@ -198,7 +198,7 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 - **PR Dashboard** - View all PRs with status indicators
 - **GitHub-style Diff Viewer** - Syntax highlighted, unified diff view
 - **Inline Comments** - Click any line number to add a comment
-- **Suggested Changes** - Propose exact replacement code inline; "Suggest change" seeds the comment box with the current lines to edit down
+- **Suggested Changes** - Propose exact replacement code inline; "Insert suggestion" seeds the comment box with the current lines to edit down, and can be clicked again to add more than one suggestion to the same comment
 - **File Navigation** - Jump between changed files via sidebar
 - **Review Actions** - Approve or request changes with optional summary
 - **Comment Resolution** - Mark comments as resolved/unresolved

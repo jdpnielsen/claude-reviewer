@@ -1,11 +1,12 @@
 'use client';
 
 import { GitCommit, MessageSquarePlus } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import CommentThread from './CommentThread';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
-import { insertSuggestion, parseSuggestion } from '@/lib/suggestions';
+import { insertSuggestion } from '@/lib/suggestions';
 
 interface CommitMessagePanelProps {
   commit: CommitInfo;
@@ -42,7 +43,17 @@ export default function CommitMessagePanel({
   const fullMessage = commit.body.trim()
     ? `${commit.message}\n\n${commit.body.trim()}`
     : commit.message;
-  const canSuggest = parseSuggestion(newComment) === null;
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // See NewCommentForm's identical effect - grows the box to fit its
+  // content instead of leaving an inserted suggestion scrolled inside a
+  // fixed-height box.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [newComment]);
 
   return (
     <div className="commit-message-panel">
@@ -60,24 +71,24 @@ export default function CommitMessagePanel({
       {isCommenting ? (
         <div className="new-comment-form">
           <textarea
-            ref={(el) => el?.focus()}
+            ref={(el) => {
+              textareaRef.current = el;
+              el?.focus();
+            }}
             placeholder="Comment on this commit message..."
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            rows={3}
           />
           <div className="comment-actions">
             <button onClick={addComment}>Add Comment</button>
-            {canSuggest && (
-              <button
-                className="suggest-change-btn"
-                onClick={() =>
-                  setNewComment((prev) => insertSuggestion(prev, fullMessage.split('\n')))
-                }
-              >
-                Suggest change
-              </button>
-            )}
+            <button
+              className="suggest-change-btn"
+              onClick={() =>
+                setNewComment((prev) => insertSuggestion(prev, fullMessage.split('\n')))
+              }
+            >
+              Insert suggestion
+            </button>
             <button
               className="cancel"
               onClick={() => {

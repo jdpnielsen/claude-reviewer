@@ -159,8 +159,8 @@ The web interface provides:
 
 ### PR Review
 - **Diff viewer** - Syntax-highlighted diffs with expandable context
-- **Inline comments** - Click any line to add a comment with threaded replies
-- **Suggested changes** - Propose exact replacement code inline; "Suggest change" seeds the comment box with the current lines to edit down
+- **Inline comments** - Click any line number to add a comment with threaded replies
+- **Suggested changes** - Propose exact replacement code inline; "Insert suggestion" seeds the comment box with the current lines to edit down, and can be clicked again to add more than one suggestion to the same comment
 - **File tree** - Navigate between changed files (organized by folder)
 - **Review actions** - Approve or request changes
 - **AI Review** - Request automated code review with full codebase context

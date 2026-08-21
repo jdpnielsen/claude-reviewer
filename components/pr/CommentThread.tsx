@@ -6,7 +6,7 @@ import { CodeHighlight } from './CodeBlock';
 import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
 import { getLanguage } from '@/app/prs/[id]/utils';
 import { AuthorKind } from '@/lib/enum';
-import { parseSuggestion } from '@/lib/suggestions';
+import { parseComment } from '@/lib/suggestions';
 
 interface CommentThreadProps {
   item: CommentWithReplies;
@@ -35,7 +35,7 @@ export default function CommentThread({
   setReplyContent,
   addReply,
 }: CommentThreadProps) {
-  const suggestion = parseSuggestion(c.content);
+  const segments = parseComment(c.content);
 
   return (
     <div className={`inline-comment ${c.resolved ? 'resolved' : ''}`}>
@@ -61,16 +61,20 @@ export default function CommentThread({
         </div>
       ) : (
         <>
-          {suggestion ? (
-            <>
-              {suggestion.prose && <div className="comment-content">{suggestion.prose}</div>}
-              <div className="suggestion-block">
-                <div className="suggestion-block-label">Suggested change</div>
-                <CodeHighlight code={suggestion.lines.join('\n')} language={getLanguage(c.file_path)} />
+          {segments.map((segment, i) =>
+            segment.type === 'prose' ? (
+              <div key={i} className="comment-content">
+                {segment.text}
               </div>
-            </>
-          ) : (
-            <div className="comment-content">{c.content}</div>
+            ) : (
+              <div key={i} className="suggestion-block">
+                <div className="suggestion-block-label">Suggested change</div>
+                <CodeHighlight
+                  code={segment.lines.join('\n')}
+                  language={getLanguage(c.file_path)}
+                />
+              </div>
+            ),
           )}
           <div className="comment-buttons">
             {replies.length === 0 && (

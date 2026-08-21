@@ -1378,6 +1378,9 @@ textarea {
   color: #c9d1d9;
   resize: vertical;
   margin-bottom: 0.5rem;
+  /* Floor matching the old rows={3} look - the height itself is now driven
+     by NewCommentForm's auto-resize effect, growing past this as needed. */
+  min-height: 4.5rem;
 }
 
 .comment-actions {

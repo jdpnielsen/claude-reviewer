@@ -9,15 +9,21 @@ anchored to by wrapping it in a ```suggestion fenced block, e.g.:
     for i in range(len(items) - 1):
     ```
 
-Read-only: this module only extracts a suggestion for display (in `comments`
+A comment can contain more than one fence - each "Insert suggestion" click
+appends another one rather than replacing the first - so parsing splits the
+content into an ordered sequence of prose and suggestion segments instead of
+extracting just one.
+
+Read-only: this module only extracts suggestions for display (in `comments`
 and its `--format json` output) - the PR author (a Claude Code agent with its
-own Edit tool) is expected to apply it, not the CLI.
+own Edit tool) is expected to apply them, not the CLI.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Union
 
 _SUGGESTION_FENCE = re.compile(
     r"^```suggestion[ \t]*\r?\n(.*?)^```[ \t]*$",
@@ -26,26 +32,43 @@ _SUGGESTION_FENCE = re.compile(
 
 
 @dataclass
-class ParsedSuggestion:
-    """A comment's prose with its first ```suggestion fence extracted out."""
+class ProseSegment:
+    text: str
 
-    prose: str
+
+@dataclass
+class SuggestionSegment:
     lines: list[str]
 
 
-def parse_suggestion(content: str) -> ParsedSuggestion | None:
-    """Extract the first ```suggestion fenced block from comment content.
+CommentSegment = Union[ProseSegment, SuggestionSegment]
 
-    Returns None if no such fence is present. Only the first fence is
-    recognized - anything after it (including another fence) is left as
-    inert prose.
+
+def parse_comment(content: str) -> list[CommentSegment]:
+    """Split comment content into an ordered sequence of prose and
+    ```suggestion fenced-block segments.
+
+    A comment with no fence at all comes back as a single prose segment;
+    empty prose between/around fences (or entirely empty content) is
+    omitted rather than represented as an empty segment.
     """
-    match = _SUGGESTION_FENCE.search(content)
-    if match is None:
-        return None
+    segments: list[CommentSegment] = []
+    pos = 0
 
-    prose = (content[: match.start()] + content[match.end() :]).strip()
-    lines = match.group(1).split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    return ParsedSuggestion(prose=prose, lines=lines)
+    for match in _SUGGESTION_FENCE.finditer(content):
+        prose = content[pos : match.start()].strip()
+        if prose:
+            segments.append(ProseSegment(text=prose))
+
+        lines = match.group(1).split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        segments.append(SuggestionSegment(lines=lines))
+
+        pos = match.end()
+
+    trailing = content[pos:].strip()
+    if trailing:
+        segments.append(ProseSegment(text=trailing))
+
+    return segments

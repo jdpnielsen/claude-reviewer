@@ -33,7 +33,7 @@ from .models import (
     RepoConversation,
     RepoConversationMessage,
 )
-from .suggestions import parse_suggestion
+from .suggestions import ProseSegment, parse_comment
 
 console = Console()
 
@@ -63,16 +63,14 @@ def print_comment(
         f"{indent}{location}{side_note}{commit_note}{resolved_note}  " f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
-    suggestion = parse_suggestion(c.content)
-    if suggestion is None:
-        console.print(f"{indent}  {c.content}", highlight=False)
-    else:
-        if suggestion.prose:
-            console.print(f"{indent}  {suggestion.prose}", highlight=False)
-        console.print(f"{indent}  [bold]Suggested change:[/bold]", highlight=False)
-        code = "\n".join(suggestion.lines)
-        lexer = Syntax.guess_lexer(c.file_path, code=code) if c.file_path else "text"
-        console.print(Padding(Syntax(code, lexer, theme="monokai"), (0, 0, 0, len(indent) + 2)))
+    for segment in parse_comment(c.content):
+        if isinstance(segment, ProseSegment):
+            console.print(f"{indent}  {segment.text}", highlight=False)
+        else:
+            console.print(f"{indent}  [bold]Suggested change:[/bold]", highlight=False)
+            code = "\n".join(segment.lines)
+            lexer = Syntax.guess_lexer(c.file_path, code=code) if c.file_path else "text"
+            console.print(Padding(Syntax(code, lexer, theme="monokai"), (0, 0, 0, len(indent) + 2)))
     for reply in replies or []:
         author_color = "green" if reply.author_kind == "agent" else "blue"
         console.print(
@@ -83,7 +81,7 @@ def print_comment(
 
 def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
     """Serialize a comment (+ its replies) for `comments --format json`."""
-    suggestion = parse_suggestion(c.content)
+    suggestions = [s.lines for s in parse_comment(c.content) if not isinstance(s, ProseSegment)]
     return {
         "uuid": c.uuid,
         "file": c.file_path,
@@ -93,7 +91,7 @@ def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
         "target_type": c.target_type,
         "line_type": c.line_type,
         "text": c.content,
-        "suggestion": suggestion.lines if suggestion else None,
+        "suggestions": suggestions,
         "resolved": c.resolved,
         "replies": [{"author": r.author, "text": r.content} for r in replies],
     }

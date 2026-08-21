@@ -1,10 +1,11 @@
 'use client';
 
+import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import type { CommentingAt, LastClickedLine } from '@/app/prs/[id]/types';
 import { LineType } from '@/lib/enum';
-import { insertSuggestion, parseSuggestion } from '@/lib/suggestions';
+import { insertSuggestion } from '@/lib/suggestions';
 
 interface NewCommentFormProps {
   commentingAt: CommentingAt;
@@ -33,7 +34,18 @@ export default function NewCommentForm({
   // so no special-casing is needed there. An Old-side-only comment (a plain
   // removed line, no pairing) has no added side to seed at all.
   const canSuggestLines = commentingAt.lineType !== LineType.Old;
-  const hasSuggestionAlready = parseSuggestion(newComment) !== null;
+
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Grows the textarea to fit its content - typed or inserted via "Insert
+  // suggestion" alike - instead of leaving a multi-line suggestion scrolled
+  // inside a fixed-height box. useLayoutEffect (not useEffect) so the resize
+  // happens before paint, with no visible flash at the old height.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [newComment]);
 
   return (
     <div className="new-comment-form">
@@ -50,32 +62,33 @@ export default function NewCommentForm({
         )
       )}
       <textarea
-        ref={(el) => el?.focus()}
+        ref={(el) => {
+          textareaRef.current = el;
+          el?.focus();
+        }}
         placeholder="Write a comment..."
         value={newComment}
         onChange={(e) => setNewComment(e.target.value)}
-        rows={3}
       />
       <div className="comment-actions">
         <button onClick={addComment}>Add Comment</button>
-        {!hasSuggestionAlready &&
-          (canSuggestLines ? (
-            <button
-              className="suggest-change-btn"
-              onClick={() => setNewComment((prev) => insertSuggestion(prev, seedSuggestionLines))}
-            >
-              Suggest change
+        {canSuggestLines ? (
+          <button
+            className="suggest-change-btn"
+            onClick={() => setNewComment((prev) => insertSuggestion(prev, seedSuggestionLines))}
+          >
+            Insert suggestion
+          </button>
+        ) : (
+          // Wrapped in a span rather than putting title directly on the
+          // disabled button - disabled elements don't reliably fire the
+          // hover needed to show a native tooltip in every browser.
+          <span title="Only added lines can have suggestions.">
+            <button className="suggest-change-btn" disabled>
+              Insert suggestion
             </button>
-          ) : (
-            // Wrapped in a span rather than putting title directly on the
-            // disabled button - disabled elements don't reliably fire the
-            // hover needed to show a native tooltip in every browser.
-            <span title="Only added lines can have suggestions.">
-              <button className="suggest-change-btn" disabled>
-                Suggest change
-              </button>
-            </span>
-          ))}
+          </span>
+        )}
         <button
           className="cancel"
           onClick={() => {
