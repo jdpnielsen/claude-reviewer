@@ -63,6 +63,11 @@ class Comment:
     anchor_context_after: Optional[str] = None
     status: CommentRelocationStatus = CommentRelocationStatus.ACTIVE
     created_at: Optional[datetime] = None
+    # Old-side range, when this comment spans an adjacent deleted+added line
+    # pair created in the web UI (shift-click across the gutter). NULL for an
+    # ordinary single-side comment. The CLI never creates one of these itself.
+    paired_line_number: Optional[int] = None
+    paired_end_line_number: Optional[int] = None
 
 
 @dataclass
@@ -106,6 +111,8 @@ class CommentRelocationUpdate:
     line_number: int
     end_line_number: int
     status: CommentRelocationStatus
+    paired_line_number: Optional[int] = None
+    paired_end_line_number: Optional[int] = None
 
 
 @dataclass

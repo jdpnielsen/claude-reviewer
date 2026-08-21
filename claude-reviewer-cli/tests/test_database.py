@@ -404,6 +404,45 @@ class TestCommentRelocation:
         assert relocated.end_line_number == 21
         assert relocated.status == CommentRelocationStatus.ACTIVE
 
+    def test_apply_comment_relocations_carries_a_paired_range(self, temp_db: Path) -> None:
+        # The CLI never creates a paired (cross-side) comment itself, but it
+        # must not drop one created via the web UI when it relocates it -
+        # see Comment.paired_line_number.
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(
+            uuid, "paired.py", 10, "a comment", commit_sha="oldsha", end_line_number=11
+        )
+        comment = db.get_comment_by_uuid(comment_uuid)
+        assert comment is not None
+
+        db.apply_comment_relocations(
+            [
+                CommentRelocationUpdate(
+                    comment_id=comment.id,
+                    commit_sha="newsha",
+                    file_path="paired.py",
+                    line_number=21,
+                    end_line_number=22,
+                    status=CommentRelocationStatus.ACTIVE,
+                    paired_line_number=19,
+                    paired_end_line_number=19,
+                )
+            ]
+        )
+
+        relocated = db.get_comment_by_uuid(comment_uuid)
+        assert relocated is not None
+        assert relocated.paired_line_number == 19
+        assert relocated.paired_end_line_number == 19
+
     def test_apply_comment_relocations_can_mark_orphaned(self, temp_db: Path) -> None:
         uuid = db.create_pr(
             repo_path="/repo",

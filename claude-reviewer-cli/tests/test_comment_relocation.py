@@ -56,6 +56,21 @@ def _set_anchor(comment_uuid: str, content: str, before: str, after: str) -> Non
         )
 
 
+def _set_paired_range(comment_uuid: str, paired_line: int, paired_end_line: int) -> None:
+    """Only the web app creates a paired (cross-side) comment - set it
+    directly here to exercise the CLI's relocation of one.
+    """
+    with db.get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE comments
+            SET paired_line_number = ?, paired_end_line_number = ?
+            WHERE uuid = ?
+            """,
+            (paired_line, paired_end_line, comment_uuid),
+        )
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     repo_path = tmp_path / "repo"
@@ -167,6 +182,47 @@ class TestRelocateComments:
         assert relocated is not None
         assert relocated.commit_sha == amended_a
         assert relocated.line_number == 3  # shifted down by the inserted line
+        assert relocated.status == CommentRelocationStatus.ACTIVE
+
+    def test_relocates_a_comments_paired_range_by_the_same_delta(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        (repo / "base.txt").write_text("base\n")
+        _run_git(repo, ["add", "base.txt"])
+        base = _commit_with_date(repo, "base commit", "2024-01-01T00:00:00")
+
+        (repo / "a.txt").write_text("line one\nline two\nline three\n")
+        _run_git(repo, ["add", "a.txt"])
+        old_a = _commit_with_date(repo, "add a", "2024-01-02T00:00:00")
+
+        pr_uuid = db.create_pr(
+            repo_path=str(repo),
+            title="Paired Range PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=base,
+            head_commit=old_a,
+            diff="diff",
+        )
+
+        line_uuid = db.add_comment(pr_uuid, "a.txt", 2, "a paired comment", commit_sha=old_a)
+        _set_anchor(line_uuid, "line two", "line one", "line three")
+        _set_paired_range(line_uuid, 1, 1)
+
+        # Amend: insert a line above, shifting every line - primary and
+        # paired alike - down by one.
+        _run_git(repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (repo / "a.txt").write_text("inserted line\nline one\nline two\nline three\n")
+        _run_git(repo, ["add", "a.txt"])
+        amended_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:02")
+
+        relocate_comments(pr_uuid, str(repo), base, old_a, base, amended_a)
+
+        relocated = db.get_comment_by_uuid(line_uuid)
+        assert relocated is not None
+        assert relocated.line_number == 3
+        assert relocated.paired_line_number == 2
+        assert relocated.paired_end_line_number == 2
         assert relocated.status == CommentRelocationStatus.ACTIVE
 
     def test_orphans_comment_whose_commit_was_dropped(self, temp_db: Path, repo: Path) -> None:

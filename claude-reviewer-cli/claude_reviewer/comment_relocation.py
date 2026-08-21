@@ -117,6 +117,8 @@ def _orphan_update(comment: Comment, commit_sha: str | None) -> CommentRelocatio
         line_number=comment.line_number,
         end_line_number=comment.end_line_number,
         status=CommentRelocationStatus.ORPHANED,
+        paired_line_number=comment.paired_line_number,
+        paired_end_line_number=comment.paired_end_line_number,
     )
 
 
@@ -147,6 +149,8 @@ def _plan_relocation(
                 line_number=comment.line_number,
                 end_line_number=comment.end_line_number,
                 status=CommentRelocationStatus.ACTIVE,
+                paired_line_number=comment.paired_line_number,
+                paired_end_line_number=comment.paired_end_line_number,
             )
         if comment.commit_sha in unmatched:
             return _orphan_update(comment, comment.commit_sha)
@@ -175,6 +179,8 @@ def _plan_relocation(
             line_number=comment.line_number,
             end_line_number=comment.end_line_number,
             status=comment.status,
+            paired_line_number=comment.paired_line_number,
+            paired_end_line_number=comment.paired_end_line_number,
         )
 
     old_ref = _blob_ref(comment.commit_sha, old_base, old_head, comment.line_type)
@@ -220,6 +226,17 @@ def _plan_relocation(
         line_number=new_line_number,
         end_line_number=comment.end_line_number + delta,
         status=CommentRelocationStatus.ACTIVE,
+        # Not independently re-anchored (see the Comment.paired_line_number
+        # doc comment) - shifted by the same delta as the primary range,
+        # which is correct as long as the whole adjacent pair moved together.
+        paired_line_number=(
+            None if comment.paired_line_number is None else comment.paired_line_number + delta
+        ),
+        paired_end_line_number=(
+            None
+            if comment.paired_end_line_number is None
+            else comment.paired_end_line_number + delta
+        ),
     )
 
 

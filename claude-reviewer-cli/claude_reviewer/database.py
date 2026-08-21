@@ -260,6 +260,7 @@ def init_db(db_path: Path | None = None) -> None:
         _migrate_comments_target_type(conn)
         _migrate_comments_anchor(conn)
         _migrate_comments_status(conn)
+        _migrate_comments_paired_range(conn)
 
 
 def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
@@ -395,6 +396,22 @@ def _migrate_comments_status(conn: sqlite3.Connection) -> None:
                 raise
 
 
+def _migrate_comments_paired_range(conn: sqlite3.Connection) -> None:
+    """Add the opposite-side range for databases created before cross-side
+    (deleted+added adjacent pair) comments existed. NULL on every
+    pre-existing row - every pre-existing comment is, in fact, single-sided.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    existing = {col["name"] for col in columns}
+    for column in ("paired_line_number", "paired_end_line_number"):
+        if column not in existing:
+            try:
+                conn.execute(f"ALTER TABLE comments ADD COLUMN {column} INTEGER")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
+
+
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
     """Convert a database row to a PullRequest object."""
     return PullRequest(
@@ -432,6 +449,8 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         anchor_context_after=row["anchor_context_after"],
         status=CommentRelocationStatus(row["status"]),
         created_at=row["created_at"],
+        paired_line_number=row["paired_line_number"],
+        paired_end_line_number=row["paired_end_line_number"],
     )
 
 
@@ -746,7 +765,8 @@ def apply_comment_relocations(relocations: list[CommentRelocationUpdate]) -> Non
             conn.execute(
                 """
                 UPDATE comments
-                SET commit_sha = ?, file_path = ?, line_number = ?, end_line_number = ?, status = ?
+                SET commit_sha = ?, file_path = ?, line_number = ?, end_line_number = ?, status = ?,
+                    paired_line_number = ?, paired_end_line_number = ?
                 WHERE id = ?
                 """,
                 (
@@ -755,6 +775,8 @@ def apply_comment_relocations(relocations: list[CommentRelocationUpdate]) -> Non
                     r.line_number,
                     r.end_line_number,
                     r.status.value,
+                    r.paired_line_number,
+                    r.paired_end_line_number,
                     r.comment_id,
                 ),
             )
