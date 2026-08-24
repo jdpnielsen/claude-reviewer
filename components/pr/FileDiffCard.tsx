@@ -416,9 +416,7 @@ export default function FileDiffCard({
                           </span>
                           <span className={`line-content ${lineClasses}`}>
                             <SyntaxLine
-                              code={
-                                line.startsWith('+') || line.startsWith('-') ? line.slice(1) : line
-                              }
+                              code={line.slice(1)}
                               language={getLanguage(file.path)}
                             />
                           </span>
