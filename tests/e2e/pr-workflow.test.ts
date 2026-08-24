@@ -339,10 +339,10 @@ describe('PR Workflow E2E Tests', () => {
   });
 
   describe('File expand/collapse defaults', () => {
-    // A PR with >10 files so the file-count default only auto-expands the
-    // first 3 - this is what makes "files with comments are always expanded"
-    // observable as distinct from the plain file-count default.
-    const FILE_COUNT = 12;
+    // Exercises every branch of shouldCollapseByDefault (see
+    // app/prs/[id]/utils.ts): ordinary files expand by default; a noisy
+    // lockfile and a diff big enough to hit MAX_LINES_DEFAULT (300) both
+    // collapse by default - unless they have a comment, which always wins.
     let manyFilesPRUuid: string;
     let manyFilesRepoDir: string;
 
@@ -370,29 +370,48 @@ describe('PR Workflow E2E Tests', () => {
       const baseCommit = git(['rev-parse', 'HEAD'], manyFilesRepoDir);
       const headCommit = baseCommit;
 
-      const diffParts = Array.from({ length: FILE_COUNT }, (_, i) => {
-        const name = `file${String(i).padStart(2, '0')}.ts`;
-        return `diff --git a/${name} b/${name}
+      const bigDiffBody = Array.from({ length: 310 }, (_, i) => `+line${i}`).join('\n');
+
+      const diffParts = [
+        `diff --git a/normal.ts b/normal.ts
 new file mode 100644
 --- /dev/null
-+++ b/${name}
++++ b/normal.ts
 @@ -0,0 +1,1 @@
-+export const value${i} = ${i};`;
-      });
++export const normal = true;`,
+        `diff --git a/yarn.lock b/yarn.lock
+new file mode 100644
+--- /dev/null
++++ b/yarn.lock
+@@ -0,0 +1,1 @@
++# yarn lockfile v1`,
+        `diff --git a/package-lock.json b/package-lock.json
+new file mode 100644
+--- /dev/null
++++ b/package-lock.json
+@@ -0,0 +1,1 @@
++{}`,
+        `diff --git a/big.ts b/big.ts
+new file mode 100644
+--- /dev/null
++++ b/big.ts
+@@ -0,0 +1,310 @@
+${bigDiffBody}`,
+      ];
 
       manyFilesPRUuid = createPR(
         manyFilesRepoDir,
-        'Many files PR for expand/collapse tests',
+        'Expand/collapse defaults PR',
         'main',
-        'many-files',
+        'expand-defaults',
         baseCommit,
         headCommit,
         diffParts.join('\n'),
-        'Exercises the >10 file default-expand cutoff.',
+        'Exercises the noisy-lockfile and oversized-diff default-collapse rules.',
       );
 
-      // Beyond the first-3 cutoff - should still auto-expand because it has a comment.
-      addComment(manyFilesPRUuid, 'file05.ts', 1, 'Please double check this value');
+      // Noisy by filename, but has a comment - must still expand.
+      addComment(manyFilesPRUuid, 'package-lock.json', 1, 'Please double check this value');
     });
 
     afterAll(() => {
@@ -401,35 +420,39 @@ new file mode 100644
       }
     });
 
-    test('expands a file with a comment even beyond the default cutoff', async () => {
+    test('expands ordinary and commented files, collapses noisy/huge ones without comments', async () => {
       await page.goto(`${global.__BASE_URL__}/prs/${manyFilesPRUuid}`);
       await page.waitForFunction(
-        () => document.querySelectorAll('.file-diff').length >= 12,
+        () => document.querySelectorAll('.file-diff').length >= 4,
         { timeout: 15000 },
       );
 
-      // Sanity check on the plain file-count default: first 3 open, others closed.
-      expect(await isFileDiffExpanded('file00.ts')).toBe(true);
-      expect(await isFileDiffExpanded('file06.ts')).toBe(false);
+      // Ordinary file: expanded by default.
+      expect(await isFileDiffExpanded('normal.ts')).toBe(true);
 
-      // file05.ts is outside the first-3 cutoff but has a comment, so it
-      // must be expanded anyway.
-      expect(await isFileDiffExpanded('file05.ts')).toBe(true);
+      // Noisy lockfile, no comment: collapsed by default.
+      expect(await isFileDiffExpanded('yarn.lock')).toBe(false);
+
+      // Diff big enough to hit the render cap, no comment: collapsed by default.
+      expect(await isFileDiffExpanded('big.ts')).toBe(false);
+
+      // package-lock.json is noisy but has a comment, so it must expand anyway.
+      expect(await isFileDiffExpanded('package-lock.json')).toBe(true);
     });
 
     test('keeps a manually collapsed file collapsed even after a new comment arrives', async () => {
       await page.goto(`${global.__BASE_URL__}/prs/${manyFilesPRUuid}`);
       await page.waitForFunction(
-        () => document.querySelectorAll('.file-diff').length >= 12,
+        () => document.querySelectorAll('.file-diff').length >= 4,
         { timeout: 15000 },
       );
 
-      // file00.ts is auto-expanded by the file-count default; collapse it manually.
-      expect(await isFileDiffExpanded('file00.ts')).toBe(true);
-      await page.click(`#${fileDiffId('file00.ts')} .file-header-left`);
-      expect(await isFileDiffExpanded('file00.ts')).toBe(false);
+      // normal.ts is auto-expanded by default; collapse it manually.
+      expect(await isFileDiffExpanded('normal.ts')).toBe(true);
+      await page.click(`#${fileDiffId('normal.ts')} .file-header-left`);
+      expect(await isFileDiffExpanded('normal.ts')).toBe(false);
 
-      // Simulate a comment arriving on file00.ts from elsewhere (e.g. another
+      // Simulate a comment arriving on normal.ts from elsewhere (e.g. another
       // reviewer) while this page is open, and wait for the 5s comment poll
       // (see usePRCommentsPollQuery) to pick it up.
       const pollResponsePromise = page.waitForResponse(
@@ -439,17 +462,17 @@ new file mode 100644
           !resp.url().includes('commit='),
         { timeout: 10000 },
       );
-      addComment(manyFilesPRUuid, 'file00.ts', 1, 'Late-arriving comment');
+      addComment(manyFilesPRUuid, 'normal.ts', 1, 'Late-arriving comment');
       await pollResponsePromise;
       // Give React Query a moment to flush the refetched state into the DOM.
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Manual collapse must win over the new comment.
-      expect(await isFileDiffExpanded('file00.ts')).toBe(false);
+      expect(await isFileDiffExpanded('normal.ts')).toBe(false);
 
-      // Meanwhile, an untouched file with a fresh comment (file07.ts, beyond
-      // the default cutoff, previously collapsed) should auto-expand.
-      expect(await isFileDiffExpanded('file07.ts')).toBe(false);
+      // Meanwhile, an untouched noisy file with a fresh comment (yarn.lock,
+      // collapsed by default) should auto-expand.
+      expect(await isFileDiffExpanded('yarn.lock')).toBe(false);
       const secondPollPromise = page.waitForResponse(
         (resp) =>
           resp.request().method() === 'GET' &&
@@ -457,11 +480,11 @@ new file mode 100644
           !resp.url().includes('commit='),
         { timeout: 10000 },
       );
-      addComment(manyFilesPRUuid, 'file07.ts', 1, 'Another late comment');
+      addComment(manyFilesPRUuid, 'yarn.lock', 1, 'Another late comment');
       await secondPollPromise;
       await new Promise((resolve) => setTimeout(resolve, 300));
 
-      expect(await isFileDiffExpanded('file07.ts')).toBe(true);
+      expect(await isFileDiffExpanded('yarn.lock')).toBe(true);
     });
   });
 });
