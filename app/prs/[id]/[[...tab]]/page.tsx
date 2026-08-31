@@ -478,12 +478,23 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
           </button>
         </div>
       )}
+      {!data.repoAvailable && (
+        <div className="repo-gone-notice">
+          <span>
+            This PR&apos;s repository is no longer at <code>{pr.repo_path}</code> - most likely a
+            worktree that has since been removed. Showing the last stored diff; syncing, per-commit
+            views and AI review need the checkout back. Use <strong>Delete</strong> to clear the PR
+            out.
+          </span>
+        </div>
+      )}
       <PRHeader
         pr={pr}
         config={config}
         requestingAI={requestAIReviewMutation.isPending}
         statusChanging={setPRStatusMutation.isPending}
         syncing={syncPRMutation.isPending}
+        repoAvailable={data.repoAvailable}
         onRequestAIReview={requestAIReview}
         onClose={closePR}
         onReopen={reopenPR}

@@ -37,6 +37,33 @@ export function resolveRepoPath(repoPath: string): string {
 }
 
 /**
+ * Whether a PR's recorded repo path is still somewhere git can run.
+ *
+ * A PR outlives its checkout: one created inside a throwaway worktree (or in
+ * a clone that was since moved or deleted) keeps a repo_path pointing at a
+ * directory that no longer exists. Spawning git with a missing `cwd` fails as
+ * a bare `spawnSync git ENOENT` - which reads as "git isn't installed" but
+ * actually means "that directory is gone" - so callers check this first and
+ * degrade to the stored diff instead of putting the PR permanently out of
+ * reach behind a 500.
+ *
+ * Checks for `.git` as well as the directory itself: a leftover empty
+ * worktree directory is just as unusable as a missing one, and `.git` is a
+ * file (not a directory) inside a worktree, so a plain existence check covers
+ * both layouts.
+ */
+export function isRepoAvailable(repoPath: string): boolean {
+  const resolved = resolveRepoPath(repoPath);
+  try {
+    return fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, '.git'));
+  } catch {
+    // statSync throws (ENOENT/EACCES) rather than returning - either way git
+    // can't run there.
+    return false;
+  }
+}
+
+/**
  * List the commits in `baseCommit..headCommit`, oldest-first (`--reverse`)
  * so callers can render/step through them in the order they were authored.
  */

@@ -8,7 +8,7 @@ import {
   lookupCommitRelocation,
 } from '@/lib/database';
 import { ChangeType, PullRequestStatus } from '@/lib/enum';
-import { listCommits, getCommitDiff } from '@/lib/git';
+import { listCommits, getCommitDiff, isRepoAvailable } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -24,10 +24,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
+    // Every git-backed part of this response needs the PR's checkout to still
+    // be there. When it isn't (throwaway worktree removed, clone moved), serve
+    // what the database alone can answer - metadata, the stored diff, comments
+    // - instead of letting the failed git call 500 the whole PR out of reach,
+    // which also took the UI's only route to deleting it. `repoAvailable` lets
+    // the client say so and offer that removal.
+    const repoAvailable = isRepoAvailable(pr.repo_path);
+    const commits = repoAvailable ? listCommits(pr.repo_path, pr.base_commit, pr.head_commit) : [];
 
     const url = new URL(req.url);
-    const commitParam = url.searchParams.get('commit');
+    // A per-commit diff has to be read out of the repo, so with the repo gone
+    // the only thing left to show is the cumulative stored diff.
+    const commitParam = repoAvailable ? url.searchParams.get('commit') : null;
 
     let diff: string | null;
     if (commitParam) {
@@ -59,6 +68,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       files,
       comments,
       commits,
+      repoAvailable,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

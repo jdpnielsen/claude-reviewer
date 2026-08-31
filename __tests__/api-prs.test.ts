@@ -21,6 +21,7 @@ import { GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
 import { POST as syncRoute } from '../app/api/prs/[id]/sync/route';
 import { GET as listPRsRoute } from '../app/api/prs/route';
 import {
+  addComment,
   createPR,
   getPRByUuid,
   getLatestDiff,
@@ -279,7 +280,15 @@ describe('GET /api/prs/[id] - stale ?commit= handling', () => {
   });
 
   test('a valid commit still returns its diff normally', async () => {
-    const uuid = createPR(repoDir, 'valid commit', 'main', 'feature', baseCommit, headCommit, 'diff');
+    const uuid = createPR(
+      repoDir,
+      'valid commit',
+      'main',
+      'feature',
+      baseCommit,
+      headCommit,
+      'diff',
+    );
 
     const res = await prGetRoute(getReq(uuid, `?commit=${headCommit}`) as never, routeParams(uuid));
     expect(res.status).toBe(200);
@@ -306,5 +315,130 @@ describe('GET /api/prs excludeClosed', () => {
     const filteredUuids = (await filteredRes.json()).prs.map((pr: { uuid: string }) => pr.uuid);
     expect(filteredUuids).toContain(openUuid);
     expect(filteredUuids).not.toContain(closedUuid);
+  });
+});
+
+// A PR outlives its checkout: created inside a throwaway worktree, or in a clone
+// that later moved, its repo_path points at a directory that isn't there any
+// more. Every git call in that cwd fails as a bare `spawnSync git ENOENT`, which
+// used to 500 the GET handler and put the PR permanently out of reach - unable
+// to be viewed, and (before DELETE existed) unable to be removed either.
+describe('GET /api/prs/[id] - repository no longer available', () => {
+  let goneDir: string;
+  let emptyDir: string;
+  let liveDir: string;
+  let liveBase: string;
+  let liveHead: string;
+
+  function getReq(id: string, query = ''): Request {
+    return new Request(`http://test/api/prs/${id}${query}`);
+  }
+
+  beforeAll(() => {
+    // Existed once, deleted since - the removed-worktree case.
+    goneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-gone-repo-'));
+    fs.rmSync(goneDir, { recursive: true, force: true });
+
+    // Still a directory, but no .git - a leftover empty worktree dir, just as
+    // unusable as a missing one.
+    emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-empty-repo-'));
+
+    liveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-live-repo-'));
+    runGit(liveDir, ['init']);
+    runGit(liveDir, ['config', 'user.email', 'test@example.com']);
+    runGit(liveDir, ['config', 'user.name', 'Test User']);
+    fs.writeFileSync(path.join(liveDir, 'base.txt'), 'base\n');
+    runGit(liveDir, ['add', 'base.txt']);
+    runGit(liveDir, ['commit', '-m', 'base commit']);
+    runGit(liveDir, ['branch', '-M', 'main']);
+    liveBase = runGit(liveDir, ['rev-parse', 'HEAD']);
+    runGit(liveDir, ['checkout', '-b', 'feature']);
+    fs.writeFileSync(path.join(liveDir, 'feature.txt'), 'first\n');
+    runGit(liveDir, ['add', 'feature.txt']);
+    runGit(liveDir, ['commit', '-m', 'feature v1']);
+    liveHead = runGit(liveDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+    fs.rmSync(liveDir, { recursive: true, force: true });
+  });
+
+  test('serves the stored diff and metadata rather than 500ing on the failed git call', async () => {
+    const uuid = createPR(
+      goneDir,
+      'gone repo',
+      'main',
+      'feature',
+      'aaa',
+      'bbb',
+      'stored diff body',
+    );
+    addComment(uuid, 'feature.txt', 1, 'still readable');
+
+    const res = await prGetRoute(getReq(uuid) as never, routeParams(uuid));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.repoAvailable).toBe(false);
+    // The DB can still answer all of this; only the git-backed parts are lost.
+    expect(json.pr.uuid).toBe(uuid);
+    expect(json.diff).toBe('stored diff body');
+    expect(json.comments).toHaveLength(1);
+    expect(json.commits).toEqual([]);
+  });
+
+  test('an existing directory that is not a git repo counts as unavailable too', async () => {
+    const uuid = createPR(emptyDir, 'empty dir', 'main', 'feature', 'aaa', 'bbb', 'stored diff');
+
+    const res = await prGetRoute(getReq(uuid) as never, routeParams(uuid));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).repoAvailable).toBe(false);
+  });
+
+  test('?commit= is ignored instead of 400ing the client into the relocation path', async () => {
+    const uuid = createPR(
+      goneDir,
+      'gone with commit',
+      'main',
+      'feature',
+      'aaa',
+      'bbb',
+      'cumulative',
+    );
+    const someSha = '3333333333333333333333333333333333333333';
+
+    const res = await prGetRoute(getReq(uuid, `?commit=${someSha}`) as never, routeParams(uuid));
+
+    // Not a 400 'Unknown commit for this PR': the commit may well be genuine,
+    // there is just no repo left to read it out of, so the cumulative stored
+    // diff is all that can be served.
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.repoAvailable).toBe(false);
+    expect(json.diff).toBe('cumulative');
+  });
+
+  test('a live checkout still reports repoAvailable and its real commit list', async () => {
+    const uuid = createPR(liveDir, 'live repo', 'main', 'feature', liveBase, liveHead, 'diff');
+
+    const res = await prGetRoute(getReq(uuid) as never, routeParams(uuid));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.repoAvailable).toBe(true);
+    expect(json.commits.map((c: { sha: string }) => c.sha)).toEqual([liveHead]);
+  });
+
+  test('sync refuses with 409 rather than surfacing a bare ENOENT', async () => {
+    const uuid = createPR(goneDir, 'gone sync', 'main', 'feature', 'aaa', 'bbb', 'diff');
+
+    const res = await syncRoute({} as never, routeParams(uuid));
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('no longer available');
+    // The stored snapshot is untouched by the refusal.
+    expect(getLatestDiff(uuid)).toBe('diff');
   });
 });

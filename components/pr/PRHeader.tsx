@@ -21,6 +21,9 @@ interface PRHeaderProps {
   requestingAI: boolean;
   statusChanging: boolean;
   syncing: boolean;
+  // False when the PR's checkout is gone - Sync and AI Review both shell out
+  // to git in it, so they're disabled rather than left to fail.
+  repoAvailable: boolean;
   onRequestAIReview: () => void;
   onClose: () => void;
   onReopen: () => void;
@@ -33,12 +36,14 @@ export default function PRHeader({
   requestingAI,
   statusChanging,
   syncing,
+  repoAvailable,
   onRequestAIReview,
   onClose,
   onReopen,
   onSync,
 }: PRHeaderProps) {
   const StatusIcon = config.icon;
+  const repoGoneTitle = "This PR's repository path no longer exists";
 
   return (
     <div className="pr-header">
@@ -82,8 +87,12 @@ export default function PRHeader({
               <>
                 <button
                   onClick={onSync}
-                  disabled={syncing}
-                  title="Re-pull the branch diff (new commits, amend, rebase) and reset to pending for re-review"
+                  disabled={syncing || !repoAvailable}
+                  title={
+                    repoAvailable
+                      ? 'Re-pull the branch diff (new commits, amend, rebase) and reset to pending for re-review'
+                      : `Can't sync - ${repoGoneTitle}`
+                  }
                   style={{
                     padding: '0.25rem 0.75rem',
                     background: '#21262d',
@@ -91,11 +100,11 @@ export default function PRHeader({
                     fontSize: '0.75rem',
                     border: '1px solid #30363d',
                     borderRadius: '4px',
-                    cursor: syncing ? 'wait' : 'pointer',
+                    cursor: syncing ? 'wait' : repoAvailable ? 'pointer' : 'not-allowed',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.25rem',
-                    opacity: syncing ? 0.7 : 1,
+                    opacity: syncing || !repoAvailable ? 0.7 : 1,
                   }}
                 >
                   {syncing ? (
@@ -134,20 +143,24 @@ export default function PRHeader({
             ))}
           <button
             onClick={onRequestAIReview}
-            disabled={requestingAI}
-            title="Request AI Review (with full codebase context)"
+            disabled={requestingAI || !repoAvailable}
+            title={
+              repoAvailable
+                ? 'Request AI Review (with full codebase context)'
+                : `Can't review - ${repoGoneTitle}`
+            }
             style={{
               padding: '0.25rem 0.75rem',
-              background: requestingAI ? '#21262d' : '#238636',
+              background: requestingAI || !repoAvailable ? '#21262d' : '#238636',
               color: '#ffffff',
               fontSize: '0.75rem',
               border: '1px solid #238636',
               borderRadius: '4px',
-              cursor: requestingAI ? 'wait' : 'pointer',
+              cursor: requestingAI ? 'wait' : repoAvailable ? 'pointer' : 'not-allowed',
               display: 'flex',
               alignItems: 'center',
               gap: '0.25rem',
-              opacity: requestingAI ? 0.7 : 1,
+              opacity: requestingAI || !repoAvailable ? 0.7 : 1,
             }}
           >
             {requestingAI ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}

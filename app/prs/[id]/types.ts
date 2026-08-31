@@ -67,6 +67,11 @@ export interface PRData {
   files: FileInfo[];
   comments: CommentWithReplies[];
   commits: CommitInfo[];
+  // False when the PR's repo_path no longer exists (throwaway worktree
+  // removed, clone moved), in which case `diff` is the stored snapshot and
+  // `commits` is empty - nothing git-backed can be recomputed. The page
+  // degrades to a read-and-delete view rather than erroring out.
+  repoAvailable: boolean;
 }
 
 // Folder tree structure for sidebar
