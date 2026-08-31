@@ -295,6 +295,21 @@ export function useSetPRStatusMutation(id: string) {
   });
 }
 
+// Permanently remove the PR and all its review data (web-UI equivalent of the
+// CLI's `delete`). Runs no git server-side, so this works even when the PR's
+// checkout is gone - which is the case it mainly exists for, since such a PR
+// can no longer be synced or merged and would otherwise be stuck in the list
+// forever. The caller navigates away on success; the PR's own queries are left
+// alone deliberately (refetching a deleted PR would just 404).
+export function useDeletePRMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.delete(`/api/prs/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['prs'] }),
+    onError: (error) => alert(`Delete failed: ${error.message}`),
+  });
+}
+
 // Re-pull the branch diff (web-UI equivalent of the CLI's `update`). This
 // rewrites the diff/files/commits *and* resets status to pending, so it
 // invalidates both the main PR query (all commit-filtered variants, matched by

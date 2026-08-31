@@ -2,9 +2,10 @@
  * Tests for the PR header's action buttons, in particular how they degrade when
  * the PR's checkout is gone (see isRepoAvailable in lib/git.ts). Sync and AI
  * Review both shell out to git in the repo, so they have to be disabled; Close
- * is database-only and must stay usable.
+ * and Delete are database-only and must stay usable, since Delete is the only
+ * way such a PR can be cleared out at all.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { GitPullRequest } from 'lucide-react';
 
 import type { PullRequest } from '@/app/prs/[id]/types';
@@ -24,7 +25,7 @@ const basePR: PullRequest = {
   updated_at: '2026-08-31T00:00:00Z',
 };
 
-function renderHeader(repoAvailable: boolean) {
+function renderHeader(repoAvailable: boolean, onDelete: () => void = () => {}) {
   return render(
     <PRHeader
       pr={basePR}
@@ -32,11 +33,13 @@ function renderHeader(repoAvailable: boolean) {
       requestingAI={false}
       statusChanging={false}
       syncing={false}
+      deleting={false}
       repoAvailable={repoAvailable}
       onRequestAIReview={() => {}}
       onClose={() => {}}
       onReopen={() => {}}
       onSync={() => {}}
+      onDelete={onDelete}
     />,
   );
 }
@@ -50,6 +53,7 @@ describe('PRHeader', () => {
     expect(button('Sync')).toBeEnabled();
     expect(button('AI Review')).toBeEnabled();
     expect(button('Close')).toBeEnabled();
+    expect(button('Delete')).toBeEnabled();
   });
 
   test('the git-backed actions are disabled once the repo is gone', () => {
@@ -62,9 +66,21 @@ describe('PRHeader', () => {
     expect(button('AI Review').title).toContain('no longer exists');
   });
 
-  test('Close stays available with the repo gone - it is DB-only', () => {
+  test('Close and Delete stay available with the repo gone - both are DB-only', () => {
     renderHeader(false);
 
     expect(button('Close')).toBeEnabled();
+    expect(button('Delete')).toBeEnabled();
+  });
+
+  test('Delete asks the page to handle it rather than acting directly', () => {
+    const onDelete = vi.fn<() => void>();
+    renderHeader(false, onDelete);
+
+    fireEvent.click(button('Delete'));
+
+    // The confirmation lives in the page (useConfirm), so the button itself
+    // only reports the intent.
+    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 });
