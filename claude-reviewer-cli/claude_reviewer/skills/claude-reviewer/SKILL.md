@@ -126,7 +126,7 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
-| `update <id>` | Re-diff after new commits; resets status to pending. |
+| `update <id> [-t title] [-b base]` | Re-diff after new commits; resets status to pending. `-t` retitles the PR, `-b` retargets it at a new base branch and re-diffs against it. Head branch can't be changed — open a new PR instead. |
 | `watch <id> [--until ...]` | Block until feedback arrives. Default `--until feedback_given`. |
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
 | `merge <id> [--delete-branch] [--no-push]` | Merge once approved. |
@@ -156,6 +156,9 @@ Full flag list: `claude-reviewer <command> --help`.
   the one command that actually answers the question; run it if in doubt.
 - **`update` didn't pick up your fix**: `update` diffs `base_ref..head_ref` from git,
   not from memory — make sure the fix is actually committed, not just staged.
+- **PR was opened against the wrong base, or the title no longer fits**: don't close
+  and recreate it (you'd lose the comments) — `update <id> -b <base>` / `-t "New title"`
+  fixes either in place, keeping the review thread.
 - **Merge refuses**: only `approved` PRs merge. If status is still `pending`, nobody
   has reviewed it yet; if `changes_requested`, address the comments and `update` first.
 - **Comments reference a deleted line**: old-side comments anchor to the diff's

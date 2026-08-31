@@ -445,3 +445,128 @@ class TestReplyAuthorResolution:
         )
         assert result.exit_code != 0
         assert "Unknown author" in result.output
+
+
+def _run_git(cwd: Path, args: list[str]) -> str:
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+class TestUpdateCommand:
+    """Tests for the `update` command's --title / --base options."""
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        """A repo with main, a diverged release branch, and feature off main."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        _run_git(repo_path, ["init", "-b", "main"])
+        _run_git(repo_path, ["config", "user.email", "test@example.com"])
+        _run_git(repo_path, ["config", "user.name", "Test User"])
+
+        (repo_path / "base.txt").write_text("base\n")
+        _run_git(repo_path, ["add", "base.txt"])
+        _run_git(repo_path, ["commit", "-m", "base commit"])
+
+        _run_git(repo_path, ["checkout", "-b", "release"])
+        (repo_path / "release.txt").write_text("release only\n")
+        _run_git(repo_path, ["add", "release.txt"])
+        _run_git(repo_path, ["commit", "-m", "release commit"])
+
+        _run_git(repo_path, ["checkout", "-b", "feature", "main"])
+        (repo_path / "feature.txt").write_text("feature work\n")
+        _run_git(repo_path, ["add", "feature.txt"])
+        _run_git(repo_path, ["commit", "-m", "feature commit"])
+
+        return repo_path
+
+    def _create_pr(self, repo: Path) -> str:
+        return db.create_pr(
+            repo_path=str(repo),
+            title="Original title",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=_run_git(repo, ["rev-parse", "main"]),
+            head_commit=_run_git(repo, ["rev-parse", "feature"]),
+            diff="original diff",
+        )
+
+    def test_title_renames_the_pr_without_touching_the_base(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--title", "Renamed title"])
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.title == "Renamed title"
+        assert pr.base_ref == "main"
+
+    def test_base_retargets_the_pr_and_re_diffs_against_it(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--base", "release"])
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.base_ref == "release"
+        assert pr.base_commit == _run_git(repo, ["rev-parse", "release"])
+        # Three-dot diff against the merge base, so the release-only commit
+        # doesn't show up as the PR deleting it.
+        diff = db.get_latest_diff(pr_uuid)
+        assert diff is not None
+        assert "feature.txt" in diff
+        assert "release.txt" not in diff
+
+    def test_title_and_base_can_change_in_one_call(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(
+            main, ["update", pr_uuid, "--title", "Both", "--base", "release"]
+        )
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.title == "Both"
+        assert pr.base_ref == "release"
+
+    def test_unknown_base_is_rejected_without_changing_the_pr(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--base", "no-such-branch"])
+
+        assert result.exit_code != 0
+        assert "not found" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.base_ref == "main"
+        assert db.get_latest_diff(pr_uuid) == "original diff"
+
+    def test_base_equal_to_head_is_rejected(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--base", "feature"])
+
+        assert result.exit_code != 0
+        assert "same as head branch" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.base_ref == "main"
+
+    def test_plain_update_leaves_title_and_base_alone(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid])
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.title == "Original title"
+        assert pr.base_ref == "main"
+        assert "feature.txt" in (db.get_latest_diff(pr_uuid) or "")

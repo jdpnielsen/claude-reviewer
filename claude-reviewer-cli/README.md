@@ -76,7 +76,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `show` | Show detailed PR information |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
-| `update` | Update PR diff after making changes |
+| `update [-t title] [-b base]` | Update PR diff after making changes; optionally retitle or retarget the base branch |
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
 | `serve --check` | Report whether the web UI is reachable; starts nothing |
@@ -120,6 +120,24 @@ claude-reviewer comments a1b2c3d4 -f json
 # Only unresolved comments
 claude-reviewer comments a1b2c3d4 --unresolved
 ```
+
+### Update a PR
+
+`update` re-diffs `base_ref..head_ref` and resets the PR to `pending`. It can also
+edit the PR's title and base branch in the same call:
+
+```bash
+# Just pick up new commits
+claude-reviewer update a1b2c3d4
+
+# Rename the PR
+claude-reviewer update a1b2c3d4 --title "Feature: OAuth2 login"
+
+# Retarget at a different base branch (re-diffs against it)
+claude-reviewer update a1b2c3d4 --base develop
+```
+
+The head branch can't be changed — create a new PR for that.
 
 ### Merge
 
