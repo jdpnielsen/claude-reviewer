@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
+  deletePR,
   getPRByUuid,
   getLatestDiff,
   updatePRStatus,
@@ -105,6 +106,28 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     const updatedPR = getPRByUuid(id);
     return NextResponse.json({ pr: updatedPR });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// DELETE /api/prs/[id] - Permanently remove a PR and all its review data
+// (web-UI equivalent of the CLI's `delete`). Allowed in any status, including
+// merged: unlike PATCH, this isn't a state transition, it's discarding the
+// record. Runs no git at all, so a PR whose repo path is gone can still be
+// removed - see the GET handler's repoAvailable.
+export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+  try {
+    const { id } = await params;
+
+    const pr = getPRByUuid(id);
+    if (!pr) {
+      return NextResponse.json({ error: 'PR not found' }, { status: 404 });
+    }
+
+    deletePR(id);
+    return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

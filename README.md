@@ -206,6 +206,10 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 - **File Navigation** - Jump between changed files via sidebar
 - **Review Actions** - Approve or request changes with optional summary
 - **Comment Resolution** - Mark comments as resolved/unresolved
+- **PR Housekeeping** - Sync, close/reopen, or permanently delete a PR from its page
+- **Missing-repo Handling** - A PR whose repository or worktree has since been deleted
+  still opens: it shows the last stored diff plus a banner, with the git-backed
+  actions (sync, per-commit views, AI review) disabled and Delete still available
 
 ## Configuration
 

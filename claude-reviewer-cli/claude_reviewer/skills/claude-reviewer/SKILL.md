@@ -164,6 +164,14 @@ Full flag list: `claude-reviewer <command> --help`.
 - **Comments reference a deleted line**: old-side comments anchor to the diff's
   "before" tree, which may no longer exist in the working tree — `comments` still
   shows the right `file:line`, trust that over grepping the current file.
+- **PR's repository/worktree was deleted under it**: a PR created inside a throwaway
+  worktree keeps pointing at that path, so once it's removed nothing git-backed works
+  — no `update`, no `merge`, and the web UI shows the PR read-only with a banner
+  saying so. A PR's `repo_path` is fixed at `create` time and no flag rewrites it
+  (`update -r` only redirects that one invocation's git calls), so the fix is
+  `delete <id>` and, if the work still needs review, `create` again from a live
+  checkout. There's a Delete button on the PR page too, which works in this state.
+  Best avoided: clean the PR up when you tear its worktree down.
 
 ## Multiple PRs / multiple agents at once
 
@@ -183,4 +191,6 @@ claude-reviewer watch <api-pr-id>
 
 If this session is one of several concurrent agents on the same checkout, prefer a
 git worktree per branch so `create`/`update` don't race on uncommitted changes in a
-shared working tree.
+shared working tree. Remember that the PR outlives the worktree, and its recorded
+repo path can't be moved afterwards: merge or `delete` each PR before tearing its
+worktree down.

@@ -7,6 +7,7 @@ import {
   RefreshCw,
   RotateCcw,
   Sparkles,
+  Trash2,
   XCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -21,6 +22,7 @@ interface PRHeaderProps {
   requestingAI: boolean;
   statusChanging: boolean;
   syncing: boolean;
+  deleting: boolean;
   // False when the PR's checkout is gone - Sync and AI Review both shell out
   // to git in it, so they're disabled rather than left to fail.
   repoAvailable: boolean;
@@ -28,6 +30,7 @@ interface PRHeaderProps {
   onClose: () => void;
   onReopen: () => void;
   onSync: () => void;
+  onDelete: () => void;
 }
 
 export default function PRHeader({
@@ -36,11 +39,13 @@ export default function PRHeader({
   requestingAI,
   statusChanging,
   syncing,
+  deleting,
   repoAvailable,
   onRequestAIReview,
   onClose,
   onReopen,
   onSync,
+  onDelete,
 }: PRHeaderProps) {
   const StatusIcon = config.icon;
   const repoGoneTitle = "This PR's repository path no longer exists";
@@ -165,6 +170,30 @@ export default function PRHeader({
           >
             {requestingAI ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
             {requestingAI ? 'Reviewing...' : 'AI Review'}
+          </button>
+          {/* Database-only, so it stays enabled in every status and whether or
+              not the repo is still there - the one action that can always
+              clear a PR out. */}
+          <button
+            onClick={onDelete}
+            disabled={deleting}
+            title="Permanently delete this PR and all its review data"
+            style={{
+              padding: '0.25rem 0.75rem',
+              background: '#21262d',
+              color: '#f85149',
+              fontSize: '0.75rem',
+              border: '1px solid #30363d',
+              borderRadius: '4px',
+              cursor: deleting ? 'wait' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              opacity: deleting ? 0.7 : 1,
+            }}
+          >
+            {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            Delete
           </button>
         </div>
         <span className="status-badge" style={{ backgroundColor: config.color }}>

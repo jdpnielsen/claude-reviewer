@@ -651,6 +651,23 @@ export function updatePRStatus(uuid: string, status: PullRequest['status']): boo
   return result.changes > 0;
 }
 
+/**
+ * Delete a PR and everything hanging off it (diff snapshots, comments and
+ * their replies, reviews, commit relocations), matching the CLI's
+ * `claude-reviewer delete`. The children go via `ON DELETE CASCADE` on their
+ * `pr_id` foreign keys, which the `foreign_keys = ON` pragma in getDatabase()
+ * is what actually enforces - without it this would silently orphan them.
+ *
+ * Touches only the database, deliberately: this is the escape hatch for a PR
+ * whose repo path no longer exists, so it must not depend on git.
+ */
+export function deletePR(uuid: string): boolean {
+  const db = getDatabase();
+  const result = db.prepare('DELETE FROM pull_requests WHERE uuid = ?').run(uuid);
+  checkpoint();
+  return result.changes > 0;
+}
+
 export function getLatestDiff(uuid: string): string | null {
   const db = getDatabase();
   const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(uuid) as

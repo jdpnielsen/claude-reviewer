@@ -17,19 +17,22 @@ const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-tes
 process.env.DATABASE_DIR = testDbDir;
 process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
-import { GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
+import { DELETE as prDeleteRoute, GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
 import { POST as syncRoute } from '../app/api/prs/[id]/sync/route';
 import { GET as listPRsRoute } from '../app/api/prs/route';
 import {
   addComment,
+  addReply,
   createPR,
+  getDatabase,
   getPRByUuid,
   getLatestDiff,
+  submitReview,
   updatePRStatus,
   upsertCommitRelocation,
   closeDatabase,
 } from '../lib/database';
-import { PullRequestStatus } from '../lib/enum';
+import { PullRequestStatus, ReviewAction } from '../lib/enum';
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -440,5 +443,82 @@ describe('GET /api/prs/[id] - repository no longer available', () => {
     expect((await res.json()).error).toContain('no longer available');
     // The stored snapshot is untouched by the refusal.
     expect(getLatestDiff(uuid)).toBe('diff');
+  });
+});
+
+describe('DELETE /api/prs/[id]', () => {
+  function childRowCounts(prId: number) {
+    const db = getDatabase();
+    const countBy = (table: string, column: string, value: number) =>
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?`).get(value) as {
+          n: number;
+        }
+      ).n;
+    return {
+      diffs: countBy('diff_snapshots', 'pr_id', prId),
+      comments: countBy('comments', 'pr_id', prId),
+      reviews: countBy('reviews', 'pr_id', prId),
+    };
+  }
+
+  // comment_replies hangs off comments rather than the PR, so counting it needs
+  // the join - and covers the second hop of the cascade. Re-resolves the
+  // connection on every call rather than closing over one: getDatabase()
+  // reconnects (checkpoint/close), and a captured handle goes stale.
+  function replyCount(prId: number): number {
+    const row = getDatabase()
+      .prepare(
+        'SELECT COUNT(*) AS n FROM comment_replies' +
+          ' WHERE comment_id IN (SELECT id FROM comments WHERE pr_id = ?)',
+      )
+      .get(prId) as { n: number };
+    return row.n;
+  }
+
+  test('returns 404 for a non-existent PR', async () => {
+    const res = await prDeleteRoute({} as never, routeParams('nope'));
+    expect(res.status).toBe(404);
+  });
+
+  test('removes a PR whose repo path is gone, cascading to all its review data', async () => {
+    // The case this endpoint exists for: no git anywhere in the delete path, so
+    // a PR left behind by a deleted worktree can still be cleared out.
+    const uuid = createPR(
+      '/tmp/definitely-not-here',
+      'delete me',
+      'main',
+      'feature',
+      'aaa',
+      'bbb',
+      'diff',
+    );
+    const prId = getPRByUuid(uuid)!.id;
+    const commentUuid = addComment(uuid, 'feature.txt', 1, 'a comment');
+    addReply(commentUuid, 'a reply');
+    submitReview(uuid, ReviewAction.Approve, 'looks good');
+
+    expect(childRowCounts(prId)).toEqual({ diffs: 1, comments: 1, reviews: 1 });
+    expect(replyCount(prId)).toBe(1);
+
+    const res = await prDeleteRoute({} as never, routeParams(uuid));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    expect(getPRByUuid(uuid)).toBeFalsy();
+    // Cascades are only enforced by the foreign_keys pragma - without it these
+    // rows would silently outlive the PR.
+    expect(childRowCounts(prId)).toEqual({ diffs: 0, comments: 0, reviews: 0 });
+    expect(replyCount(prId)).toBe(0);
+  });
+
+  test('deletes a merged PR too - unlike PATCH, this is not a state transition', async () => {
+    const uuid = createPR('/repo/api', 'merged delete', 'main', 'f', 'a', 'b', 'diff');
+    updatePRStatus(uuid, PullRequestStatus.Merged);
+
+    const res = await prDeleteRoute({} as never, routeParams(uuid));
+
+    expect(res.status).toBe(200);
+    expect(getPRByUuid(uuid)).toBeFalsy();
   });
 });

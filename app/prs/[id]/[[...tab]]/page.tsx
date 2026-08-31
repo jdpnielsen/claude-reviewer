@@ -10,6 +10,7 @@ import {
   useAddCommentMutation,
   useAddReplyMutation,
   useDeleteCommentMutation,
+  useDeletePRMutation,
   useEditCommentMutation,
   usePRCommentsPollQuery,
   usePRQuery,
@@ -93,6 +94,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const requestAIReviewMutation = useRequestAIReviewMutation(id);
   const setPRStatusMutation = useSetPRStatusMutation(id);
   const syncPRMutation = useSyncPRMutation(id);
+  const deletePRMutation = useDeletePRMutation(id);
 
   const data: PRData | undefined = prQuery.data && {
     ...prQuery.data,
@@ -452,6 +454,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   };
   const reopenPR = () => setPRStatusMutation.mutate(PullRequestStatus.Pending);
   const syncPR = () => syncPRMutation.mutate();
+  // Back to the list on success - this page's PR is gone, so staying here
+  // would just refetch into a 404.
+  const deletePR = async () => {
+    const confirmed = await confirm(
+      `Permanently delete PR "${pr.title}"? Its comments, replies and reviews go with it. This cannot be undone.`,
+      { danger: true },
+    );
+    if (confirmed) deletePRMutation.mutate(undefined, { onSuccess: () => router.push('/') });
+  };
   const unresolvedCount = comments.filter((c) => !c.comment.resolved).length;
   const effectiveExpandedFiles = new Set(
     files.filter((f) => isFileExpanded(f.path)).map((f) => f.path),
@@ -494,11 +505,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
         requestingAI={requestAIReviewMutation.isPending}
         statusChanging={setPRStatusMutation.isPending}
         syncing={syncPRMutation.isPending}
+        deleting={deletePRMutation.isPending}
         repoAvailable={data.repoAvailable}
         onRequestAIReview={requestAIReview}
         onClose={closePR}
         onReopen={reopenPR}
         onSync={syncPR}
+        onDelete={deletePR}
       />
 
       <div className="pr-tabbar">
