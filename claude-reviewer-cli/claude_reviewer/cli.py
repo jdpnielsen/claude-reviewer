@@ -440,7 +440,12 @@ def delete(pr_id: str, force: bool) -> None:
 @click.option(
     "--base", "-b", default=None, help="Retarget the PR at a new base branch and re-diff against it"
 )
-def update(pr_id: str, repo: str | None, title: str | None, base: str | None) -> None:
+@click.option(
+    "--head", "-h", default=None, help="Repoint the PR at a new head branch and re-diff from it"
+)
+def update(
+    pr_id: str, repo: str | None, title: str | None, base: str | None, head: str | None
+) -> None:
     """Update PR diff after making changes, optionally retitling or retargeting it."""
     pr = db.get_pr_by_uuid(pr_id)
     if not pr:
@@ -451,24 +456,29 @@ def update(pr_id: str, repo: str | None, title: str | None, base: str | None) ->
     git = GitOps(repo_path)
 
     base_ref = base or pr.base_ref
-    if base:
-        if base_ref == pr.head_ref:
-            console.print(
-                f"[red]Error: Base branch '{base_ref}' is the same as head branch "
-                f"'{pr.head_ref}'[/red]"
-            )
-            sys.exit(1)
-        if git.resolve_ref(base_ref) is None:
-            console.print(f"[red]Error: Base branch '{base_ref}' not found in {repo_path}[/red]")
-            sys.exit(1)
+    head_ref = head or pr.head_ref
+
+    # Everything is validated before anything mutates, so a bad ref leaves the
+    # PR (and its comments) exactly as they were.
+    if (base or head) and base_ref == head_ref:
+        console.print(
+            f"[red]Error: Base branch '{base_ref}' is the same as head branch '{head_ref}'[/red]"
+        )
+        sys.exit(1)
+    if base and git.resolve_ref(base_ref) is None:
+        console.print(f"[red]Error: Base branch '{base_ref}' not found in {repo_path}[/red]")
+        sys.exit(1)
+    if head and git.resolve_ref(head_ref) is None:
+        console.print(f"[red]Error: Head branch '{head_ref}' not found in {repo_path}[/red]")
+        sys.exit(1)
 
     # Get new diff
-    diff = git.get_diff(base_ref, pr.head_ref)
-    head_commit = git.get_commit_sha(pr.head_ref)
+    diff = git.get_diff(base_ref, head_ref)
+    head_commit = git.get_commit_sha(head_ref)
     base_commit = git.get_commit_sha(base_ref)
 
     # Update in database
-    db.update_pr_metadata(pr_id, title=title, base_ref=base)
+    db.update_pr_metadata(pr_id, title=title, base_ref=base, head_ref=head)
     result = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
     relocate_comments(
         pr_id, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
@@ -482,6 +492,8 @@ def update(pr_id: str, repo: str | None, title: str | None, base: str | None) ->
         changes += f"Title: {title}\n"
     if base:
         changes += f"Base: {pr.base_ref} -> {base_ref}\n"
+    if head:
+        changes += f"Head: {pr.head_ref} -> {head_ref}\n"
     if changes:
         changes += "\n"
 

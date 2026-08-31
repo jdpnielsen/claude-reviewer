@@ -154,7 +154,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer show <id>` | Show detailed PR information |
 | `claude-reviewer reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment; `-a` defaults to `claude`, or use `-a me`/`-a <name>` |
 | `claude-reviewer authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities used for reply attribution |
-| `claude-reviewer update <id> [-t title] [-b base]` | Update PR diff after making changes; optionally retitle or retarget the base branch |
+| `claude-reviewer update <id> [-t title] [-b base] [-h head]` | Update PR diff after making changes; optionally retitle, retarget the base branch, or repoint at a new head branch |
 | `claude-reviewer merge <id>` | Merge an approved PR |
 | `claude-reviewer serve` | Start the web UI (Docker) |
 | `claude-reviewer serve --local` | Start the web UI locally (pnpm) |
@@ -170,9 +170,10 @@ claude-reviewer merge a1b2c3d4
 # Create with custom base branch
 claude-reviewer create -t "Feature" --base develop
 
-# Rename an existing PR, or retarget it at a different base branch
+# Rename an existing PR, or retarget it at a different base/head branch
 claude-reviewer update a1b2c3d4 --title "Feature: OAuth2 login"
 claude-reviewer update a1b2c3d4 --base develop
+claude-reviewer update a1b2c3d4 --head feature-v2
 
 # Get comments as JSON (useful for automation)
 claude-reviewer comments a1b2c3d4 --format json

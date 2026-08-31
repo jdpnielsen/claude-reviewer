@@ -453,7 +453,7 @@ def _run_git(cwd: Path, args: list[str]) -> str:
 
 
 class TestUpdateCommand:
-    """Tests for the `update` command's --title / --base options."""
+    """Tests for the `update` command's --title / --base / --head options."""
 
     @pytest.fixture
     def repo(self, tmp_path: Path) -> Path:
@@ -559,7 +559,7 @@ class TestUpdateCommand:
         assert pr is not None
         assert pr.base_ref == "main"
 
-    def test_plain_update_leaves_title_and_base_alone(self, temp_db: Path, repo: Path) -> None:
+    def test_plain_update_leaves_title_base_and_head_alone(self, temp_db: Path, repo: Path) -> None:
         pr_uuid = self._create_pr(repo)
 
         result = CliRunner().invoke(main, ["update", pr_uuid])
@@ -569,4 +569,96 @@ class TestUpdateCommand:
         assert pr is not None
         assert pr.title == "Original title"
         assert pr.base_ref == "main"
+        assert pr.head_ref == "feature"
         assert "feature.txt" in (db.get_latest_diff(pr_uuid) or "")
+
+    def _add_branch(self, repo: Path, name: str, filename: str) -> None:
+        """Branch off main with a single distinguishing commit."""
+        _run_git(repo, ["checkout", "-b", name, "main"])
+        (repo / filename).write_text(f"{name} work\n")
+        _run_git(repo, ["add", filename])
+        _run_git(repo, ["commit", "-m", f"{name} commit"])
+        _run_git(repo, ["checkout", "main"])
+
+    def test_head_repoints_the_pr_and_re_diffs_from_it(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        self._add_branch(repo, "feature-v2", "rewrite.txt")
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--head", "feature-v2"])
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.head_ref == "feature-v2"
+        assert pr.head_commit == _run_git(repo, ["rev-parse", "feature-v2"])
+        # Base is untouched, and the diff is now the new head's work, not the
+        # branch the PR was opened from.
+        assert pr.base_ref == "main"
+        diff = db.get_latest_diff(pr_uuid)
+        assert diff is not None
+        assert "rewrite.txt" in diff
+        assert "feature.txt" not in diff
+
+    def test_head_and_base_can_change_in_one_call(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        self._add_branch(repo, "feature-v2", "rewrite.txt")
+
+        result = CliRunner().invoke(
+            main, ["update", pr_uuid, "--base", "release", "--head", "feature-v2"]
+        )
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.base_ref == "release"
+        assert pr.head_ref == "feature-v2"
+        diff = db.get_latest_diff(pr_uuid)
+        assert diff is not None
+        assert "rewrite.txt" in diff
+        # Three-dot diff against the merge base, so release's own commit isn't
+        # reported as something this PR deletes.
+        assert "release.txt" not in diff
+
+    def test_unknown_head_is_rejected_without_changing_the_pr(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--head", "no-such-branch"])
+
+        assert result.exit_code != 0
+        assert "not found" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.head_ref == "feature"
+        assert db.get_latest_diff(pr_uuid) == "original diff"
+
+    def test_head_equal_to_base_is_rejected(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--head", "main"])
+
+        assert result.exit_code != 0
+        assert "same as head branch" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.head_ref == "feature"
+
+    def test_head_colliding_with_a_new_base_in_the_same_call_is_rejected(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        # Neither option is illegal on its own here - only the combination is,
+        # so this has to be checked against the *new* base, not the stored one.
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(
+            main, ["update", pr_uuid, "--base", "release", "--head", "release"]
+        )
+
+        assert result.exit_code != 0
+        assert "same as head branch" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.base_ref == "main"
+        assert pr.head_ref == "feature"
+        assert db.get_latest_diff(pr_uuid) == "original diff"

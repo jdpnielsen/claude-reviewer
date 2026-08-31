@@ -76,7 +76,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `show` | Show detailed PR information |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
-| `update [-t title] [-b base]` | Update PR diff after making changes; optionally retitle or retarget the base branch |
+| `update [-t title] [-b base] [-h head]` | Update PR diff after making changes; optionally retitle, retarget the base branch, or repoint at a new head branch |
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
 | `serve --check` | Report whether the web UI is reachable; starts nothing |
@@ -124,7 +124,7 @@ claude-reviewer comments a1b2c3d4 --unresolved
 ### Update a PR
 
 `update` re-diffs `base_ref..head_ref` and resets the PR to `pending`. It can also
-edit the PR's title and base branch in the same call:
+edit the PR's title, base branch and head branch in the same call:
 
 ```bash
 # Just pick up new commits
@@ -135,9 +135,15 @@ claude-reviewer update a1b2c3d4 --title "Feature: OAuth2 login"
 
 # Retarget at a different base branch (re-diffs against it)
 claude-reviewer update a1b2c3d4 --base develop
+
+# Repoint at a different head branch (re-diffs from it)
+claude-reviewer update a1b2c3d4 --head feature-v2
 ```
 
-The head branch can't be changed — create a new PR for that.
+Both `--base` and `--head` are validated before anything is written, and the two
+can't name the same branch. Changing either re-runs comment relocation, so the
+review thread follows the new diff where the old anchors can still be matched;
+comments whose lines no longer exist are marked as such rather than dropped.
 
 ### Merge
 
