@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { relocateComments } from '@/lib/comment-relocation';
 import { getPRByUuid, updatePRDiff, updatePRStatus } from '@/lib/database';
 import { PullRequestStatus } from '@/lib/enum';
-import { getRefDiff, resolveRefSha } from '@/lib/git';
+import { getRefDiff, isRepoAvailable, resolveRefSha } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -27,6 +27,16 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
     // nothing to re-sync into. (Matches the PATCH status guard.)
     if (pr.status === PullRequestStatus.Merged) {
       return NextResponse.json({ error: 'Cannot sync a merged PR' }, { status: 409 });
+    }
+
+    // There is nothing to re-pull from a checkout that isn't there any more.
+    // Caught up front so the caller gets this instead of the bare
+    // `spawnSync git ENOENT` a missing cwd would otherwise produce.
+    if (!isRepoAvailable(pr.repo_path)) {
+      return NextResponse.json(
+        { error: `Repository is no longer available at ${pr.repo_path}` },
+        { status: 409 },
+      );
     }
 
     const diff = getRefDiff(pr.repo_path, pr.base_ref, pr.head_ref);

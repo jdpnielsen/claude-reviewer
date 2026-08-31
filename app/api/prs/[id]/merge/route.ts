@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, updatePRStatus } from '@/lib/database';
 import { PullRequestStatus } from '@/lib/enum';
-import { GitManager } from '@/lib/git';
+import { GitManager, isRepoAvailable } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -24,6 +24,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: `PR is not approved (current status: ${pr.status})` },
         { status: 400 },
+      );
+    }
+
+    // Merging needs the actual checkout; without this the missing cwd would
+    // surface as a bare `spawnSync git ENOENT`.
+    if (!isRepoAvailable(pr.repo_path)) {
+      return NextResponse.json(
+        { error: `Repository is no longer available at ${pr.repo_path}` },
+        { status: 409 },
       );
     }
 

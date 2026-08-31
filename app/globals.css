@@ -1460,6 +1460,30 @@ textarea {
   opacity: 0.7;
 }
 
+/* Shown when a PR's repo_path no longer exists. Not dismissible, unlike
+   .commit-notice: it describes a standing condition of the PR (half its
+   actions are disabled), not a one-off event the user can acknowledge. */
+.repo-gone-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  background: rgba(248, 81, 73, 0.1);
+  color: #f85149;
+  font-size: 0.875rem;
+}
+
+.repo-gone-notice code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: rgba(248, 81, 73, 0.15);
+  font-size: 0.8125rem;
+  word-break: break-all;
+}
+
 @media (max-width: 900px) {
   .pr-layout {
     grid-template-columns: 1fr;
