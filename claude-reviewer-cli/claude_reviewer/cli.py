@@ -436,8 +436,12 @@ def delete(pr_id: str, force: bool) -> None:
 @click.option(
     "--repo", "-r", default=None, help="Path to git repository (uses PR's repo by default)"
 )
-def update(pr_id: str, repo: str | None) -> None:
-    """Update PR diff after making changes."""
+@click.option("--title", "-t", default=None, help="New PR title (keeps the current one by default)")
+@click.option(
+    "--base", "-b", default=None, help="Retarget the PR at a new base branch and re-diff against it"
+)
+def update(pr_id: str, repo: str | None, title: str | None, base: str | None) -> None:
+    """Update PR diff after making changes, optionally retitling or retargeting it."""
     pr = db.get_pr_by_uuid(pr_id)
     if not pr:
         console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
@@ -446,12 +450,25 @@ def update(pr_id: str, repo: str | None) -> None:
     repo_path = repo or pr.repo_path
     git = GitOps(repo_path)
 
+    base_ref = base or pr.base_ref
+    if base:
+        if base_ref == pr.head_ref:
+            console.print(
+                f"[red]Error: Base branch '{base_ref}' is the same as head branch "
+                f"'{pr.head_ref}'[/red]"
+            )
+            sys.exit(1)
+        if git.resolve_ref(base_ref) is None:
+            console.print(f"[red]Error: Base branch '{base_ref}' not found in {repo_path}[/red]")
+            sys.exit(1)
+
     # Get new diff
-    diff = git.get_diff(pr.base_ref, pr.head_ref)
+    diff = git.get_diff(base_ref, pr.head_ref)
     head_commit = git.get_commit_sha(pr.head_ref)
-    base_commit = git.get_commit_sha(pr.base_ref)
+    base_commit = git.get_commit_sha(base_ref)
 
     # Update in database
+    db.update_pr_metadata(pr_id, title=title, base_ref=base)
     result = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
     relocate_comments(
         pr_id, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
@@ -460,9 +477,18 @@ def update(pr_id: str, repo: str | None) -> None:
     # Reset status to pending for re-review
     db.update_pr_status(pr_id, PRStatus.PENDING)
 
+    changes = ""
+    if title:
+        changes += f"Title: {title}\n"
+    if base:
+        changes += f"Base: {pr.base_ref} -> {base_ref}\n"
+    if changes:
+        changes += "\n"
+
     console.print(
         Panel(
             f"[green]PR #{pr_id} updated to revision {result.revision}[/green]\n\n"
+            f"{changes}"
             f"Status reset to [yellow]pending[/yellow] for re-review",
             title="PR Updated",
         )

@@ -157,6 +157,52 @@ class TestPullRequests:
         assert pr is not None
         assert pr.status == PRStatus.APPROVED
 
+    def test_update_pr_metadata_changes_only_the_fields_given(self, temp_db: Path) -> None:
+        """Test that title/base_ref update independently and None leaves a field alone."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="Old title",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        assert db.update_pr_metadata(uuid, title="New title") is True
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.title == "New title"
+        assert pr.base_ref == "main"
+
+        assert db.update_pr_metadata(uuid, base_ref="develop") is True
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.title == "New title"
+        assert pr.base_ref == "develop"
+
+    def test_update_pr_metadata_with_nothing_to_change_is_a_noop(self, temp_db: Path) -> None:
+        """Test that an all-None call touches no row rather than blanking fields."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="Title",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        assert db.update_pr_metadata(uuid) is False
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.title == "Title"
+        assert pr.base_ref == "main"
+
+    def test_update_pr_metadata_for_an_unknown_pr_returns_false(self, temp_db: Path) -> None:
+        """Test that updating a PR that doesn't exist reports failure."""
+        assert db.update_pr_metadata("not-a-real-pr", title="New title") is False
+
     def test_update_pr_diff(self, temp_db: Path) -> None:
         """Test updating PR diff, and that the pre-update commits come back."""
         uuid = db.create_pr(

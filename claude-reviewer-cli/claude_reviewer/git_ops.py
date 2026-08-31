@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from git import GitCommandError, Repo
+from git.exc import BadName, BadObject
 
 
 def get_global_git_user() -> tuple[str | None, str | None]:
@@ -276,6 +277,13 @@ class GitOps:
     def get_commit_sha(self, ref: str) -> str:
         """Get the SHA for a reference (branch, tag, or commit)."""
         return str(self.repo.commit(ref).hexsha)
+
+    def resolve_ref(self, ref: str) -> str | None:
+        """Get the SHA for a reference, or None if it doesn't resolve."""
+        try:
+            return str(self.repo.commit(ref).hexsha)
+        except (BadName, BadObject, ValueError):
+            return None
 
     def get_diff(self, base: str, head: str) -> str:
         """Get unified diff between two refs."""
