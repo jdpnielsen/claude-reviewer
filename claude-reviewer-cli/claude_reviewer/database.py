@@ -572,11 +572,17 @@ def update_pr_status(pr_uuid: str, status: PRStatus) -> bool:
         return bool(cursor.rowcount > 0)
 
 
-def update_pr_metadata(pr_uuid: str, title: str | None = None, base_ref: str | None = None) -> bool:
+def update_pr_metadata(
+    pr_uuid: str,
+    title: str | None = None,
+    base_ref: str | None = None,
+    head_ref: str | None = None,
+) -> bool:
     """Update a PR's editable metadata, leaving any field passed as None alone.
 
-    Only touches the pull_requests row: retargeting base_ref does not by itself
-    re-diff the PR, so callers are expected to follow up with update_pr_diff().
+    Only touches the pull_requests row: retargeting base_ref or head_ref does
+    not by itself re-diff the PR, so callers are expected to follow up with
+    update_pr_diff().
     """
     fields: list[str] = []
     values: list[str] = []
@@ -586,6 +592,9 @@ def update_pr_metadata(pr_uuid: str, title: str | None = None, base_ref: str | N
     if base_ref is not None:
         fields.append("base_ref = ?")
         values.append(base_ref)
+    if head_ref is not None:
+        fields.append("head_ref = ?")
+        values.append(head_ref)
 
     if not fields:
         return False
