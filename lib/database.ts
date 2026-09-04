@@ -30,6 +30,16 @@ export interface PullRequest {
   updated_at: string;
 }
 
+// The JSON API's PR shape - everything but the internal numeric `id`. The
+// only valid identifier for /prs/<id> and /api/prs/<id> is `uuid`; the
+// numeric id is a SQLite implementation detail used for joins, and exposing
+// it alongside uuid invites an API consumer to grab the wrong one.
+export type PublicPullRequest = Omit<PullRequest, 'id'>;
+
+export function toPublicPR({ id: _id, ...pr }: PullRequest): PublicPullRequest {
+  return pr;
+}
+
 export interface Comment {
   id: number;
   uuid: string;

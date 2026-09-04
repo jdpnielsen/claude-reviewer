@@ -4,7 +4,6 @@ import { apiClient, buildQuery } from '@/lib/api-client';
 import type { PullRequestStatus } from '@/lib/enum';
 
 export interface PullRequest {
-  id: number;
   uuid: string;
   repo_path: string;
   title: string;

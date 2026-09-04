@@ -4,8 +4,9 @@ import { GitCommit, MessageSquarePlus } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
-import CommentThread from './CommentThread';
+import CollapsibleCommentThread from './CollapsibleCommentThread';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
+import { submitOnModEnter } from '@/app/prs/[id]/utils';
 import { insertSuggestion } from '@/lib/suggestions';
 
 interface CommitMessagePanelProps {
@@ -65,7 +66,7 @@ export default function CommitMessagePanel({
       <pre className="commit-message-body">{fullMessage}</pre>
 
       {comments.map((item) => (
-        <CommentThread key={item.comment.uuid} item={item} {...commentThreadProps} />
+        <CollapsibleCommentThread key={item.comment.uuid} item={item} {...commentThreadProps} />
       ))}
 
       {isCommenting ? (
@@ -78,6 +79,7 @@ export default function CommitMessagePanel({
             placeholder="Comment on this commit message..."
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
+            onKeyDown={submitOnModEnter(addComment)}
           />
           <div className="comment-actions">
             <button onClick={addComment}>Add Comment</button>

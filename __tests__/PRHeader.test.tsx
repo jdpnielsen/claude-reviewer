@@ -13,7 +13,6 @@ import PRHeader from '@/components/pr/PRHeader';
 import { PullRequestStatus } from '@/lib/enum';
 
 const basePR: PullRequest = {
-  id: 1,
   uuid: 'abc12345',
   repo_path: '/gone/worktrees/feature',
   title: 'A PR whose worktree was removed',

@@ -21,17 +21,12 @@ export default function PRTabs({
 }: PRTabsProps) {
   return (
     <div className="pr-tabs">
-      <Link
-        href={filesHref}
-        replace
-        className={`pr-tab ${activeTab === 'files' ? 'active' : ''}`}
-      >
+      <Link href={filesHref} className={`pr-tab ${activeTab === 'files' ? 'active' : ''}`}>
         Files changed
         <span className="count">{filesCount}</span>
       </Link>
       <Link
         href={conversationHref}
-        replace
         className={`pr-tab ${activeTab === 'conversation' ? 'active' : ''}`}
       >
         Conversation

@@ -4,11 +4,11 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import { CodeHighlight } from './CodeBlock';
 import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
-import { getLanguage } from '@/app/prs/[id]/utils';
+import { getLanguage, submitOnModEnter } from '@/app/prs/[id]/utils';
 import { AuthorKind } from '@/lib/enum';
 import { parseComment } from '@/lib/suggestions';
 
-interface CommentThreadProps {
+export interface CommentThreadProps {
   item: CommentWithReplies;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
@@ -50,6 +50,7 @@ export default function CommentThread({
                 content: e.target.value,
               })
             }
+            onKeyDown={submitOnModEnter(editComment)}
             rows={3}
           />
           <div className="comment-actions">
@@ -119,6 +120,7 @@ export default function CommentThread({
                 placeholder="Write a reply..."
                 value={replyContent}
                 onChange={(e) => setReplyContent(e.target.value)}
+                onKeyDown={submitOnModEnter(() => addReply(c.uuid))}
                 rows={2}
               />
               <div className="comment-actions">

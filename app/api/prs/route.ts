@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { listPRs, createPR, getPRByUuid } from '@/lib/database';
+import { listPRs, createPR, getPRByUuid, toPublicPR } from '@/lib/database';
 import { GitManager } from '@/lib/git';
 
 // GET /api/prs - List all PRs
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
     const prs = listPRs({ repoPath, status, limit, excludeClosed });
 
-    return NextResponse.json({ prs });
+    return NextResponse.json({ prs: prs.map(toPublicPR) });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         uuid,
-        pr,
+        pr: pr ? toPublicPR(pr) : pr,
         reviewUrl: `/prs/${uuid}`,
       },
       { status: 201 },

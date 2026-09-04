@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import type { CommentingAt, LastClickedLine } from '@/app/prs/[id]/types';
+import { submitOnModEnter } from '@/app/prs/[id]/utils';
 import { LineType } from '@/lib/enum';
 import { insertSuggestion } from '@/lib/suggestions';
 
@@ -69,6 +70,7 @@ export default function NewCommentForm({
         placeholder="Write a comment..."
         value={newComment}
         onChange={(e) => setNewComment(e.target.value)}
+        onKeyDown={submitOnModEnter(addComment)}
       />
       <div className="comment-actions">
         <button onClick={addComment}>Add Comment</button>
