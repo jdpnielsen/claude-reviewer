@@ -30,6 +30,10 @@ export type LineType = (typeof LineType)[keyof typeof LineType];
 export const CommentTargetType = {
   Line: 'line',
   CommitMessage: 'commit_message',
+  // A "Request Changes" review's summary, mirrored into a real comment so it
+  // shows up in the Conversation tab and can be resolved/replied to like any
+  // other thread - see submitReview's caller in app/api/prs/[id]/review.
+  ReviewSummary: 'review_summary',
 } as const;
 export type CommentTargetType = (typeof CommentTargetType)[keyof typeof CommentTargetType];
 

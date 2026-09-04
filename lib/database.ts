@@ -54,6 +54,11 @@ export interface Comment {
   content: string;
   resolved: boolean;
   resolution_mode: CommentResolutionMode;
+  // Which review action produced this comment, for a target_type
+  // ReviewSummary comment - lets the UI label it "Approved" vs "Changes
+  // requested" instead of assuming one or the other. NULL for every other
+  // comment (a line or commit-message comment isn't tied to a review action).
+  review_action: ReviewAction | null;
   anchor_content: string | null;
   anchor_context_before: string | null;
   anchor_context_after: string | null;
@@ -274,6 +279,7 @@ function initSchema(db: Database.Database): void {
         content TEXT NOT NULL,
         resolved BOOLEAN DEFAULT FALSE,
         resolution_mode TEXT NOT NULL DEFAULT 'fix',
+        review_action TEXT,
         anchor_content TEXT,
         anchor_context_before TEXT,
         anchor_context_after TEXT,
@@ -384,6 +390,7 @@ function initSchema(db: Database.Database): void {
   migrateCommentsStatus(db);
   migrateCommentsPairedRange(db);
   migrateCommentsResolutionMode(db);
+  migrateCommentsReviewAction(db);
 }
 
 // A database created before the authors table existed has comment_replies/
@@ -511,6 +518,24 @@ function migrateCommentsAnchor(db: Database.Database): void {
         // added the column between the check above and this ALTER.
         if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
       }
+    }
+  }
+  checkpoint();
+}
+
+// Adds review_action for databases created before an Approve review's
+// summary was mirrored into a comment too. NULL is correct for every
+// pre-existing row - a NULL review_action just means "not a review-summary
+// comment," true of everything created before this column existed.
+function migrateCommentsReviewAction(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'review_action')) {
+    try {
+      db.exec('ALTER TABLE comments ADD COLUMN review_action TEXT');
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
     }
   }
   checkpoint();
@@ -785,6 +810,7 @@ export function addComment(
   pairedLineNumber: number | null = null,
   pairedEndLineNumber: number | null = null,
   resolutionMode: CommentResolutionMode = CommentResolutionMode.Fix,
+  reviewAction: ReviewAction | null = null,
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -799,9 +825,9 @@ export function addComment(
       INSERT INTO comments (
         uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type,
         content, anchor_content, anchor_context_before, anchor_context_after,
-        paired_line_number, paired_end_line_number, resolution_mode
+        paired_line_number, paired_end_line_number, resolution_mode, review_action
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       commentUuid,
       pr.id,
@@ -818,6 +844,7 @@ export function addComment(
       pairedLineNumber,
       pairedEndLineNumber,
       resolutionMode,
+      reviewAction,
     );
 
     db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);

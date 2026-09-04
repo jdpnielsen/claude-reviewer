@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getPRByUuid, getComments, submitReview, getReviews } from '@/lib/database';
-import { PullRequestStatus, ReviewAction } from '@/lib/enum';
+import { addComment, getPRByUuid, getComments, submitReview, getReviews } from '@/lib/database';
+import {
+  CommentResolutionMode,
+  CommentTargetType,
+  LineType,
+  PullRequestStatus,
+  ReviewAction,
+} from '@/lib/enum';
 import { inferPreferences, appendToClaudeMd } from '@/lib/preferences';
 
 interface RouteParams {
@@ -49,7 +55,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // Submit the review
     submitReview(id, action, summary);
 
-    // If changes were requested, try to infer preferences from comments
+    // If changes were requested, try to infer preferences from comments. Read
+    // before the review-summary comment below is created, so that comment
+    // (not real line-level feedback - it has no file/line of its own) never
+    // pollutes the prompt.
     if (action === ReviewAction.RequestChanges) {
       const comments = getComments(id, { unresolvedOnly: true });
 
@@ -65,6 +74,34 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           console.error('Failed to infer preferences:', e);
         }
       }
+    }
+
+    // Any review with a summary is otherwise invisible outside the reviews
+    // table - it never shows in the Conversation tab and has no uuid a reply
+    // can target. Mirroring it into a real comment gives it both for free: it
+    // shows up alongside everything else and Claude can `reply` to it, and it
+    // can be resolved exactly like any other thread. review_action records
+    // which review produced it, so the UI can label it "Approved" vs
+    // "Changes requested" instead of assuming one or the other.
+    if (typeof summary === 'string' && summary.trim()) {
+      addComment(
+        id,
+        '',
+        0,
+        summary,
+        LineType.New,
+        0,
+        null,
+        CommentTargetType.ReviewSummary,
+        null,
+        null,
+        null,
+        // A review summary isn't the kind of feedback resolution mode is
+        // about (it's a whole-review verdict, not a per-line request), so it
+        // stays on the default.
+        CommentResolutionMode.Fix,
+        action,
+      );
     }
 
     const newStatus =

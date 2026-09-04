@@ -329,6 +329,53 @@ class TestPrintComment:
         assert "commit message [0123456]" in output
         assert "a.py" not in output
 
+    def test_shows_changes_requested_location_for_a_review_summary_comment(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A 'Request Changes' review summary mirrored into a comment shows 'changes
+        requested' instead of file:line - it has no file/line or commit of its own."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="",
+            line_number=0,
+            end_line_number=0,
+            content="Please add tests for the new endpoint before merging.",
+            target_type="review_summary",
+            review_action="request_changes",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "changes requested" in output
+        assert "a.py" not in output
+
+    def test_shows_approved_location_for_an_approve_review_summary_comment(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An 'Approve' review summary mirrored into a comment shows 'approved',
+        not 'changes requested' - the two share a target_type and are only
+        told apart by review_action."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="",
+            line_number=0,
+            end_line_number=0,
+            content="Nice cleanup.",
+            target_type="review_summary",
+            review_action="approve",
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "approved" in output
+        assert "changes requested" not in output
+
     def test_renders_a_suggestion_fence_distinctly(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:

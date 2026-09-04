@@ -80,6 +80,11 @@ class Comment:
     # ordinary single-side comment. The CLI never creates one of these itself.
     paired_line_number: Optional[int] = None
     paired_end_line_number: Optional[int] = None
+    # Which review action produced this comment, for a target_type
+    # "review_summary" comment - "approve" or "request_changes". None for
+    # every other comment. The CLI never creates one of these itself; reviews
+    # are only submitted from the web UI.
+    review_action: Optional[str] = None
 
 
 @dataclass

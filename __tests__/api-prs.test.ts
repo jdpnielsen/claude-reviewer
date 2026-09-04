@@ -18,6 +18,7 @@ process.env.DATABASE_DIR = testDbDir;
 process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
 import { DELETE as prDeleteRoute, GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
+import { POST as reviewRoute } from '../app/api/prs/[id]/review/route';
 import { POST as syncRoute } from '../app/api/prs/[id]/sync/route';
 import { GET as listPRsRoute } from '../app/api/prs/route';
 import {
@@ -25,6 +26,7 @@ import {
   addReply,
   createPR,
   getDatabase,
+  getCommentsWithReplies,
   getPRByUuid,
   getLatestDiff,
   submitReview,
@@ -32,7 +34,7 @@ import {
   upsertCommitRelocation,
   closeDatabase,
 } from '../lib/database';
-import { PullRequestStatus, ReviewAction } from '../lib/enum';
+import { CommentTargetType, PullRequestStatus, ReviewAction } from '../lib/enum';
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -43,6 +45,13 @@ function runGit(cwd: string, args: string[]): string {
 function patchReq(id: string, body: unknown): Request {
   return new Request(`http://test/api/prs/${id}`, {
     method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+function postReq(id: string, body: unknown): Request {
+  return new Request(`http://test/api/prs/${id}`, {
+    method: 'POST',
     body: JSON.stringify(body),
   });
 }
@@ -520,5 +529,64 @@ describe('DELETE /api/prs/[id]', () => {
 
     expect(res.status).toBe(200);
     expect(getPRByUuid(uuid)).toBeFalsy();
+  });
+});
+
+describe('POST /api/prs/[id]/review', () => {
+  test('a request_changes review with a summary is mirrored into a repliable comment', async () => {
+    const uuid = createPR('/repo/api', 'review with summary', 'main', 'f', 'a', 'b', 'diff');
+
+    const res = await reviewRoute(
+      postReq(uuid, { action: ReviewAction.RequestChanges, summary: 'please add tests' }) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    const comments = getCommentsWithReplies(uuid);
+    expect(comments).toHaveLength(1);
+    expect(comments[0].comment).toMatchObject({
+      target_type: CommentTargetType.ReviewSummary,
+      content: 'please add tests',
+      review_action: ReviewAction.RequestChanges,
+    });
+    expect(Boolean(comments[0].comment.resolved)).toBe(false);
+  });
+
+  test('an approve review with a summary is mirrored into a comment too, tagged with its action', async () => {
+    const uuid = createPR('/repo/api', 'approve with summary', 'main', 'f', 'a', 'b', 'diff');
+
+    const res = await reviewRoute(
+      postReq(uuid, { action: ReviewAction.Approve, summary: 'looks great' }) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    const comments = getCommentsWithReplies(uuid);
+    expect(comments).toHaveLength(1);
+    expect(comments[0].comment).toMatchObject({
+      target_type: CommentTargetType.ReviewSummary,
+      content: 'looks great',
+      review_action: ReviewAction.Approve,
+    });
+  });
+
+  test('a review with no summary creates no comment', async () => {
+    const uuid = createPR('/repo/api', 'review without summary', 'main', 'f', 'a', 'b', 'diff');
+
+    const res = await reviewRoute(
+      postReq(uuid, { action: ReviewAction.RequestChanges }) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    expect(getCommentsWithReplies(uuid)).toHaveLength(0);
+  });
+
+  test('a line comment created outside a review has no review_action', async () => {
+    const uuid = createPR('/repo/api', 'plain line comment', 'main', 'f', 'a', 'b', 'diff');
+    addComment(uuid, 'a.py', 1, 'looks fine');
+
+    const comments = getCommentsWithReplies(uuid);
+    expect(comments[0].comment.review_action).toBeNull();
   });
 });

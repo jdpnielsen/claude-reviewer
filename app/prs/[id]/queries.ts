@@ -83,6 +83,10 @@ export function useAddCommentMutation(id: string) {
           content: params.content,
           resolved: false,
           resolution_mode: params.resolutionMode ?? CommentResolutionMode.Fix,
+          // The web UI's own comment form only ever creates a line or
+          // commit-message comment - a review-summary comment is only ever
+          // created server-side, from submitReview.
+          review_action: null,
           created_at: new Date().toISOString(),
           paired_line_number: params.pairedLineNumber ?? null,
           paired_end_line_number: params.pairedEndLineNumber ?? null,

@@ -5,6 +5,7 @@ import {
   CommentTargetType,
   LineType,
   PullRequestStatus,
+  ReviewAction,
 } from '@/lib/enum';
 
 export interface PullRequest {
@@ -40,6 +41,10 @@ export interface Comment {
   content: string;
   resolved: boolean;
   resolution_mode: CommentResolutionMode;
+  // Which review action produced this comment, for a target_type
+  // ReviewSummary comment - "Approved" vs "Changes requested". NULL for
+  // every other comment.
+  review_action: ReviewAction | null;
   created_at: string;
   // Old-side range, when this comment spans an adjacent deleted+added line
   // pair. NULL for an ordinary single-side comment.

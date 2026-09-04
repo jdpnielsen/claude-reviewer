@@ -59,6 +59,12 @@ def print_comment(
     }.get(c.resolution_mode, "")
     if c.target_type == "commit_message":
         location = "[cyan]commit message[/cyan]"
+    elif c.target_type == "review_summary":
+        location = (
+            "[green]approved[/green]"
+            if c.review_action == "approve"
+            else "[red]changes requested[/red]"
+        )
     else:
         line_ref = (
             f"{c.line_number}-{c.end_line_number}"
@@ -102,6 +108,7 @@ def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
         "suggestions": suggestions,
         "resolved": c.resolved,
         "resolution_mode": c.resolution_mode.value,
+        "review_action": c.review_action,
         "replies": [{"author": r.author, "text": r.content} for r in replies],
     }
 

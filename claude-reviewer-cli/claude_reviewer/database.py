@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS comments (
     content TEXT NOT NULL,
     resolved BOOLEAN DEFAULT FALSE,
     resolution_mode TEXT NOT NULL DEFAULT 'fix',
+    review_action TEXT,
     anchor_content TEXT,
     anchor_context_before TEXT,
     anchor_context_after TEXT,
@@ -264,6 +265,7 @@ def init_db(db_path: Path | None = None) -> None:
         _migrate_comments_status(conn)
         _migrate_comments_paired_range(conn)
         _migrate_comments_resolution_mode(conn)
+        _migrate_comments_review_action(conn)
 
 
 def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
@@ -399,6 +401,23 @@ def _migrate_comments_status(conn: sqlite3.Connection) -> None:
                 raise
 
 
+def _migrate_comments_review_action(conn: sqlite3.Connection) -> None:
+    """Add review_action for databases created before an Approve review's
+    summary was mirrored into a comment too.
+
+    NULL is correct for every pre-existing row - a NULL review_action just
+    means "not a review-summary comment," true of everything created before
+    this column existed.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "review_action" for col in columns):
+        try:
+            conn.execute("ALTER TABLE comments ADD COLUMN review_action TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+
 def _migrate_comments_paired_range(conn: sqlite3.Connection) -> None:
     """Add the opposite-side range for databases created before cross-side
     (deleted+added adjacent pair) comments existed. NULL on every
@@ -464,6 +483,7 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         content=row["content"],
         resolved=bool(row["resolved"]),
         resolution_mode=CommentResolutionMode(row["resolution_mode"]),
+        review_action=row["review_action"],
         anchor_content=row["anchor_content"],
         anchor_context_before=row["anchor_context_before"],
         anchor_context_after=row["anchor_context_after"],
@@ -734,6 +754,7 @@ def add_comment(
     commit_sha: str | None = None,
     target_type: str = "line",
     resolution_mode: CommentResolutionMode = CommentResolutionMode.FIX,
+    review_action: str | None = None,
 ) -> str:
     """Add a comment to a PR and return its UUID."""
     comment_uuid = generate_uuid()
@@ -750,8 +771,8 @@ def add_comment(
 
         conn.execute(
             """
-            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content, resolution_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content, resolution_mode, review_action)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 comment_uuid,
@@ -764,6 +785,7 @@ def add_comment(
                 line_type,
                 content,
                 resolution_mode.value,
+                review_action,
             ),
         )
 
