@@ -10,7 +10,7 @@ import {
   addReply,
   type CommentAnchor,
 } from '@/lib/database';
-import { CommentTargetType, LineType } from '@/lib/enum';
+import { CommentResolutionMode, CommentTargetType, LineType } from '@/lib/enum';
 import { getFileAtCommit, listCommits } from '@/lib/git';
 
 interface RouteParams {
@@ -82,6 +82,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       targetType,
       pairedLineNumber,
       pairedEndLineNumber,
+      resolutionMode,
     } = body;
 
     const pr = getPRByUuid(id);
@@ -108,6 +109,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (targetType !== undefined && !VALID_TARGET_TYPES.includes(targetType)) {
       return NextResponse.json({ error: 'Invalid targetType' }, { status: 400 });
     }
+
+    const VALID_RESOLUTION_MODES = Object.values(CommentResolutionMode);
+    if (resolutionMode !== undefined && !VALID_RESOLUTION_MODES.includes(resolutionMode)) {
+      return NextResponse.json({ error: 'Invalid resolutionMode' }, { status: 400 });
+    }
+    const resolvedResolutionMode = resolutionMode || CommentResolutionMode.Fix;
 
     // A commit message comment has no file/line - it's anchored to a commit
     // as a whole, so commitSha is required (unlike a line comment, where it's
@@ -136,6 +143,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         0,
         commitSha,
         CommentTargetType.CommitMessage,
+        null,
+        null,
+        null,
+        resolvedResolutionMode,
       );
 
       return NextResponse.json(
@@ -213,6 +224,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       anchor,
       hasPairedRange ? pairedLineNumber : null,
       hasPairedRange ? pairedEndLineNumber : null,
+      resolvedResolutionMode,
     );
 
     return NextResponse.json(

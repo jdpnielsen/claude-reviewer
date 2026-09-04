@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import {
   AuthorKind,
   CommentRelocationStatus,
+  CommentResolutionMode,
   CommentTargetType,
   ConversationStatus,
   LineType,
@@ -52,6 +53,7 @@ export interface Comment {
   line_type: LineType;
   content: string;
   resolved: boolean;
+  resolution_mode: CommentResolutionMode;
   anchor_content: string | null;
   anchor_context_before: string | null;
   anchor_context_after: string | null;
@@ -271,6 +273,7 @@ function initSchema(db: Database.Database): void {
         line_type TEXT DEFAULT 'new',
         content TEXT NOT NULL,
         resolved BOOLEAN DEFAULT FALSE,
+        resolution_mode TEXT NOT NULL DEFAULT 'fix',
         anchor_content TEXT,
         anchor_context_before TEXT,
         anchor_context_after TEXT,
@@ -380,6 +383,7 @@ function initSchema(db: Database.Database): void {
   migrateCommentsAnchor(db);
   migrateCommentsStatus(db);
   migrateCommentsPairedRange(db);
+  migrateCommentsResolutionMode(db);
 }
 
 // A database created before the authors table existed has comment_replies/
@@ -543,6 +547,23 @@ function migrateCommentsPairedRange(db: Database.Database): void {
         // added the column between the check above and this ALTER.
         if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
       }
+    }
+  }
+  checkpoint();
+}
+
+// Adds resolution_mode for databases created before per-comment resolution
+// mode existed. DEFAULT 'fix' matches the implicit behavior every
+// pre-existing comment already got: Claude just implemented it.
+function migrateCommentsResolutionMode(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'resolution_mode')) {
+    try {
+      db.exec("ALTER TABLE comments ADD COLUMN resolution_mode TEXT NOT NULL DEFAULT 'fix'");
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
     }
   }
   checkpoint();
@@ -763,6 +784,7 @@ export function addComment(
   anchor: CommentAnchor | null = null,
   pairedLineNumber: number | null = null,
   pairedEndLineNumber: number | null = null,
+  resolutionMode: CommentResolutionMode = CommentResolutionMode.Fix,
 ): string {
   const db = getDatabase();
   const commentUuid = generateUuid();
@@ -777,9 +799,9 @@ export function addComment(
       INSERT INTO comments (
         uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type,
         content, anchor_content, anchor_context_before, anchor_context_after,
-        paired_line_number, paired_end_line_number
+        paired_line_number, paired_end_line_number, resolution_mode
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       commentUuid,
       pr.id,
@@ -795,6 +817,7 @@ export function addComment(
       anchor?.contextAfter ?? null,
       pairedLineNumber,
       pairedEndLineNumber,
+      resolutionMode,
     );
 
     db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);

@@ -33,6 +33,22 @@ export const CommentTargetType = {
 } as const;
 export type CommentTargetType = (typeof CommentTargetType)[keyof typeof CommentTargetType];
 
+// How the commenter expects their feedback to be handled - set once when the
+// comment is written, since that's when the reviewer actually knows which of
+// these they mean. Surfaced to Claude via `claude-reviewer comments` so it
+// doesn't always treat a comment as a mandate to change code.
+export const CommentResolutionMode = {
+  // Just implement it.
+  Fix: 'fix',
+  // Don't change code yet - reply with a question/counterpoint first.
+  Discuss: 'discuss',
+  // Implement it if you agree; otherwise reply with why not and leave it
+  // unresolved for the reviewer.
+  FixIfAgreed: 'fix_if_agreed',
+} as const;
+export type CommentResolutionMode =
+  (typeof CommentResolutionMode)[keyof typeof CommentResolutionMode];
+
 // Whether a comment's commit/line coordinates still resolve after a
 // rebase/amend/force-push, distinct from the reviewer-facing `resolved`
 // (thread addressed) flag on the same table.

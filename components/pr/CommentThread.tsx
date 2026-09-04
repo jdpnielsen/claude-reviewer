@@ -3,9 +3,10 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import { CodeHighlight } from './CodeBlock';
+import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
 import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
 import { getLanguage, submitOnModEnter } from '@/app/prs/[id]/utils';
-import { AuthorKind } from '@/lib/enum';
+import { AuthorKind, CommentResolutionMode } from '@/lib/enum';
 import { parseComment } from '@/lib/suggestions';
 
 export interface CommentThreadProps {
@@ -62,6 +63,11 @@ export default function CommentThread({
         </div>
       ) : (
         <>
+          {c.resolution_mode !== CommentResolutionMode.Fix && (
+            <div className={`resolution-mode-badge resolution-mode-${c.resolution_mode}`}>
+              {RESOLUTION_MODE_LABELS[c.resolution_mode]}
+            </div>
+          )}
           {segments.map((segment, i) =>
             segment.type === 'prose' ? (
               <div key={i} className="comment-content">

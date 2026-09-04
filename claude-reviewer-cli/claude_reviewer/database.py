@@ -42,6 +42,7 @@ from .models import (
     CommentRelocationStatus,
     CommentRelocationUpdate,
     CommentReply,
+    CommentResolutionMode,
     PRStatus,
     PullRequest,
     RepoConversation,
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS comments (
     line_type TEXT DEFAULT 'new',
     content TEXT NOT NULL,
     resolved BOOLEAN DEFAULT FALSE,
+    resolution_mode TEXT NOT NULL DEFAULT 'fix',
     anchor_content TEXT,
     anchor_context_before TEXT,
     anchor_context_after TEXT,
@@ -261,6 +263,7 @@ def init_db(db_path: Path | None = None) -> None:
         _migrate_comments_anchor(conn)
         _migrate_comments_status(conn)
         _migrate_comments_paired_range(conn)
+        _migrate_comments_resolution_mode(conn)
 
 
 def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
@@ -412,6 +415,22 @@ def _migrate_comments_paired_range(conn: sqlite3.Connection) -> None:
                     raise
 
 
+def _migrate_comments_resolution_mode(conn: sqlite3.Connection) -> None:
+    """Add resolution_mode for databases created before per-comment
+    resolution mode existed. DEFAULT 'fix' matches the implicit behavior
+    every pre-existing comment already got: Claude just implemented it.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "resolution_mode" for col in columns):
+        try:
+            conn.execute(
+                "ALTER TABLE comments ADD COLUMN resolution_mode TEXT NOT NULL DEFAULT 'fix'"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
     """Convert a database row to a PullRequest object."""
     return PullRequest(
@@ -444,6 +463,7 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         line_type=row["line_type"],
         content=row["content"],
         resolved=bool(row["resolved"]),
+        resolution_mode=CommentResolutionMode(row["resolution_mode"]),
         anchor_content=row["anchor_content"],
         anchor_context_before=row["anchor_context_before"],
         anchor_context_after=row["anchor_context_after"],
@@ -713,6 +733,7 @@ def add_comment(
     end_line_number: int | None = None,
     commit_sha: str | None = None,
     target_type: str = "line",
+    resolution_mode: CommentResolutionMode = CommentResolutionMode.FIX,
 ) -> str:
     """Add a comment to a PR and return its UUID."""
     comment_uuid = generate_uuid()
@@ -729,8 +750,8 @@ def add_comment(
 
         conn.execute(
             """
-            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content, resolution_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 comment_uuid,
@@ -742,6 +763,7 @@ def add_comment(
                 target_type,
                 line_type,
                 content,
+                resolution_mode.value,
             ),
         )
 

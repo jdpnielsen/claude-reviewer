@@ -29,6 +29,17 @@ class CommentRelocationStatus(str, Enum):
     ORPHANED = "orphaned"
 
 
+class CommentResolutionMode(str, Enum):
+    """How the commenter expects their feedback to be handled - set once
+    when the comment is written (from the web UI; the CLI never creates
+    comments itself), and surfaced via `comments`/`comments -f json` so
+    Claude doesn't always treat a comment as a mandate to change code."""
+
+    FIX = "fix"
+    DISCUSS = "discuss"
+    FIX_IF_AGREED = "fix_if_agreed"
+
+
 @dataclass
 class PullRequest:
     id: int
@@ -57,6 +68,7 @@ class Comment:
     commit_sha: Optional[str] = None
     target_type: str = "line"
     resolved: bool = False
+    resolution_mode: CommentResolutionMode = CommentResolutionMode.FIX
     line_type: str = "new"
     anchor_content: Optional[str] = None
     anchor_context_before: Optional[str] = None

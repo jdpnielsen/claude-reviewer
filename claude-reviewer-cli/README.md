@@ -72,7 +72,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `create` | Create a new PR from current branch |
 | `list` | List all PRs |
 | `status` | Check PR status |
-| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present |
+| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes |
 | `show` | Show detailed PR information |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
@@ -120,6 +120,12 @@ claude-reviewer comments a1b2c3d4 -f json
 # Only unresolved comments
 claude-reviewer comments a1b2c3d4 --unresolved
 ```
+
+Each comment carries a resolution mode set by the reviewer in the web UI: `fix` (the
+default - no tag shown), `discuss` (tagged `[discuss]` - don't change code yet, reply
+first), or `fix_if_agreed` (tagged `[fix-if-agreed]` - implement it if you agree,
+otherwise reply with why not). The JSON format includes it as `resolution_mode` on
+every comment.
 
 ### Update a PR
 
@@ -190,6 +196,9 @@ The web interface provides:
 - **AI Review** - Request automated code review with full codebase context
 - **Markdown preview** - Toggle between raw diff and rendered markdown
 - **Comment management** - Edit, resolve/unresolve, and reply to comments
+- **Resolution mode** - Mark a comment "just fix it", "let's discuss", or "fix if you
+  agree" - shown as a tag in `comments` output so Claude doesn't treat every comment
+  as a mandate to change code
 
 ### Browse Mode
 - **Repository browser** - Browse any local repository

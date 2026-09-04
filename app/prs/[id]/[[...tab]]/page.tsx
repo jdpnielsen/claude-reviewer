@@ -33,7 +33,13 @@ import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
 import { apiClient, ApiError } from '@/lib/api-client';
-import { ChangeType, CommentTargetType, PullRequestStatus, ReviewAction } from '@/lib/enum';
+import {
+  ChangeType,
+  CommentResolutionMode,
+  CommentTargetType,
+  PullRequestStatus,
+  ReviewAction,
+} from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
 
 export default function PRPage({ params }: { params: Promise<{ id: string; tab?: string[] }> }) {
@@ -55,6 +61,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // still updates live, so the range highlight grows as you drag).
   const [isSelectingComment, setIsSelectingComment] = useState(false);
   const [newComment, setNewComment] = useState('');
+  const [resolutionMode, setResolutionMode] = useState<CommentResolutionMode>(
+    CommentResolutionMode.Fix,
+  );
   const [editingComment, setEditingComment] = useState<EditingComment | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState('');
@@ -298,6 +307,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     if (!isSameTarget) {
       setCommentingOnCommitMessage(false);
       setNewComment('');
+      setResolutionMode(CommentResolutionMode.Fix);
     }
     setCommentingAt(target);
   };
@@ -305,6 +315,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const openCommitMessageComment = () => {
     setCommentingAt(null);
     setNewComment('');
+    setResolutionMode(CommentResolutionMode.Fix);
     setCommentingOnCommitMessage(true);
   };
 
@@ -315,6 +326,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     setCommentingAt(null);
     setCommentingOnCommitMessage(false);
     setNewComment('');
+    setResolutionMode(CommentResolutionMode.Fix);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCommit]);
 
@@ -329,8 +341,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
       content: newComment,
       pairedLineNumber: commentingAt.pairedStartLine,
       pairedEndLineNumber: commentingAt.pairedEndLine,
+      resolutionMode,
     });
     setNewComment('');
+    setResolutionMode(CommentResolutionMode.Fix);
     setCommentingAt(null);
     setLastClickedLine(null);
   };
@@ -341,8 +355,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
       targetType: CommentTargetType.CommitMessage,
       commitSha: selectedCommit,
       content: newComment,
+      resolutionMode,
     });
     setNewComment('');
+    setResolutionMode(CommentResolutionMode.Fix);
     setCommentingOnCommitMessage(false);
   };
 
@@ -612,6 +628,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                       openCommitMessageComment={openCommitMessageComment}
                       newComment={newComment}
                       setNewComment={setNewComment}
+                      resolutionMode={resolutionMode}
+                      setResolutionMode={setResolutionMode}
                       addComment={addCommitMessageComment}
                       editingComment={editingComment}
                       setEditingComment={setEditingComment}
@@ -653,6 +671,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   setIsSelectingComment={setIsSelectingComment}
                   newComment={newComment}
                   setNewComment={setNewComment}
+                  resolutionMode={resolutionMode}
+                  setResolutionMode={setResolutionMode}
                   addComment={addComment}
                   editingComment={editingComment}
                   setEditingComment={setEditingComment}

@@ -3,15 +3,18 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
+import ResolutionModeSelect from './ResolutionModeSelect';
 import type { CommentingAt, LastClickedLine } from '@/app/prs/[id]/types';
 import { submitOnModEnter } from '@/app/prs/[id]/utils';
-import { LineType } from '@/lib/enum';
+import { CommentResolutionMode, LineType } from '@/lib/enum';
 import { insertSuggestion } from '@/lib/suggestions';
 
 interface NewCommentFormProps {
   commentingAt: CommentingAt;
   newComment: string;
   setNewComment: Dispatch<SetStateAction<string>>;
+  resolutionMode: CommentResolutionMode;
+  setResolutionMode: Dispatch<SetStateAction<CommentResolutionMode>>;
   addComment: () => void;
   setCommentingAt: Dispatch<SetStateAction<CommentingAt | null>>;
   setLastClickedLine: Dispatch<SetStateAction<LastClickedLine | null>>;
@@ -22,6 +25,8 @@ export default function NewCommentForm({
   commentingAt,
   newComment,
   setNewComment,
+  resolutionMode,
+  setResolutionMode,
   addComment,
   setCommentingAt,
   setLastClickedLine,
@@ -74,6 +79,7 @@ export default function NewCommentForm({
       />
       <div className="comment-actions">
         <button onClick={addComment}>Add Comment</button>
+        <ResolutionModeSelect value={resolutionMode} onChange={setResolutionMode} />
         {canSuggestLines ? (
           <button
             className="suggest-change-btn"

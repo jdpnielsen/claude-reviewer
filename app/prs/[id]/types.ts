@@ -1,4 +1,11 @@
-import { AuthorKind, ChangeType, CommentTargetType, LineType, PullRequestStatus } from '@/lib/enum';
+import {
+  AuthorKind,
+  ChangeType,
+  CommentResolutionMode,
+  CommentTargetType,
+  LineType,
+  PullRequestStatus,
+} from '@/lib/enum';
 
 export interface PullRequest {
   uuid: string;
@@ -32,6 +39,7 @@ export interface Comment {
   line_type: LineType;
   content: string;
   resolved: boolean;
+  resolution_mode: CommentResolutionMode;
   created_at: string;
   // Old-side range, when this comment spans an adjacent deleted+added line
   // pair. NULL for an ordinary single-side comment.

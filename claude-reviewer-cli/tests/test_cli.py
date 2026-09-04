@@ -21,7 +21,7 @@ from claude_reviewer.cli import (
     print_comment,
     stop_local_server,
 )
-from claude_reviewer.models import Comment
+from claude_reviewer.models import Comment, CommentResolutionMode
 
 
 @pytest.fixture
@@ -369,6 +369,61 @@ class TestPrintComment:
         output = capsys.readouterr().out
         assert "looks good" in output
         assert "Suggested change:" not in output
+
+    def test_omits_resolution_mode_tag_for_the_default_fix_mode(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The common case (just fix it) stays uncluttered - no tag shown."""
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="looks good",
+            resolution_mode=CommentResolutionMode.FIX,
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "discuss" not in output
+        assert "fix-if-agreed" not in output
+
+    def test_shows_discuss_tag(self, capsys: pytest.CaptureFixture[str]) -> None:
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="what's the reasoning here?",
+            resolution_mode=CommentResolutionMode.DISCUSS,
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "[discuss]" in output
+
+    def test_shows_fix_if_agreed_tag(self, capsys: pytest.CaptureFixture[str]) -> None:
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="consider renaming this",
+            resolution_mode=CommentResolutionMode.FIX_IF_AGREED,
+        )
+
+        print_comment(comment)
+
+        output = capsys.readouterr().out
+        assert "[fix-if-agreed]" in output
 
 
 class TestAuthorsCommands:

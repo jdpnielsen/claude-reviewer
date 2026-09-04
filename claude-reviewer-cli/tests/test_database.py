@@ -10,6 +10,7 @@ from claude_reviewer import database as db
 from claude_reviewer.models import (
     CommentRelocationStatus,
     CommentRelocationUpdate,
+    CommentResolutionMode,
     PRStatus,
     ReviewAction,
 )
@@ -319,6 +320,33 @@ class TestComments:
         scoped = next(c for c in comments if c.content == "scoped")
         assert cumulative.commit_sha is None
         assert scoped.commit_sha == "abc1234"
+
+    def test_add_comment_stores_resolution_mode(self, temp_db: Path) -> None:
+        """resolution_mode defaults to FIX and can be set to another mode."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        db.add_comment(pr_uuid=uuid, file_path="a.py", line_number=1, content="default mode")
+        db.add_comment(
+            pr_uuid=uuid,
+            file_path="a.py",
+            line_number=2,
+            content="discuss this",
+            resolution_mode=CommentResolutionMode.DISCUSS,
+        )
+
+        comments = db.get_comments(uuid, file_path="a.py")
+        default_mode = next(c for c in comments if c.content == "default mode")
+        discuss_mode = next(c for c in comments if c.content == "discuss this")
+        assert default_mode.resolution_mode == CommentResolutionMode.FIX
+        assert discuss_mode.resolution_mode == CommentResolutionMode.DISCUSS
 
     def test_add_comment_defaults_target_type_to_line(self, temp_db: Path) -> None:
         """Test that target_type defaults to 'line' and can be set to 'commit_message'."""

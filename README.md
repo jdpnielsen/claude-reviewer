@@ -150,7 +150,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer create -t "Title"` | Create a new PR for the current branch |
 | `claude-reviewer list` | List all PRs |
 | `claude-reviewer status <id>` | Check PR status (pending/approved/changes_requested) |
-| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present |
+| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes |
 | `claude-reviewer show <id>` | Show detailed PR information |
 | `claude-reviewer reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment; `-a` defaults to `claude`, or use `-a me`/`-a <name>` |
 | `claude-reviewer authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities used for reply attribution |
@@ -207,6 +207,8 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 - **File Navigation** - Jump between changed files via sidebar
 - **Review Actions** - Approve or request changes with optional summary
 - **Comment Resolution** - Mark comments as resolved/unresolved
+- **Resolution Mode** - Tell Claude how to treat a comment: just fix it, discuss it
+  first, or fix it only if Claude agrees
 - **PR Housekeeping** - Sync, close/reopen, or permanently delete a PR from its page
 - **Missing-repo Handling** - A PR whose repository or worktree has since been deleted
   still opens: it shows the last stored diff plus a banner, with the git-backed
