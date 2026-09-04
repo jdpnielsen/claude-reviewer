@@ -84,6 +84,11 @@ export function useAddCommentMutation(id: string) {
           created_at: new Date().toISOString(),
           paired_line_number: params.pairedLineNumber ?? null,
           paired_end_line_number: params.pairedEndLineNumber ?? null,
+          // Only ever populated server-side, from the actual blob the
+          // comment was made against - never known at optimistic-insert time.
+          anchor_content: null,
+          anchor_context_before: null,
+          anchor_context_after: null,
         },
         replies: [],
       };

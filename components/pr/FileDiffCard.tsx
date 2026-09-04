@@ -1,6 +1,15 @@
 'use client';
 
-import { ChevronDown, ChevronRight, Code, Eye, MoreHorizontal, Plus } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Code,
+  Eye,
+  File,
+  GitCommit,
+  MoreHorizontal,
+  Plus,
+} from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -12,11 +21,13 @@ import SyntaxLine from './SyntaxLine';
 import type {
   CommentingAt,
   CommentWithReplies,
+  CommitInfo,
   EditingComment,
   FileInfo,
   LastClickedLine,
 } from '@/app/prs/[id]/types';
 import {
+  findAnchorMatchInDiff,
   getCrossSideRange,
   getFileContentFromDiff,
   getLanguage,
@@ -31,6 +42,14 @@ interface FileDiffCardProps {
   file: FileInfo;
   diff: string;
   fileComments: CommentWithReplies[];
+  // Line comments made against one specific commit's diff, for this file -
+  // only ever non-empty while viewing the cumulative diff (see
+  // getCommitSpecificFileComments in page.tsx). Rendered as their own
+  // commit-tagged list rather than inline, since a commit-relative line
+  // number has no reliable position in the cumulative diff.
+  commitSpecificComments: CommentWithReplies[];
+  commits: CommitInfo[];
+  onJumpToFile: (filePath: string, commitSha: string | null) => void;
   isExpanded: boolean;
   toggleFile: (path: string) => void;
   isPreview: boolean;
@@ -66,6 +85,9 @@ export default function FileDiffCard({
   file,
   diff,
   fileComments,
+  commitSpecificComments,
+  commits,
+  onJumpToFile,
   isExpanded,
   toggleFile,
   isPreview,
@@ -98,6 +120,26 @@ export default function FileDiffCard({
 }: FileDiffCardProps) {
   const diffLines = parseFileDiff(diff, file.path);
   const isMd = isMarkdownFile(file.path);
+
+  // A commit-specific comment renders inline, right at its matched line,
+  // when its anchor content still uniquely identifies a line in THIS
+  // (cumulative) diff - otherwise it falls back to the commit-tagged list
+  // below rather than risk landing on the wrong line. See
+  // findAnchorMatchInDiff for the matching rules.
+  const commitSpecificMatches = commitSpecificComments.map((item) => ({
+    item,
+    match: findAnchorMatchInDiff(
+      diffLines,
+      item.comment.anchor_content,
+      item.comment.anchor_context_before,
+      item.comment.anchor_context_after,
+      item.comment.line_type,
+    ),
+  }));
+  const unmatchedCommitSpecificComments = commitSpecificMatches
+    .filter(({ match }) => match === null)
+    .map(({ item }) => item);
+
   const seedSuggestionLines =
     commentingAt?.file === file.path
       ? getRangeTextFromDiff(
@@ -140,6 +182,56 @@ export default function FileDiffCard({
           </button>
         )}
       </div>
+
+      {isExpanded && unmatchedCommitSpecificComments.length > 0 && (
+        <div className="commit-specific-comments">
+          <div className="commit-specific-comments-heading">
+            Comments on individual commits ({unmatchedCommitSpecificComments.length}) - made
+            against a single commit&apos;s diff, and their line couldn&apos;t be confidently
+            matched to this one
+          </div>
+          {unmatchedCommitSpecificComments.map((item) => {
+            const commitAt = commits.find((c) => c.sha === item.comment.commit_sha);
+            return (
+              <div key={item.comment.uuid} className="commit-specific-comment-row">
+                <div
+                  className="thread-commit-badge"
+                  title={`Commented while viewing ${commitAt?.message ?? item.comment.commit_sha}`}
+                >
+                  <GitCommit size={12} />
+                  <span className="commit-sha">
+                    {commitAt?.shortSha ?? item.comment.commit_sha?.slice(0, 7)}
+                  </span>
+                  <span className="thread-commit-message">
+                    {commitAt?.message ?? 'unknown commit'}
+                  </span>
+                  <button
+                    type="button"
+                    className="view-file-btn"
+                    onClick={() => onJumpToFile(file.path, item.comment.commit_sha)}
+                  >
+                    <File size={14} />
+                    View in commit
+                  </button>
+                </div>
+                <CollapsibleCommentThread
+                  item={item}
+                  editingComment={editingComment}
+                  setEditingComment={setEditingComment}
+                  editComment={editComment}
+                  resolveComment={resolveComment}
+                  deleteComment={deleteComment}
+                  replyingTo={replyingTo}
+                  setReplyingTo={setReplyingTo}
+                  replyContent={replyContent}
+                  setReplyContent={setReplyContent}
+                  addReply={addReply}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {isExpanded && isPreview && isMd && (
         <div className="markdown-preview">
@@ -230,6 +322,17 @@ export default function FileDiffCard({
                       : c.comment.line_type !== LineType.Old;
                     return sideMatches && anchorLine === c.comment.end_line_number;
                   });
+
+                  // Commit-specific comments whose anchor matched this exact
+                  // line - see the commitSpecificMatches computation above.
+                  const matchedCommitComments = line.startsWith('@@')
+                    ? []
+                    : commitSpecificMatches.filter(
+                        ({ match }) =>
+                          match !== null &&
+                          match.anchorLine === anchorLine &&
+                          match.lineType === anchorLineType,
+                      );
 
                   // Persistent highlight for every line within a saved comment's range,
                   // including its Old-side paired range (a deleted+added line pair), if any.
@@ -484,6 +587,51 @@ export default function FileDiffCard({
                           addReply={addReply}
                         />
                       ))}
+
+                      {/* Commit-specific comments whose anchor matched this line - see
+                          commitSpecificMatches. Tagged with the commit they were made
+                          against, since that's not otherwise visible in the cumulative
+                          view. */}
+                      {matchedCommitComments.map(({ item }) => {
+                        const commitAt = commits.find((c) => c.sha === item.comment.commit_sha);
+                        return (
+                          <div key={item.comment.uuid} className="matched-commit-comment">
+                            <div
+                              className="thread-commit-badge"
+                              title={`Commented while viewing ${commitAt?.message ?? item.comment.commit_sha}`}
+                            >
+                              <GitCommit size={12} />
+                              <span className="commit-sha">
+                                {commitAt?.shortSha ?? item.comment.commit_sha?.slice(0, 7)}
+                              </span>
+                              <span className="thread-commit-message">
+                                {commitAt?.message ?? 'unknown commit'}
+                              </span>
+                              <button
+                                type="button"
+                                className="view-file-btn"
+                                onClick={() => onJumpToFile(file.path, item.comment.commit_sha)}
+                              >
+                                <File size={14} />
+                                View in commit
+                              </button>
+                            </div>
+                            <CollapsibleCommentThread
+                              item={item}
+                              editingComment={editingComment}
+                              setEditingComment={setEditingComment}
+                              editComment={editComment}
+                              resolveComment={resolveComment}
+                              deleteComment={deleteComment}
+                              replyingTo={replyingTo}
+                              setReplyingTo={setReplyingTo}
+                              replyContent={replyContent}
+                              setReplyContent={setReplyContent}
+                              addReply={addReply}
+                            />
+                          </div>
+                        );
+                      })}
 
                       {/* New comment form - hidden mid-drag (see isSelectingComment) so
                           the range highlight can grow without the form's insertion

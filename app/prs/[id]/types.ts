@@ -37,6 +37,14 @@ export interface Comment {
   // pair. NULL for an ordinary single-side comment.
   paired_line_number: number | null;
   paired_end_line_number: number | null;
+  // Captured at creation time against the blob the comment was actually made
+  // on (see captureAnchor in the comments API route) - the same fields
+  // relocateComments() searches for after a rebase/amend/force-push. Used to
+  // try to place a commit-specific comment inline in the cumulative diff too
+  // - see findAnchorMatchInDiff.
+  anchor_content: string | null;
+  anchor_context_before: string | null;
+  anchor_context_after: string | null;
 }
 
 export interface CommentWithReplies {

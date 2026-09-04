@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FileInfo } from '../app/prs/[id]/types';
 import {
+  findAnchorMatchInDiff,
   getCrossSideRange,
   getRangeTextFromDiff,
   MAX_LINES_DEFAULT,
@@ -117,6 +118,72 @@ describe('getCrossSideRange', () => {
     ];
     // The hunk header itself (row 3) breaks the pure +/- span.
     expect(getCrossSideRange(multiHunk, 1, 4)).toBeNull();
+  });
+});
+
+describe('findAnchorMatchInDiff', () => {
+  const diffLines = [
+    '@@ -1,5 +1,6 @@',
+    ' function total(items) {',
+    '-  return items.length;',
+    '+  let sum = 0;',
+    '+  return sum;',
+    ' }',
+    ' export default total;',
+  ];
+
+  it('returns null with no anchor content to match on', () => {
+    expect(findAnchorMatchInDiff(diffLines, null, null, null, LineType.New)).toBeNull();
+  });
+
+  it('finds the unique matching new-side line', () => {
+    expect(findAnchorMatchInDiff(diffLines, 'return sum;', null, null, LineType.New)).toEqual({
+      anchorLine: 3,
+      lineType: LineType.New,
+    });
+  });
+
+  it('only matches an old-type comment against the removed line, not the new side', () => {
+    expect(
+      findAnchorMatchInDiff(diffLines, 'return items.length;', null, null, LineType.Old),
+    ).toEqual({ anchorLine: 2, lineType: LineType.Old });
+    expect(
+      findAnchorMatchInDiff(diffLines, 'return items.length;', null, null, LineType.New),
+    ).toBeNull();
+  });
+
+  it('matches a new-type comment against an unchanged context line too', () => {
+    expect(findAnchorMatchInDiff(diffLines, '}', null, null, LineType.New)).toEqual({
+      anchorLine: 4,
+      lineType: LineType.New,
+    });
+  });
+
+  const ambiguousDiffLines = [
+    '@@ -1,7 +1,8 @@',
+    ' function a() {',
+    '   doA();',
+    '+  extra();',
+    ' }',
+    ' function b() {',
+    '   doB();',
+    ' }',
+  ];
+
+  it('disambiguates multiple exact-content matches using the captured context', () => {
+    expect(
+      findAnchorMatchInDiff(ambiguousDiffLines, '}', 'doB();', null, LineType.New),
+    ).toEqual({ anchorLine: 7, lineType: LineType.New });
+  });
+
+  it('returns null when multiple matches stay ambiguous with no context to narrow them', () => {
+    expect(findAnchorMatchInDiff(ambiguousDiffLines, '}', null, null, LineType.New)).toBeNull();
+  });
+
+  it('returns null when context narrows to zero candidates (stale anchor)', () => {
+    expect(
+      findAnchorMatchInDiff(ambiguousDiffLines, '}', 'nonexistent context', null, LineType.New),
+    ).toBeNull();
   });
 });
 
