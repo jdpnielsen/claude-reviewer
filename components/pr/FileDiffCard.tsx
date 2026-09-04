@@ -36,7 +36,7 @@ import {
   MAX_LINES_DEFAULT,
   parseFileDiff,
 } from '@/app/prs/[id]/utils';
-import { LineType } from '@/lib/enum';
+import { CommentResolutionMode, LineType } from '@/lib/enum';
 
 interface FileDiffCardProps {
   file: FileInfo;
@@ -68,6 +68,8 @@ interface FileDiffCardProps {
   setIsSelectingComment: Dispatch<SetStateAction<boolean>>;
   newComment: string;
   setNewComment: Dispatch<SetStateAction<string>>;
+  resolutionMode: CommentResolutionMode;
+  setResolutionMode: Dispatch<SetStateAction<CommentResolutionMode>>;
   addComment: () => void;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
@@ -106,6 +108,8 @@ export default function FileDiffCard({
   setIsSelectingComment,
   newComment,
   setNewComment,
+  resolutionMode,
+  setResolutionMode,
   addComment,
   editingComment,
   setEditingComment,
@@ -644,6 +648,8 @@ export default function FileDiffCard({
                             commentingAt={commentingAt}
                             newComment={newComment}
                             setNewComment={setNewComment}
+                            resolutionMode={resolutionMode}
+                            setResolutionMode={setResolutionMode}
                             addComment={addComment}
                             setCommentingAt={setCommentingAt}
                             setLastClickedLine={setLastClickedLine}

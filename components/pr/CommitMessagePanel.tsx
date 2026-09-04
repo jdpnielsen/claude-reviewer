@@ -5,8 +5,10 @@ import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import CollapsibleCommentThread from './CollapsibleCommentThread';
+import ResolutionModeSelect from './ResolutionModeSelect';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 import { submitOnModEnter } from '@/app/prs/[id]/utils';
+import { CommentResolutionMode } from '@/lib/enum';
 import { insertSuggestion } from '@/lib/suggestions';
 
 interface CommitMessagePanelProps {
@@ -17,6 +19,8 @@ interface CommitMessagePanelProps {
   openCommitMessageComment: () => void;
   newComment: string;
   setNewComment: Dispatch<SetStateAction<string>>;
+  resolutionMode: CommentResolutionMode;
+  setResolutionMode: Dispatch<SetStateAction<CommentResolutionMode>>;
   addComment: () => void;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
@@ -38,6 +42,8 @@ export default function CommitMessagePanel({
   openCommitMessageComment,
   newComment,
   setNewComment,
+  resolutionMode,
+  setResolutionMode,
   addComment,
   ...commentThreadProps
 }: CommitMessagePanelProps) {
@@ -83,6 +89,7 @@ export default function CommitMessagePanel({
           />
           <div className="comment-actions">
             <button onClick={addComment}>Add Comment</button>
+            <ResolutionModeSelect value={resolutionMode} onChange={setResolutionMode} />
             <button
               className="suggest-change-btn"
               onClick={() =>

@@ -28,6 +28,7 @@ from .git_ops import GitOps
 from .models import (
     Comment,
     CommentReply,
+    CommentResolutionMode,
     PRStatus,
     PullRequest,
     RepoConversation,
@@ -50,6 +51,12 @@ def print_comment(
     side_note = " [dim]\\[old-side][/dim]" if c.line_type == "old" else ""
     commit_note = f" [dim]\\[{c.commit_sha[:7]}][/dim]" if c.commit_sha else ""
     resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
+    # Only flagged for the non-default modes, so the common "just fix it"
+    # case stays uncluttered - see CommentResolutionMode.
+    mode_note = {
+        CommentResolutionMode.DISCUSS: " [yellow]\\[discuss][/yellow]",
+        CommentResolutionMode.FIX_IF_AGREED: " [yellow]\\[fix-if-agreed][/yellow]",
+    }.get(c.resolution_mode, "")
     if c.target_type == "commit_message":
         location = "[cyan]commit message[/cyan]"
     else:
@@ -60,7 +67,8 @@ def print_comment(
         )
         location = f"[cyan]{c.file_path}:{line_ref}[/cyan]"
     console.print(
-        f"{indent}{location}{side_note}{commit_note}{resolved_note}  " f"[dim]· {c.uuid}[/dim]",
+        f"{indent}{location}{side_note}{commit_note}{mode_note}{resolved_note}  "
+        f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
     for segment in parse_comment(c.content):
@@ -93,6 +101,7 @@ def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
         "text": c.content,
         "suggestions": suggestions,
         "resolved": c.resolved,
+        "resolution_mode": c.resolution_mode.value,
         "replies": [{"author": r.author, "text": r.content} for r in replies],
     }
 

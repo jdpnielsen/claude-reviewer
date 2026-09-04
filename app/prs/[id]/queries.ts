@@ -3,7 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import type { CommentReply, CommentWithReplies, PRData } from './types';
 import { apiClient, buildQuery } from '@/lib/api-client';
-import { AuthorKind, CommentTargetType, ReviewAction } from '@/lib/enum';
+import { AuthorKind, CommentResolutionMode, CommentTargetType, ReviewAction } from '@/lib/enum';
 import type { LineType, PullRequestStatus } from '@/lib/enum';
 
 export const prQueryKey = (id: string, commit: string | null) => ['pr', id, { commit }] as const;
@@ -60,6 +60,7 @@ interface AddCommentParams {
   // block - see CommentingAt.pairedStartLine/pairedEndLine.
   pairedLineNumber?: number;
   pairedEndLineNumber?: number;
+  resolutionMode?: CommentResolutionMode;
 }
 
 export function useAddCommentMutation(id: string) {
@@ -81,6 +82,7 @@ export function useAddCommentMutation(id: string) {
           line_type: params.lineType ?? 'new',
           content: params.content,
           resolved: false,
+          resolution_mode: params.resolutionMode ?? CommentResolutionMode.Fix,
           created_at: new Date().toISOString(),
           paired_line_number: params.pairedLineNumber ?? null,
           paired_end_line_number: params.pairedEndLineNumber ?? null,

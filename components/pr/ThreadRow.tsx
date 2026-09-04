@@ -4,8 +4,9 @@ import { CheckCircle, ChevronDown, ChevronRight, File, GitCommit, Layers } from 
 import type { Dispatch, SetStateAction } from 'react';
 
 import CommentThread from './CommentThread';
+import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
-import { CommentTargetType } from '@/lib/enum';
+import { CommentResolutionMode, CommentTargetType } from '@/lib/enum';
 
 interface ThreadRowProps {
   item: CommentWithReplies;
@@ -84,6 +85,13 @@ export default function ThreadRow({
             'Cumulative diff'
           )}
         </span>
+        {comment.resolution_mode !== CommentResolutionMode.Fix && (
+          <span
+            className={`resolution-mode-badge resolution-mode-${comment.resolution_mode}`}
+          >
+            {RESOLUTION_MODE_LABELS[comment.resolution_mode]}
+          </span>
+        )}
         {Boolean(comment.resolved) && (
           <span className="thread-resolved-badge">
             <CheckCircle size={12} />
