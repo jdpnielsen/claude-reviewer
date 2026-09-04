@@ -4,7 +4,15 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import type { Comment } from './database';
 
-const client = new Anthropic();
+// Constructed lazily (not as a module-level const) so importing this module
+// never touches the Anthropic SDK - constructing it eagerly throws under any
+// jsdom-like test environment ("browser-like environment") the moment
+// anything imports this file, whether or not inferPreferences ever runs.
+let client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!client) client = new Anthropic();
+  return client;
+}
 
 /**
  * Infer coding preferences from review comments using Claude.
@@ -52,7 +60,7 @@ Example: ["Prefer explicit error handling over silent failures", "Use descriptiv
 Return only the JSON array, no other text.`;
 
   try {
-    const response = await client.messages.create({
+    const response = await getClient().messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
