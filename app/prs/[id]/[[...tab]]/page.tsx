@@ -411,6 +411,24 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     );
   };
 
+  // Per-commit line comments for a file, visible only from the cumulative
+  // ("All commits") view. getFileComments matches commit_sha === selectedCommit
+  // exactly, so a comment made against one specific commit's diff never shows
+  // up there at all - a line number from that commit's diff has no reliable
+  // meaning in the cumulative diff, so these render as their own
+  // commit-tagged list in FileDiffCard rather than inline at a (possibly
+  // wrong) line. Empty once a specific commit is selected: every comment
+  // relevant to that view already comes back from getFileComments.
+  const getCommitSpecificFileComments = (filePath: string) => {
+    if (!data || selectedCommit !== null) return [];
+    return data.comments.filter(
+      (c) =>
+        c.comment.target_type === CommentTargetType.Line &&
+        c.comment.file_path === filePath &&
+        c.comment.commit_sha !== null,
+    );
+  };
+
   // A file with comments is always shown expanded, so reviewers never miss
   // existing discussion - unless the user has explicitly collapsed it, which
   // always wins. Absent either of those, fall back to the same per-file
@@ -424,6 +442,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     if (collapsedFiles.has(filePath)) return false;
     if (expandedFiles.has(filePath)) return true;
     if (getFileComments(filePath).length > 0) return true;
+    if (getCommitSpecificFileComments(filePath).length > 0) return true;
     const file = data?.files.find((f) => f.path === filePath);
     return file ? file.changeType !== ChangeType.Deleted && !shouldCollapseByDefault(file) : false;
   };
@@ -613,6 +632,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   file={file}
                   diff={diff}
                   fileComments={getFileComments(file.path)}
+                  commitSpecificComments={getCommitSpecificFileComments(file.path)}
+                  commits={data.commits}
+                  onJumpToFile={jumpToFile}
                   isExpanded={effectiveExpandedFiles.has(file.path)}
                   toggleFile={toggleFile}
                   isPreview={previewMode.has(file.path)}

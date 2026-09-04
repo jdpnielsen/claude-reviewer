@@ -217,6 +217,96 @@ export const getRangeTextFromDiff = (
   return result;
 };
 
+// Tries to place a comment made against one specific commit's diff at its
+// corresponding line in a DIFFERENT diff (the cumulative one) - so it can
+// render inline there instead of only in a separate commit-tagged list. Matches
+// on the comment's captured anchor_content (exact, trimmed) among diffLines on
+// the requested side, using the same side-matching rule FileDiffCard's own
+// inline-comment lookup uses (an Old-side comment only matches a removed
+// line; a New-side comment matches an added OR an unchanged context line).
+// A single match is trusted outright; multiple exact-content matches (e.g. a
+// bare "}") are narrowed using the captured 3-line context, mirroring
+// lib/comment-relocation.ts's same tiered approach. Returns null - meaning
+// "don't guess" - when there's no anchor_content to match on, or the match
+// stays ambiguous even after narrowing.
+export const findAnchorMatchInDiff = (
+  diffLines: string[],
+  anchorContent: string | null,
+  anchorContextBefore: string | null,
+  anchorContextAfter: string | null,
+  lineType: LineType,
+): { anchorLine: number; lineType: LineType } | null => {
+  if (!anchorContent) return null;
+  const trimmedAnchor = anchorContent.trim();
+
+  let oldLineNum = 0;
+  let newLineNum = 0;
+  // Every line on the requested side, in diff order, so context lookups can
+  // walk immediately before/after a candidate.
+  const sideLines: { text: string; anchorLine: number }[] = [];
+  const candidateIdxs: number[] = [];
+
+  for (const line of diffLines) {
+    if (line.startsWith('@@')) {
+      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+      if (match) {
+        oldLineNum = parseInt(match[1], 10) - 1;
+        newLineNum = parseInt(match[2], 10) - 1;
+      }
+      continue;
+    }
+
+    let anchorLine: number;
+    let sideMatches: boolean;
+    if (line.startsWith('+')) {
+      newLineNum++;
+      anchorLine = newLineNum;
+      sideMatches = lineType !== LineType.Old;
+    } else if (line.startsWith('-')) {
+      oldLineNum++;
+      anchorLine = oldLineNum;
+      sideMatches = lineType === LineType.Old;
+    } else {
+      oldLineNum++;
+      newLineNum++;
+      anchorLine = newLineNum;
+      sideMatches = lineType !== LineType.Old;
+    }
+
+    if (!sideMatches) continue;
+    const text = line.slice(1).trim();
+    if (text === trimmedAnchor) candidateIdxs.push(sideLines.length);
+    sideLines.push({ text, anchorLine });
+  }
+
+  if (candidateIdxs.length === 0) return null;
+  if (candidateIdxs.length === 1) {
+    return { anchorLine: sideLines[candidateIdxs[0]].anchorLine, lineType };
+  }
+
+  const beforeLines = anchorContextBefore
+    ? anchorContextBefore.split('\n').map((l) => l.trim())
+    : [];
+  const afterLines = anchorContextAfter ? anchorContextAfter.split('\n').map((l) => l.trim()) : [];
+  if (beforeLines.length === 0 && afterLines.length === 0) return null;
+
+  const narrowed = candidateIdxs.filter((idx) => {
+    for (let j = 0; j < beforeLines.length; j++) {
+      const checkIdx = idx - beforeLines.length + j;
+      if (sideLines[checkIdx]?.text !== beforeLines[j]) return false;
+    }
+    for (let j = 0; j < afterLines.length; j++) {
+      const checkIdx = idx + 1 + j;
+      if (sideLines[checkIdx]?.text !== afterLines[j]) return false;
+    }
+    return true;
+  });
+
+  return narrowed.length === 1
+    ? { anchorLine: sideLines[narrowed[0]].anchorLine, lineType }
+    : null;
+};
+
 // A shift-click range whose two ends fall on opposite sides (an added line
 // and a removed line) can only become one comment when the rows between
 // them, inclusive, are ALL '+'/'-' lines - i.e. one contiguous "replace"
