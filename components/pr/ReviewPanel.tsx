@@ -5,6 +5,7 @@ import { CheckCircle, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
+import { submitOnModEnter } from '@/app/prs/[id]/utils';
 import { PullRequestStatus, ReviewAction } from '@/lib/enum';
 
 interface ReviewPanelProps {
@@ -61,6 +62,7 @@ export default function ReviewPanel({
             placeholder="Leave a comment"
             value={reviewSummary}
             onChange={(e) => setReviewSummary(e.target.value)}
+            onKeyDown={submitOnModEnter(handleSubmit)}
             rows={4}
             ref={(el) => el?.focus()}
           />

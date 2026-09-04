@@ -1193,6 +1193,39 @@ textarea {
   white-space: pre-wrap;
 }
 
+.inline-comment-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: calc(100% - 2rem);
+  margin: 0.5rem 1rem;
+  margin-left: 60px;
+  padding: 0.5rem 0.75rem;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.inline-comment-toggle:hover {
+  background: #1c2129;
+  color: #c9d1d9;
+}
+
+.inline-comment-toggle-resolved {
+  color: #3fb950;
+  flex-shrink: 0;
+}
+
+.inline-comment-toggle-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Conversation Tab */
 .conversation-tab {
   display: flex;

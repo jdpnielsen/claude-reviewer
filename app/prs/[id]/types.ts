@@ -1,7 +1,6 @@
 import { AuthorKind, ChangeType, CommentTargetType, LineType, PullRequestStatus } from '@/lib/enum';
 
 export interface PullRequest {
-  id: number;
   uuid: string;
   repo_path: string;
   title: string;

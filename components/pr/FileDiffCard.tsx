@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import CodeBlock from './CodeBlock';
-import CommentThread from './CommentThread';
+import CollapsibleCommentThread from './CollapsibleCommentThread';
 import NewCommentForm from './NewCommentForm';
 import SyntaxLine from './SyntaxLine';
 import type {
@@ -469,7 +469,7 @@ export default function FileDiffCard({
 
                       {/* Inline comments with replies */}
                       {lineComments.map((commentWithReplies) => (
-                        <CommentThread
+                        <CollapsibleCommentThread
                           key={commentWithReplies.comment.uuid}
                           item={commentWithReplies}
                           editingComment={editingComment}

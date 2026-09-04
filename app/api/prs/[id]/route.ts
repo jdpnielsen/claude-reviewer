@@ -7,6 +7,7 @@ import {
   updatePRStatus,
   getCommentsWithReplies,
   lookupCommitRelocation,
+  toPublicPR,
 } from '@/lib/database';
 import { ChangeType, PullRequestStatus } from '@/lib/enum';
 import { listCommits, getCommitDiff, isRepoAvailable } from '@/lib/git';
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const files = parseDiffFiles(diff || '');
 
     return NextResponse.json({
-      pr,
+      pr: toPublicPR(pr),
       diff,
       files,
       comments,
@@ -105,7 +106,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
 
     const updatedPR = getPRByUuid(id);
-    return NextResponse.json({ pr: updatedPR });
+    return NextResponse.json({ pr: updatedPR ? toPublicPR(updatedPR) : updatedPR });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -1,7 +1,19 @@
 import { CheckCircle, Clock, GitMerge, XCircle } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
 
 import type { FileInfo, FolderNode } from './types';
 import { LineType } from '@/lib/enum';
+
+// Cmd+Enter (macOS) or Ctrl+Enter (elsewhere) submits a comment form from its
+// textarea, mirroring GitHub's convention, without swallowing a plain Enter
+// (which should still just insert a newline).
+export const submitOnModEnter =
+  (submit: () => void) => (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  };
 
 // Limit lines rendered per file for performance on large diffs.
 export const MAX_LINES_DEFAULT = 300;
