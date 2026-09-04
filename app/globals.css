@@ -1336,6 +1336,19 @@ textarea {
   font-size: 0.8rem;
 }
 
+.thread-file-review-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-family: inherit;
+  color: #f85149;
+  font-weight: 500;
+}
+
+.thread-file-review-summary.approved {
+  color: #3fb950;
+}
+
 .thread-resolved-badge {
   display: flex;
   align-items: center;
