@@ -70,7 +70,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // what it was when marked - see getBlobHash and setReviewedFile. Without
     // the repo (repoAvailable false), there's no way to recompute this, so
     // marks are passed through trusted as-is rather than guessed at.
-    const reviewedFiles = getReviewedFiles(id).map((r) => ({
+    const rawReviewedFiles = getReviewedFiles(id);
+    const reviewedFiles = rawReviewedFiles.map((r) => ({
       file_path: r.file_path,
       commit_sha: r.commit_sha,
       marked_at: r.marked_at,
@@ -80,6 +81,31 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         : true,
     }));
 
+    // A commit is "reviewed" (shown green in the commit selector) once every
+    // file its own diff touches has a current mark scoped to it - the same
+    // bar CommitMessagePanel's "mark commit reviewed" button clears in one
+    // shot, but also true if every file in it happened to be marked one at a
+    // time. Only worth a getCommitDiff call for a commit that has at least
+    // one current mark to begin with - most commits in a fresh PR have none,
+    // so this stays cheap regardless of how many commits the PR has.
+    const candidateCommitShas = [
+      ...new Set(
+        reviewedFiles
+          .filter((r) => r.commit_sha !== null && r.current)
+          .map((r) => r.commit_sha as string),
+      ),
+    ];
+    const reviewedCommits = repoAvailable
+      ? candidateCommitShas.filter((sha) => {
+          if (!commits.some((c) => c.sha === sha)) return false;
+          const commitFiles = parseDiffFiles(getCommitDiff(pr.repo_path, sha));
+          if (commitFiles.length === 0) return false;
+          return commitFiles.every((f) =>
+            reviewedFiles.some((r) => r.file_path === f.path && r.commit_sha === sha && r.current),
+          );
+        })
+      : [];
+
     return NextResponse.json({
       pr: toPublicPR(pr),
       diff,
@@ -87,6 +113,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       comments,
       commits,
       reviewedFiles,
+      reviewedCommits,
       repoAvailable,
     });
   } catch (error: unknown) {

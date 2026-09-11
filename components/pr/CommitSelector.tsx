@@ -6,13 +6,24 @@ import { useState } from 'react';
 
 import type { CommitInfo } from '@/app/prs/[id]/types';
 
+// Green tint for a commit's icon once every file it touches has a current
+// reviewed mark (see reviewedCommits on PRData / the GET /api/prs/[id]
+// route) - the same color the file-level "Reviewed" badge uses.
+const REVIEWED_COLOR = '#3fb950';
+
 interface CommitSelectorProps {
   commits: CommitInfo[];
   selectedCommit: string | null;
   selectCommit: (sha: string | null) => void;
+  reviewedCommits: string[];
 }
 
-export default function CommitSelector({ commits, selectedCommit, selectCommit }: CommitSelectorProps) {
+export default function CommitSelector({
+  commits,
+  selectedCommit,
+  selectCommit,
+  reviewedCommits,
+}: CommitSelectorProps) {
   const [open, setOpen] = useState(false);
   const ref = useClickOutside(() => setOpen(false));
   useHotkeys([['Escape', () => setOpen(false)]]);
@@ -52,7 +63,10 @@ export default function CommitSelector({ commits, selectedCommit, selectCommit }
       <button className="commit-selector-trigger" onClick={() => setOpen((o) => !o)}>
         {current ? (
           <>
-            <GitCommit size={14} />
+            <GitCommit
+              size={14}
+              color={reviewedCommits.includes(current.sha) ? REVIEWED_COLOR : undefined}
+            />
             <span className="commit-selector-label">{current.message}</span>
             <span className="commit-sha">{current.shortSha}</span>
           </>
@@ -98,9 +112,14 @@ export default function CommitSelector({ commits, selectedCommit, selectCommit }
                 selectCommit(commit.sha);
                 setOpen(false);
               }}
-              title={`${commit.shortSha} by ${commit.author}`}
+              title={`${commit.shortSha} by ${commit.author}${
+                reviewedCommits.includes(commit.sha) ? ' - reviewed' : ''
+              }`}
             >
-              <GitCommit size={14} />
+              <GitCommit
+                size={14}
+                color={reviewedCommits.includes(commit.sha) ? REVIEWED_COLOR : undefined}
+              />
               <span className="file-name">{commit.message}</span>
               <span className="commit-sha">{commit.shortSha}</span>
             </button>
