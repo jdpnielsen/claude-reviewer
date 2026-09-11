@@ -157,6 +157,27 @@ export function blameCommit(
   }
 }
 
+/**
+ * The git blob hash of a file's content as of a specific commit/ref, or null
+ * if the file doesn't exist there (deleted, not yet added, or renamed away).
+ * Content-addressed, so this is a fingerprint of what's actually in the file
+ * - it survives a rebase/amend that rewrites the commit SHA without touching
+ * this file's content, but changes the moment the content itself does. Used
+ * to detect whether a "mark reviewed" flag is still valid (see the
+ * reviewed-files API route) without needing to re-read/diff the file.
+ */
+export function getBlobHash(repoPath: string, sha: string, filePath: string): string | null {
+  const cwd = resolveRepoPath(repoPath);
+  try {
+    return execFileSync('git', ['rev-parse', '--verify', `${sha}:${filePath}`], {
+      cwd,
+      encoding: 'utf-8',
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 /** Read a file's content as of a specific commit (`git show sha:path`). */
 export function getFileAtCommit(repoPath: string, sha: string, filePath: string): string | null {
   const cwd = resolveRepoPath(repoPath);

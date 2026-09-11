@@ -321,6 +321,58 @@ export function useDeletePRMutation(id: string) {
   });
 }
 
+interface ReviewedFileParams {
+  filePath: string;
+  commitSha: string | null;
+}
+
+// Reviewed marks live on the same polled query as comments/commits (see
+// usePRCommentsPollQuery) - a plain invalidate-and-refetch is enough here
+// since marking/unmarking isn't performance-sensitive the way comment
+// mutations are, and the server, not the client, is what computes a mark's
+// `current` status anyway (see the reviewed-files API route).
+export function useMarkFileReviewedMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: ReviewedFileParams) =>
+      apiClient.post(`/api/prs/${id}/reviewed`, params),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error marking file reviewed'),
+  });
+}
+
+export function useUnmarkFileReviewedMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: ReviewedFileParams) =>
+      apiClient.delete(
+        `/api/prs/${id}/reviewed${buildQuery({ file: params.filePath, commit: params.commitSha })}`,
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error unmarking file reviewed'),
+  });
+}
+
+export function useMarkCommitReviewedMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commitSha: string) =>
+      apiClient.post(`/api/prs/${id}/reviewed/commit`, { commitSha }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error marking commit reviewed'),
+  });
+}
+
+export function useUnmarkCommitReviewedMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commitSha: string) =>
+      apiClient.delete(`/api/prs/${id}/reviewed/commit${buildQuery({ commit: commitSha })}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error unmarking commit reviewed'),
+  });
+}
+
 // Re-pull the branch diff (web-UI equivalent of the CLI's `update`). This
 // rewrites the diff/files/commits *and* resets status to pending, so it
 // invalidates both the main PR query (all commit-filtered variants, matched by

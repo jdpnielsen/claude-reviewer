@@ -124,6 +124,24 @@ export interface Author {
   updated_at: string;
 }
 
+// A file (optionally scoped to one specific commit's own diff) the reviewer
+// has flagged as already looked at, so a later sync/visit doesn't nag them
+// about it again. `commit_sha` NULL means "the cumulative/PR-wide diff for
+// this file", not any one commit. `content_hash` is the git blob hash of the
+// file at the relevant point (commit_sha, or the PR's head_commit when
+// NULL) captured at mark time - content-addressed, so it stays valid across
+// a rebase/amend that changes SHAs without touching this file's content, and
+// invalidates the moment the content actually does (see getBlobHash and the
+// reviewed-files API route, which computes the current hash and compares).
+export interface ReviewedFile {
+  id: number;
+  pr_id: number;
+  file_path: string;
+  commit_sha: string | null;
+  content_hash: string;
+  marked_at: string;
+}
+
 // Repo-level conversations (independent of PRs)
 export interface RepoConversation {
   id: number;
@@ -380,6 +398,26 @@ function initSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_rcm_conversation ON repo_conversation_messages(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_rcm_uuid ON repo_conversation_messages(uuid);
+
+    -- Files (optionally scoped to one commit) flagged as already reviewed.
+    -- Two partial unique indexes instead of one UNIQUE(...) constraint,
+    -- because SQLite treats every NULL as distinct for uniqueness purposes -
+    -- a plain UNIQUE(pr_id, file_path, commit_sha) would let duplicate
+    -- cumulative (commit_sha IS NULL) rows pile up for the same file.
+    CREATE TABLE IF NOT EXISTS reviewed_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        commit_sha TEXT,
+        content_hash TEXT NOT NULL,
+        marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reviewed_files_pr ON reviewed_files(pr_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_cumulative
+        ON reviewed_files(pr_id, file_path) WHERE commit_sha IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_commit
+        ON reviewed_files(pr_id, file_path, commit_sha) WHERE commit_sha IS NOT NULL;
   `);
 
   seedAuthors(db);
@@ -1052,6 +1090,85 @@ export function getReviews(prUuid: string): Review[] {
     SELECT * FROM reviews WHERE pr_id = ? ORDER BY created_at DESC
   `)
     .all(pr.id) as Review[];
+}
+
+// =============================================================================
+// Reviewed File Operations
+// =============================================================================
+
+// Marks (or re-marks) `filePath` reviewed, scoped to `commitSha` (null for
+// the cumulative/PR-wide diff). Upsert-by-delete-then-insert rather than an
+// ON CONFLICT clause, since which of the two partial unique indexes applies
+// depends on whether commitSha is null - `IS ?` (not `= ?`) is what makes the
+// DELETE match a NULL commit_sha correctly.
+export function setReviewedFile(
+  prUuid: string,
+  filePath: string,
+  commitSha: string | null,
+  contentHash: string,
+): void {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) throw new Error(`PR ${prUuid} not found`);
+
+  const transaction = db.transaction(() => {
+    db.prepare(
+      'DELETE FROM reviewed_files WHERE pr_id = ? AND file_path = ? AND commit_sha IS ?',
+    ).run(pr.id, filePath, commitSha);
+    db.prepare(
+      'INSERT INTO reviewed_files (pr_id, file_path, commit_sha, content_hash) VALUES (?, ?, ?, ?)',
+    ).run(pr.id, filePath, commitSha, contentHash);
+  });
+
+  transaction();
+  checkpoint();
+}
+
+export function unsetReviewedFile(
+  prUuid: string,
+  filePath: string,
+  commitSha: string | null,
+): boolean {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return false;
+
+  const result = db
+    .prepare('DELETE FROM reviewed_files WHERE pr_id = ? AND file_path = ? AND commit_sha IS ?')
+    .run(pr.id, filePath, commitSha);
+  checkpoint();
+  return result.changes > 0;
+}
+
+// Removes every per-file mark scoped to one commit at once - the "unmark
+// whole commit" action, without needing to know which files that commit
+// touches (unlike marking, which does - see the reviewed/commit API route).
+export function unsetReviewedFilesForCommit(prUuid: string, commitSha: string): number {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return 0;
+
+  const result = db
+    .prepare('DELETE FROM reviewed_files WHERE pr_id = ? AND commit_sha = ?')
+    .run(pr.id, commitSha);
+  checkpoint();
+  return result.changes;
+}
+
+export function getReviewedFiles(prUuid: string): ReviewedFile[] {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return [];
+
+  return db.prepare('SELECT * FROM reviewed_files WHERE pr_id = ?').all(pr.id) as ReviewedFile[];
 }
 
 // =============================================================================

@@ -846,6 +846,32 @@ textarea {
   color: white;
 }
 
+.reviewed-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.reviewed-toggle:hover {
+  background: #30363d;
+  color: #c9d1d9;
+}
+
+.reviewed-toggle.active {
+  background: rgba(35, 134, 54, 0.15);
+  border-color: #238636;
+  color: #3fb950;
+}
+
 /* Context Expansion Styles */
 .expand-context-divider {
   display: flex;

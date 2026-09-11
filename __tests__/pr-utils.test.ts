@@ -197,18 +197,22 @@ describe('shouldCollapseByDefault', () => {
   });
 
   it('leaves an ordinary small diff expanded', () => {
-    expect(shouldCollapseByDefault(file({}))).toBe(false);
+    expect(shouldCollapseByDefault(file({}), false)).toBe(false);
   });
 
   it('collapses a diff whose line count exceeds the render cap', () => {
     expect(
-      shouldCollapseByDefault(file({ additions: MAX_LINES_DEFAULT, deletions: 1 })),
+      shouldCollapseByDefault(file({ additions: MAX_LINES_DEFAULT, deletions: 1 }), false),
     ).toBe(true);
   });
 
   it('does not collapse a diff exactly at the render cap', () => {
     const half = MAX_LINES_DEFAULT / 2;
-    expect(shouldCollapseByDefault(file({ additions: half, deletions: half }))).toBe(false);
+    expect(shouldCollapseByDefault(file({ additions: half, deletions: half }), false)).toBe(false);
+  });
+
+  it('collapses an otherwise-ordinary small diff once marked reviewed', () => {
+    expect(shouldCollapseByDefault(file({}), true)).toBe(true);
   });
 
   it.each([
@@ -228,18 +232,20 @@ describe('shouldCollapseByDefault', () => {
     'mix.lock',
     'flake.lock',
   ])('collapses known lockfile %s even when tiny', (filename) => {
-    expect(shouldCollapseByDefault(file({ path: filename, additions: 1, deletions: 0 }))).toBe(
-      true,
-    );
+    expect(
+      shouldCollapseByDefault(file({ path: filename, additions: 1, deletions: 0 }), false),
+    ).toBe(true);
   });
 
   it('matches lockfiles nested in a subdirectory', () => {
     expect(
-      shouldCollapseByDefault(file({ path: 'packages/web/package-lock.json', additions: 1 })),
+      shouldCollapseByDefault(file({ path: 'packages/web/package-lock.json', additions: 1 }), false),
     ).toBe(true);
   });
 
   it('does not treat an unrelated file with a similar name as noisy', () => {
-    expect(shouldCollapseByDefault(file({ path: 'src/yarn.lock.md', additions: 1 }))).toBe(false);
+    expect(shouldCollapseByDefault(file({ path: 'src/yarn.lock.md', additions: 1 }), false)).toBe(
+      false,
+    );
   });
 });

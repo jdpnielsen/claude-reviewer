@@ -1,7 +1,7 @@
 import { CheckCircle, Clock, GitMerge, XCircle } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 
-import type { FileInfo, FolderNode } from './types';
+import type { FileInfo, FolderNode, ReviewedMark } from './types';
 import { LineType } from '@/lib/enum';
 
 // Cmd+Enter (macOS) or Ctrl+Enter (elsewhere) submits a comment form from its
@@ -39,16 +39,28 @@ const NOISY_DEFAULT_COLLAPSE_FILENAMES = new Set([
   'flake.lock',
 ]);
 
-// A file starts collapsed if it's a known-noisy lockfile, or if its diff is
-// large enough to hit the MAX_LINES_DEFAULT render cap anyway - in both
-// cases expanding it by default just adds scroll weight nobody reads.
-// Everything else opens expanded so reviewers see the change without extra
-// clicks.
-export const shouldCollapseByDefault = (file: FileInfo): boolean => {
+// A file starts collapsed if it's already been marked reviewed, it's a
+// known-noisy lockfile, or its diff is large enough to hit the
+// MAX_LINES_DEFAULT render cap anyway - in all three cases expanding it by
+// default just adds scroll weight nobody's about to read. Everything else
+// opens expanded so reviewers see the change without extra clicks.
+export const shouldCollapseByDefault = (file: FileInfo, isReviewed: boolean): boolean => {
+  if (isReviewed) return true;
   const basename = file.path.split('/').pop() ?? file.path;
   if (NOISY_DEFAULT_COLLAPSE_FILENAMES.has(basename)) return true;
   return file.additions + file.deletions > MAX_LINES_DEFAULT;
 };
+
+// The reviewed mark for `filePath` in a given commit context (null = the
+// cumulative/PR-wide diff), if any - a stale (non-current) mark is treated
+// the same as no mark at all, so callers don't each need to remember to
+// check `current` themselves.
+export const findReviewedMark = (
+  marks: ReviewedMark[],
+  filePath: string,
+  commitSha: string | null,
+): ReviewedMark | undefined =>
+  marks.find((m) => m.file_path === filePath && m.commit_sha === commitSha && m.current);
 
 // Map file extensions to Prism language identifiers
 export const getLanguage = (filePath: string): string => {

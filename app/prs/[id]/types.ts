@@ -81,12 +81,25 @@ export interface CommitInfo {
   date: string;
 }
 
+// A file (optionally scoped to one specific commit's own diff, else the
+// cumulative/PR-wide diff) flagged as already reviewed. `current` is false
+// once the file's content has changed since marking (a rebase/amend alone
+// doesn't flip this - see lib/git.ts's getBlobHash) - the UI treats a
+// non-current mark the same as no mark at all.
+export interface ReviewedMark {
+  file_path: string;
+  commit_sha: string | null;
+  current: boolean;
+  marked_at: string;
+}
+
 export interface PRData {
   pr: PullRequest;
   diff: string;
   files: FileInfo[];
   comments: CommentWithReplies[];
   commits: CommitInfo[];
+  reviewedFiles: ReviewedMark[];
   // False when the PR's repo_path no longer exists (throwaway worktree
   // removed, clone moved), in which case `diff` is the stored snapshot and
   // `commits` is empty - nothing git-backed can be recomputed. The page

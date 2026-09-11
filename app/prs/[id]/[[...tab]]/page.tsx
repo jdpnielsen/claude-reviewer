@@ -12,6 +12,8 @@ import {
   useDeleteCommentMutation,
   useDeletePRMutation,
   useEditCommentMutation,
+  useMarkCommitReviewedMutation,
+  useMarkFileReviewedMutation,
   usePRCommentsPollQuery,
   usePRQuery,
   useRequestAIReviewMutation,
@@ -19,9 +21,11 @@ import {
   useSetPRStatusMutation,
   useSubmitReviewMutation,
   useSyncPRMutation,
+  useUnmarkCommitReviewedMutation,
+  useUnmarkFileReviewedMutation,
 } from '@/app/prs/[id]/queries';
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
-import { shouldCollapseByDefault, statusConfig } from '@/app/prs/[id]/utils';
+import { findReviewedMark, shouldCollapseByDefault, statusConfig } from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
 import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
@@ -104,11 +108,16 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const setPRStatusMutation = useSetPRStatusMutation(id);
   const syncPRMutation = useSyncPRMutation(id);
   const deletePRMutation = useDeletePRMutation(id);
+  const markFileReviewedMutation = useMarkFileReviewedMutation(id);
+  const unmarkFileReviewedMutation = useUnmarkFileReviewedMutation(id);
+  const markCommitReviewedMutation = useMarkCommitReviewedMutation(id);
+  const unmarkCommitReviewedMutation = useUnmarkCommitReviewedMutation(id);
 
   const data: PRData | undefined = prQuery.data && {
     ...prQuery.data,
     comments: commentsQuery.data?.comments ?? prQuery.data.comments,
     commits: commentsQuery.data?.commits ?? prQuery.data.commits,
+    reviewedFiles: commentsQuery.data?.reviewedFiles ?? prQuery.data.reviewedFiles,
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
@@ -177,8 +186,16 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   useEffect(() => {
     if (!prQuery.data) return;
     const files = prQuery.data.files;
+    const soleCommitSha =
+      prQuery.data.commits.length === 1 ? prQuery.data.commits[0].sha : null;
+    const effectiveCommitSha = selectedCommit ?? soleCommitSha;
     const defaultOpen = files.filter(
-      (f) => f.changeType !== ChangeType.Deleted && !shouldCollapseByDefault(f),
+      (f) =>
+        f.changeType !== ChangeType.Deleted &&
+        !shouldCollapseByDefault(
+          f,
+          !!findReviewedMark(prQuery.data!.reviewedFiles, f.path, effectiveCommitSha),
+        ),
     );
     setExpandedFiles(new Set(defaultOpen.map((f) => f.path)));
     setCollapsedFiles(new Set());
@@ -477,7 +494,48 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     if (getFileComments(filePath).length > 0) return true;
     if (getCommitSpecificFileComments(filePath).length > 0) return true;
     const file = data?.files.find((f) => f.path === filePath);
-    return file ? file.changeType !== ChangeType.Deleted && !shouldCollapseByDefault(file) : false;
+    if (!file) return false;
+    return (
+      file.changeType !== ChangeType.Deleted &&
+      !shouldCollapseByDefault(file, isFileReviewed(filePath))
+    );
+  };
+
+  // Whether `filePath` has a current (non-stale) reviewed mark in the
+  // context the Files tab is showing right now - the cumulative diff, or one
+  // specific commit's own diff (including a one-commit PR's implicit
+  // selection - see displayedCommitSha above).
+  const isFileReviewed = (filePath: string): boolean =>
+    !!data && !!findReviewedMark(data.reviewedFiles, filePath, displayedCommitSha);
+
+  const toggleFileReviewed = (filePath: string) => {
+    const params = { filePath, commitSha: displayedCommitSha };
+    if (isFileReviewed(filePath)) {
+      unmarkFileReviewedMutation.mutate(params);
+    } else {
+      markFileReviewedMutation.mutate(params);
+    }
+  };
+
+  // Whether every file the *currently displayed* commit's own diff touches
+  // has a current mark scoped to it - i.e. the CommitMessagePanel's "mark
+  // whole commit reviewed" button was used (or every file in it was
+  // individually marked). Deliberately not parameterized by an arbitrary
+  // commit sha: `data.files` is only ever this commit's own file list when
+  // that commit is the one currently loaded (see displayedCommitSha above).
+  const isDisplayedCommitReviewed = (): boolean =>
+    !!data &&
+    !!displayedCommitSha &&
+    data.files.length > 0 &&
+    data.files.every((f) => findReviewedMark(data.reviewedFiles, f.path, displayedCommitSha));
+
+  const toggleDisplayedCommitReviewed = () => {
+    if (!displayedCommitSha) return;
+    if (isDisplayedCommitReviewed()) {
+      unmarkCommitReviewedMutation.mutate(displayedCommitSha);
+    } else {
+      markCommitReviewedMutation.mutate(displayedCommitSha);
+    }
   };
 
   if (prQuery.isPending || isUnknownCommitError) {
@@ -640,6 +698,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     <CommitMessagePanel
                       commit={commit}
                       comments={getCommitMessageComments(displayedCommitSha)}
+                      isReviewed={isDisplayedCommitReviewed()}
+                      toggleReviewed={toggleDisplayedCommitReviewed}
                       isCommenting={commentingOnCommitMessage}
                       setIsCommenting={setCommentingOnCommitMessage}
                       openCommitMessageComment={openCommitMessageComment}
@@ -669,6 +729,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   fileComments={getFileComments(file.path)}
                   commitSpecificComments={getCommitSpecificFileComments(file.path)}
                   commits={data.commits}
+                  isReviewed={isFileReviewed(file.path)}
+                  toggleReviewed={() => toggleFileReviewed(file.path)}
                   onJumpToFile={jumpToFile}
                   isExpanded={effectiveExpandedFiles.has(file.path)}
                   toggleFile={toggleFile}
