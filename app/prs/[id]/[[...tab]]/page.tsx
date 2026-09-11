@@ -514,6 +514,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
       unmarkFileReviewedMutation.mutate(params);
     } else {
       markFileReviewedMutation.mutate(params);
+      // Collapse right away instead of waiting for the next load/refetch to
+      // pick up the new mark (see the data-load effect above) - the reviewer
+      // just said they're done with this file, so there's no reason to make
+      // them wait or collapse it themselves.
+      if (isFileExpanded(filePath)) toggleFile(filePath);
     }
   };
 
@@ -530,11 +535,16 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     data.files.every((f) => findReviewedMark(data.reviewedFiles, f.path, displayedCommitSha));
 
   const toggleDisplayedCommitReviewed = () => {
-    if (!displayedCommitSha) return;
+    if (!displayedCommitSha || !data) return;
     if (isDisplayedCommitReviewed()) {
       unmarkCommitReviewedMutation.mutate(displayedCommitSha);
     } else {
       markCommitReviewedMutation.mutate(displayedCommitSha);
+      // Same immediate-collapse feedback as toggleFileReviewed, for every
+      // file this commit touches at once.
+      for (const file of data.files) {
+        if (isFileExpanded(file.path)) toggleFile(file.path);
+      }
     }
   };
 
