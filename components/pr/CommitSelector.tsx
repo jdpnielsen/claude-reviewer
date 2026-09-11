@@ -21,7 +21,14 @@ export default function CommitSelector({ commits, selectedCommit, selectCommit }
 
   // `commits` is oldest-first (see lib/git.ts listCommits) so index order
   // matches authorship order - prev/next just walk the array.
-  const selectedIndex = selectedCommit ? commits.findIndex((c) => c.sha === selectedCommit) : -1;
+  // A one-commit PR has no real "All commits" view distinct from that
+  // commit's own diff (see page.tsx's soleCommit) - so it's treated as
+  // selected here too, even before the user has ever picked it explicitly.
+  const selectedIndex = selectedCommit
+    ? commits.findIndex((c) => c.sha === selectedCommit)
+    : commits.length === 1
+      ? 0
+      : -1;
   const current = selectedIndex >= 0 ? commits[selectedIndex] : null;
   const canGoPrev = selectedIndex > 0;
   const canGoNext = selectedIndex >= 0 && selectedIndex < commits.length - 1;
@@ -71,20 +78,22 @@ export default function CommitSelector({ commits, selectedCommit, selectCommit }
 
       {open && (
         <div className="commit-selector-panel">
-          <button
-            className={`file-item commit-item ${selectedCommit === null ? 'active' : ''}`}
-            onClick={() => {
-              selectCommit(null);
-              setOpen(false);
-            }}
-          >
-            <Layers size={14} />
-            <span className="file-name">All commits ({commits.length})</span>
-          </button>
+          {commits.length > 1 && (
+            <button
+              className={`file-item commit-item ${selectedCommit === null ? 'active' : ''}`}
+              onClick={() => {
+                selectCommit(null);
+                setOpen(false);
+              }}
+            >
+              <Layers size={14} />
+              <span className="file-name">All commits ({commits.length})</span>
+            </button>
+          )}
           {commits.map((commit) => (
             <button
               key={commit.sha}
-              className={`file-item commit-item ${selectedCommit === commit.sha ? 'active' : ''}`}
+              className={`file-item commit-item ${current?.sha === commit.sha ? 'active' : ''}`}
               onClick={() => {
                 selectCommit(commit.sha);
                 setOpen(false);

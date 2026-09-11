@@ -112,6 +112,20 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
+  // A PR with exactly one commit has no real "cumulative diff (all commits)"
+  // view distinct from that commit's own diff - getLatestDiff(base..head) and
+  // getCommitDiff(commit) return identical content in that case. So the Files
+  // tab treats this commit as implicitly selected even when selectedCommit is
+  // still null (the default, unpicked state): the commit message panel shows,
+  // and comments are matched as if commit_sha null and this commit's sha were
+  // the same value (see normalizeCommitSha below) - which also keeps any
+  // comment added before this PR happened to be the only commit (commit_sha
+  // null) visible inline instead of orphaned.
+  const soleCommit = data && data.commits.length === 1 ? data.commits[0] : null;
+  const displayedCommitSha = selectedCommit ?? soleCommit?.sha ?? null;
+  const normalizeCommitSha = (sha: string | null) =>
+    soleCommit && sha === null ? soleCommit.sha : sha;
+
   // A `?commit=<sha>` link goes stale the moment a rebase/amend/force-push
   // changes that commit's SHA - the API 400s with 'Unknown commit for this
   // PR' rather than erroring the whole page. Detected here (not just inside
@@ -350,10 +364,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   };
 
   const addCommitMessageComment = () => {
-    if (!selectedCommit || !newComment.trim() || !data) return;
+    if (!displayedCommitSha || !newComment.trim() || !data) return;
     addCommentMutation.mutate({
       targetType: CommentTargetType.CommitMessage,
-      commitSha: selectedCommit,
+      commitSha: displayedCommitSha,
       content: newComment,
       resolutionMode,
     });
@@ -412,7 +426,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
       (c) =>
         c.comment.target_type === CommentTargetType.Line &&
         c.comment.file_path === filePath &&
-        c.comment.commit_sha === selectedCommit,
+        normalizeCommitSha(c.comment.commit_sha) === normalizeCommitSha(selectedCommit),
     );
   };
 
@@ -434,9 +448,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // meaning in the cumulative diff, so these render as their own
   // commit-tagged list in FileDiffCard rather than inline at a (possibly
   // wrong) line. Empty once a specific commit is selected: every comment
-  // relevant to that view already comes back from getFileComments.
+  // relevant to that view already comes back from getFileComments. Also
+  // empty for a one-commit PR - there, normalizeCommitSha already folds every
+  // comment into getFileComments's inline view, so surfacing them again here
+  // would just duplicate them.
   const getCommitSpecificFileComments = (filePath: string) => {
-    if (!data || selectedCommit !== null) return [];
+    if (!data || selectedCommit !== null || soleCommit) return [];
     return data.comments.filter(
       (c) =>
         c.comment.target_type === CommentTargetType.Line &&
@@ -616,13 +633,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   Loading commit diff...
                 </div>
               )}
-              {selectedCommit &&
+              {displayedCommitSha &&
                 (() => {
-                  const commit = data.commits.find((c) => c.sha === selectedCommit);
+                  const commit = data.commits.find((c) => c.sha === displayedCommitSha);
                   return commit ? (
                     <CommitMessagePanel
                       commit={commit}
-                      comments={getCommitMessageComments(selectedCommit)}
+                      comments={getCommitMessageComments(displayedCommitSha)}
                       isCommenting={commentingOnCommitMessage}
                       setIsCommenting={setCommentingOnCommitMessage}
                       openCommitMessageComment={openCommitMessageComment}
