@@ -725,10 +725,13 @@ textarea {
   border: 1px solid #30363d;
   border-radius: 8px;
   margin-bottom: 1rem;
-  overflow: hidden;
-  /* Performance optimization for large lists */
-  content-visibility: auto;
-  contain-intrinsic-size: 1000px;
+  /* No overflow/clipping here - .file-header needs to escape it to be
+     sticky against .pr-main's scroll (an ancestor with overflow other than
+     visible becomes ITS OWN reference frame for position: sticky, which
+     would pin the header to this card's box instead of the scrolling
+     viewport). The rounded corners this used to clip for are instead drawn
+     directly on the header (top) and diff-content/markdown-preview
+     (bottom) below. */
 }
 
 .file-header {
@@ -738,6 +741,19 @@ textarea {
   padding: 0.75rem 1rem;
   background: #161b22;
   border-bottom: 1px solid #30363d;
+}
+
+/* Scoped to .file-diff (not the bare .file-header rule above, which is
+   shared with the unrelated Browse file-viewer header) - sticks to the top
+   of .pr-main's scrollport while this file's own content is in view, so the
+   collapse/reviewed/preview controls stay reachable without scrolling back
+   up a long diff. See the .file-diff comment above for why its clipping had
+   to move for this to work. */
+.file-diff > .file-header {
+  border-radius: 8px 8px 0 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .file-header-left {
@@ -935,6 +951,8 @@ textarea {
   background: #0d1117;
   color: #c9d1d9;
   line-height: 1.6;
+  overflow: hidden;
+  border-radius: 0 0 8px 8px;
 }
 
 .markdown-preview h1,
@@ -1064,6 +1082,12 @@ textarea {
   font-size: 12px;
   line-height: 20px;
   overflow-x: auto;
+  border-radius: 0 0 8px 8px;
+  /* Performance optimization for large diffs - scoped to just the (large)
+     body rather than the whole file-diff card, so .file-header always
+     renders/stays interactive regardless of scroll position. */
+  content-visibility: auto;
+  contain-intrinsic-size: 1000px;
 }
 
 .diff-line {
