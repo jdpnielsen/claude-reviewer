@@ -3,8 +3,12 @@ export const getLanguage = (filePath: string): string => {
   const ext = filePath.split('.').pop()?.toLowerCase() || '';
   const langMap: Record<string, string> = {
     js: 'javascript',
+    mjs: 'javascript',
+    cjs: 'javascript',
     jsx: 'jsx',
     ts: 'typescript',
+    mts: 'typescript',
+    cts: 'typescript',
     tsx: 'tsx',
     py: 'python',
     rb: 'ruby',
