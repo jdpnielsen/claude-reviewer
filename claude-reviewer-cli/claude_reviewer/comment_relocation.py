@@ -12,7 +12,12 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from .database import apply_comment_relocations, get_comments, upsert_commit_relocation
+from .database import (
+    apply_comment_relocations,
+    get_comments,
+    relocate_reviewed_files,
+    upsert_commit_relocation,
+)
 from .git_ops import CommitCorrespondence, compute_commit_correspondence, get_file_at_commit
 from .models import Comment, CommentRelocationStatus, CommentRelocationUpdate
 
@@ -248,11 +253,13 @@ def relocate_comments(
     new_base: str,
     new_head: str,
 ) -> None:
-    """Re-anchors a PR's comments after a sync (rebase/amend/force-push)
-    changed commit SHAs and/or shifted line content. Called from every place
-    that rewrites `pull_requests.head_commit`/`base_commit` in the CLI (the
-    `update` command and its two AI-auto-sync call sites in cli.py) with the
-    OLD commit range (captured just before the overwrite) and the NEW one.
+    """Re-anchors everything a PR keys to a commit SHA - comments, the
+    durable `commit_relocations` map, and the web UI's per-commit reviewed
+    marks - after a sync (rebase/amend/force-push) changed those SHAs and/or
+    shifted line content. Called from every place that rewrites
+    `pull_requests.head_commit`/`base_commit` in the CLI (the `update`
+    command and its two AI-auto-sync call sites in cli.py) with the OLD
+    commit range (captured just before the overwrite) and the NEW one.
 
     No-op sync (nothing actually changed) is skipped entirely - this runs on
     every auto-sync after an AI edit, most of which find no new commits.
@@ -267,6 +274,11 @@ def relocate_comments(
     for old_sha, new_sha in correspondence["matched"].items():
         if old_sha != new_sha:
             upsert_commit_relocation(pr_uuid, old_sha, new_sha)
+
+    # Before the comments early-return below: a PR can have reviewed marks
+    # and no comments at all, and that PR still needs its marks carried
+    # across.
+    relocate_reviewed_files(pr_uuid, correspondence["matched"])
 
     comments = get_comments(pr_uuid)
     if not comments:

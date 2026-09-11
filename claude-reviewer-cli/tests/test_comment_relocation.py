@@ -71,6 +71,42 @@ def _set_paired_range(comment_uuid: str, paired_line: int, paired_end_line: int)
         )
 
 
+def _blob_hash(repo_path: Path, sha: str, file_path: str) -> str:
+    return _run_git(repo_path, ["rev-parse", "--verify", f"{sha}:{file_path}"])
+
+
+def _mark_reviewed(pr_uuid: str, file_path: str, commit_sha: str | None, content_hash: str) -> None:
+    """Only the web app marks files reviewed (there is no CLI command for
+    it), but the sqlite file is shared - so a mark the web app made still
+    has to survive a CLI-triggered sync. Insert directly, same reasoning as
+    _set_anchor above.
+    """
+    with db.get_connection() as conn:
+        pr = conn.execute("SELECT id FROM pull_requests WHERE uuid = ?", (pr_uuid,)).fetchone()
+        conn.execute(
+            """
+            INSERT INTO reviewed_files (pr_id, file_path, commit_sha, content_hash)
+            VALUES (?, ?, ?, ?)
+            """,
+            (pr["id"], file_path, commit_sha, content_hash),
+        )
+
+
+def _reviewed_marks(pr_uuid: str) -> dict[str, tuple[str | None, str]]:
+    """file_path -> (commit_sha, content_hash) for every mark on a PR."""
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT rf.file_path, rf.commit_sha, rf.content_hash
+            FROM reviewed_files rf
+            JOIN pull_requests pr ON pr.id = rf.pr_id
+            WHERE pr.uuid = ?
+            """,
+            (pr_uuid,),
+        ).fetchall()
+    return {r["file_path"]: (r["commit_sha"], r["content_hash"]) for r in rows}
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     repo_path = tmp_path / "repo"
@@ -340,3 +376,116 @@ class TestRelocateComments:
         assert unchanged.commit_sha == old_a
         assert unchanged.line_number == 1
         assert unchanged.status == CommentRelocationStatus.ACTIVE
+
+
+class TestRelocateReviewedFiles:
+    """A reviewed mark scoped to one commit is keyed by SHA, so before
+    relocation every `claude-reviewer update` over a rebase silently reset
+    them - the stored content_hash alone couldn't rescue a mark whose commit
+    no longer existed under that name.
+    """
+
+    def _three_commit_repo(self, repo: Path) -> tuple[str, str, str]:
+        (repo / "base.txt").write_text("base\n")
+        _run_git(repo, ["add", "base.txt"])
+        base = _commit_with_date(repo, "base commit", "2024-01-01T00:00:00")
+
+        (repo / "a.txt").write_text("line one\nline two\nline three\n")
+        _run_git(repo, ["add", "a.txt"])
+        old_a = _commit_with_date(repo, "add a", "2024-01-02T00:00:00")
+
+        (repo / "b.txt").write_text("content b\n")
+        _run_git(repo, ["add", "b.txt"])
+        old_b = _commit_with_date(repo, "add b", "2024-01-03T00:00:00")
+        return base, old_a, old_b
+
+    def test_carries_a_per_commit_mark_onto_the_rewritten_sha(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        base, old_a, old_b = self._three_commit_repo(repo)
+        pr_uuid = db.create_pr(
+            repo_path=str(repo),
+            title="Reviewed Rebase PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=base,
+            head_commit=old_b,
+            diff="diff",
+        )
+        _mark_reviewed(pr_uuid, "a.txt", old_a, _blob_hash(repo, old_a, "a.txt"))
+
+        _run_git(repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (repo / "a.txt").write_text("line one\nline two\nline three\n")
+        _run_git(repo, ["add", "a.txt"])
+        new_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:00")
+        (repo / "b.txt").write_text("content b\n")
+        _run_git(repo, ["add", "b.txt"])
+        new_b = _commit_with_date(repo, "add b", "2024-02-02T00:00:00")
+        assert new_a != old_a
+
+        relocate_comments(pr_uuid, str(repo), base, old_b, base, new_b)
+
+        commit_sha, content_hash = _reviewed_marks(pr_uuid)["a.txt"]
+        assert commit_sha == new_a
+        # Still current: the rebase moved the SHA but not a byte of a.txt,
+        # which is what the web app compares to decide whether it counts.
+        assert content_hash == _blob_hash(repo, new_a, "a.txt")
+
+    def test_moves_a_mark_the_amend_rewrote_but_leaves_it_content_stale(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        base, old_a, _ = self._three_commit_repo(repo)
+        pr_uuid = db.create_pr(
+            repo_path=str(repo),
+            title="Reviewed Amend PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=base,
+            head_commit=old_a,
+            diff="diff",
+        )
+        _mark_reviewed(pr_uuid, "a.txt", old_a, _blob_hash(repo, old_a, "a.txt"))
+
+        _run_git(repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (repo / "a.txt").write_text("line one\nline two CHANGED\nline three\n")
+        _run_git(repo, ["add", "a.txt"])
+        amended_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:00")
+
+        relocate_comments(pr_uuid, str(repo), base, old_a, base, amended_a)
+
+        commit_sha, content_hash = _reviewed_marks(pr_uuid)["a.txt"]
+        assert commit_sha == amended_a
+        # Relocated but no longer current - the reviewer has to look again,
+        # which is what should happen when the content really did change.
+        assert content_hash != _blob_hash(repo, amended_a, "a.txt")
+
+    def test_leaves_dropped_commit_and_cumulative_marks_alone(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        base, old_a, old_b = self._three_commit_repo(repo)
+        pr_uuid = db.create_pr(
+            repo_path=str(repo),
+            title="Reviewed Drop PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=base,
+            head_commit=old_b,
+            diff="diff",
+        )
+        _mark_reviewed(pr_uuid, "b.txt", old_b, _blob_hash(repo, old_b, "b.txt"))
+        _mark_reviewed(pr_uuid, "a.txt", None, _blob_hash(repo, old_b, "a.txt"))
+
+        # Rebase that drops "add b" entirely - nothing for b.txt's mark to
+        # move to.
+        _run_git(repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (repo / "a.txt").write_text("line one\nline two\nline three\n")
+        _run_git(repo, ["add", "a.txt"])
+        surviving_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:00")
+
+        relocate_comments(pr_uuid, str(repo), base, old_b, base, surviving_a)
+
+        marks = _reviewed_marks(pr_uuid)
+        assert marks["b.txt"][0] == old_b
+        # Cumulative marks were never SHA-keyed, so relocation must not
+        # touch them.
+        assert marks["a.txt"][0] is None

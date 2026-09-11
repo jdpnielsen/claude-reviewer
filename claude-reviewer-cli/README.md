@@ -151,6 +151,13 @@ can't name the same branch. Changing either re-runs comment relocation, so the
 review thread follows the new diff where the old anchors can still be matched;
 comments whose lines no longer exist are marked as such rather than dropped.
 
+Every `update` also carries the web UI's "reviewed" marks across a rebase or
+amend. Marks are stored against a commit SHA, so a rewritten history would
+otherwise reset all of them; `update` re-points each one at the commit its SHA
+became. The mark itself still holds the file's content hash from when it was
+made, so a file the rewrite genuinely changed goes back to unreviewed while
+everything it only re-SHA'd stays marked.
+
 ### Merge
 
 ```bash
