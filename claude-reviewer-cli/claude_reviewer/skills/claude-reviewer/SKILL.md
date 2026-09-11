@@ -142,7 +142,7 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
-| `update <id> [-t title] [-b base] [-h head]` | Re-diff after new commits; resets status to pending. `-t` retitles the PR, `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates comments. Refs are validated first, and base can't equal head. |
+| `update <id> [-t title] [-b base] [-h head]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them. `-t` retitles the PR, `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. Refs are validated first, and base can't equal head. |
 | `watch <id> [--until ...]` | Block until feedback arrives. Default `--until feedback_given`. |
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
 | `merge <id> [--delete-branch] [--no-push]` | Merge once approved. |

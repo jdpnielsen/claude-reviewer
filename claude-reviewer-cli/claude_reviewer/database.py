@@ -17,6 +17,7 @@ Database Schema:
     - reviews: Review decisions (approve/request changes)
     - repo_conversations: File-anchored discussions outside of PRs
     - repo_conversation_messages: Messages within repo conversations
+    - reviewed_files: Web-UI "already reviewed" marks (relocated on sync here)
 
 Usage:
     from claude_reviewer.database import init_db, create_pr, get_pr_by_uuid
@@ -215,6 +216,27 @@ CREATE TABLE IF NOT EXISTS repo_conversation_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_repo_conv_msg_conv ON repo_conversation_messages(conversation_id);
+
+-- Files (optionally scoped to one commit) the reviewer flagged as already
+-- looked at in the web UI. Written only by the web app, but declared here
+-- too so the table exists whichever side creates the database first -
+-- relocate_reviewed_files() runs from `update` and can't assume the web UI
+-- has ever been opened. Keep in sync with lib/database.ts, which documents
+-- why this needs two partial unique indexes instead of one UNIQUE(...).
+CREATE TABLE IF NOT EXISTS reviewed_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    commit_sha TEXT,
+    content_hash TEXT NOT NULL,
+    marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviewed_files_pr ON reviewed_files(pr_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_cumulative
+    ON reviewed_files(pr_id, file_path) WHERE commit_sha IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_commit
+    ON reviewed_files(pr_id, file_path, commit_sha) WHERE commit_sha IS NOT NULL;
 """
 
 
@@ -912,6 +934,87 @@ def lookup_commit_relocation(pr_uuid: str, old_sha: str) -> str | None:
             (pr_uuid, old_sha),
         ).fetchone()
         return row["new_sha"] if row else None
+
+
+# =============================================================================
+# Reviewed File Operations
+# =============================================================================
+
+
+def relocate_reviewed_files(pr_uuid: str, matched: dict[str, str]) -> int:
+    """Re-point every per-commit reviewed mark at the SHA its commit was
+    rewritten to by a rebase/amend, so the web UI's marks survive a
+    `claude-reviewer update`. `matched` is compute_commit_correspondence()'s
+    old -> new mapping; pairs where the SHA is unchanged are skipped.
+    Returns how many marks moved. Mirrors relocateReviewedFiles in
+    lib/database.ts.
+
+    `content_hash` rides along untouched, which is the whole point: whether a
+    relocated mark still counts stays a pure content question, answered by
+    the web app re-hashing the file at the *new* SHA. A commit the rebase
+    carried over verbatim keeps its marks; one whose content really did
+    change has them go stale, exactly as it would have without the rebase.
+
+    Marks whose commit went unmatched (dropped, squashed, split in two) are
+    deliberately left where they are rather than deleted: nothing reads them
+    while their SHA is absent from the commit list, and dropping them would
+    permanently discard review state on what may well be a half-finished
+    rebase the user is about to undo.
+    """
+    moves = {old: new for old, new in matched.items() if old != new}
+    if not moves:
+        return 0
+
+    with get_connection() as conn:
+        pr = conn.execute(
+            "SELECT id FROM pull_requests WHERE uuid = ?",
+            (pr_uuid,),
+        ).fetchone()
+        if not pr:
+            return 0
+
+        # Read every affected row up front, then delete and re-insert, rather
+        # than UPDATEing one SHA at a time: a mapping that chains (A -> B
+        # while B -> C) would otherwise let the first pair overwrite the
+        # second pair's source rows before they were ever read.
+        placeholders = ", ".join("?" for _ in moves)
+        rows = conn.execute(
+            f"""
+            SELECT file_path, commit_sha, content_hash, marked_at
+            FROM reviewed_files
+            WHERE pr_id = ? AND commit_sha IN ({placeholders})
+            """,
+            (pr["id"], *moves),
+        ).fetchall()
+        if not rows:
+            return 0
+
+        for row in rows:
+            conn.execute(
+                "DELETE FROM reviewed_files WHERE pr_id = ? AND file_path = ? AND commit_sha = ?",
+                (pr["id"], row["file_path"], row["commit_sha"]),
+            )
+        for row in rows:
+            # OR REPLACE so a mark already sitting on the destination SHA is
+            # superseded by the one moving onto it (same file, same commit,
+            # and the moved one is the mark the reviewer actually made
+            # against this content).
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO reviewed_files
+                    (pr_id, file_path, commit_sha, content_hash, marked_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    pr["id"],
+                    row["file_path"],
+                    moves[row["commit_sha"]],
+                    row["content_hash"],
+                    row["marked_at"],
+                ),
+            )
+
+        return len(rows)
 
 
 # =============================================================================

@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process';
 import {
   applyCommentRelocations,
   getComments,
+  relocateReviewedFiles,
   upsertCommitRelocation,
   type Comment,
   type CommentRelocationUpdate,
@@ -243,11 +244,13 @@ function planRelocation(
 }
 
 /**
- * Re-anchors a PR's comments after a sync (rebase/amend/force-push) changed
- * commit SHAs and/or shifted line content. Called from every place that
- * rewrites `pull_requests.head_commit`/`base_commit` (the web sync route,
- * the CLI's `update` command, and its two AI-auto-sync call sites) with the
- * OLD commit range (captured just before the overwrite) and the NEW one.
+ * Re-anchors everything a PR keys to a commit SHA - comments, the durable
+ * `commit_relocations` map, and per-commit reviewed marks - after a sync
+ * (rebase/amend/force-push) changed those SHAs and/or shifted line content.
+ * Called from every place that rewrites
+ * `pull_requests.head_commit`/`base_commit` (the web sync route, the CLI's
+ * `update` command, and its two AI-auto-sync call sites) with the OLD commit
+ * range (captured just before the overwrite) and the NEW one.
  *
  * No-op sync (nothing actually changed) is skipped entirely - this runs on
  * every poll-triggered auto-sync, most of which find no new commits.
@@ -267,6 +270,10 @@ export function relocateComments(
   for (const [oldSha, newSha] of correspondence.matched) {
     if (oldSha !== newSha) upsertCommitRelocation(prUuid, oldSha, newSha);
   }
+
+  // Before the comments early-return below: a PR can have reviewed marks and
+  // no comments at all, and that PR still needs its marks carried across.
+  relocateReviewedFiles(prUuid, correspondence.matched);
 
   const comments = getComments(prUuid);
   if (comments.length === 0) return;

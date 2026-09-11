@@ -1171,6 +1171,78 @@ export function getReviewedFiles(prUuid: string): ReviewedFile[] {
   return db.prepare('SELECT * FROM reviewed_files WHERE pr_id = ?').all(pr.id) as ReviewedFile[];
 }
 
+// Re-points every per-commit mark at the SHA its commit was rewritten to by
+// a rebase/amend, so marks survive a sync that only renamed commits.
+// `matched` is computeCommitCorrespondence()'s old -> new mapping; pairs
+// where the SHA is unchanged are skipped. Returns how many marks moved.
+//
+// `content_hash` rides along untouched, which is the whole point: whether a
+// relocated mark still counts stays a pure content question, answered by the
+// GET /api/prs/[id] route re-hashing the file at the *new* SHA. A commit the
+// rebase carried over verbatim keeps its marks; one whose content really did
+// change has them go stale, exactly as it would have without the rebase.
+//
+// Marks whose commit went unmatched (dropped, squashed, split in two) are
+// deliberately left where they are rather than deleted: nothing reads them
+// while their SHA is absent from the commit list, and dropping them would
+// permanently discard review state on what may well be a half-finished
+// rebase the user is about to undo.
+export function relocateReviewedFiles(prUuid: string, matched: Map<string, string>): number {
+  const moves = [...matched].filter(([oldSha, newSha]) => oldSha !== newSha);
+  if (moves.length === 0) return 0;
+
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return 0;
+
+  const newShaByOldSha = new Map(moves);
+  const placeholders = moves.map(() => '?').join(', ');
+  // Read every affected row up front, then delete and re-insert, rather than
+  // UPDATEing one SHA at a time: a mapping that chains (A -> B while B -> C)
+  // would otherwise let the first pair overwrite the second pair's source
+  // rows before they were ever read.
+  const rows = db
+    .prepare(
+      `SELECT file_path, commit_sha, content_hash, marked_at FROM reviewed_files
+       WHERE pr_id = ? AND commit_sha IN (${placeholders})`,
+    )
+    .all(pr.id, ...moves.map(([oldSha]) => oldSha)) as Pick<
+    ReviewedFile,
+    'file_path' | 'commit_sha' | 'content_hash' | 'marked_at'
+  >[];
+  if (rows.length === 0) return 0;
+
+  const transaction = db.transaction(() => {
+    const del = db.prepare(
+      'DELETE FROM reviewed_files WHERE pr_id = ? AND file_path = ? AND commit_sha = ?',
+    );
+    for (const row of rows) del.run(pr.id, row.file_path, row.commit_sha);
+
+    // OR REPLACE so a mark already sitting on the destination SHA is
+    // superseded by the one moving onto it (same file, same commit, and the
+    // moved one is the mark the reviewer actually made against this content).
+    const ins = db.prepare(
+      `INSERT OR REPLACE INTO reviewed_files (pr_id, file_path, commit_sha, content_hash, marked_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const row of rows) {
+      ins.run(
+        pr.id,
+        row.file_path,
+        newShaByOldSha.get(row.commit_sha as string),
+        row.content_hash,
+        row.marked_at,
+      );
+    }
+  });
+
+  transaction();
+  checkpoint();
+  return rows.length;
+}
+
 // =============================================================================
 // Comment Reply Operations
 // =============================================================================
