@@ -100,6 +100,11 @@ export interface PRData {
   comments: CommentWithReplies[];
   commits: CommitInfo[];
   reviewedFiles: ReviewedMark[];
+  // Shas (from `commits`) where every file that commit's own diff touches
+  // has a current mark scoped to it - what the commit selector uses to
+  // highlight a commit green, without needing to know each commit's file
+  // list itself (see the GET /api/prs/[id] route for how it's derived).
+  reviewedCommits: string[];
   // False when the PR's repo_path no longer exists (throwaway worktree
   // removed, clone moved), in which case `diff` is the stored snapshot and
   // `commits` is empty - nothing git-backed can be recomputed. The page

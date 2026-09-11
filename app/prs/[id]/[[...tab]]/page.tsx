@@ -118,6 +118,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     comments: commentsQuery.data?.comments ?? prQuery.data.comments,
     commits: commentsQuery.data?.commits ?? prQuery.data.commits,
     reviewedFiles: commentsQuery.data?.reviewedFiles ?? prQuery.data.reviewedFiles,
+    reviewedCommits: commentsQuery.data?.reviewedCommits ?? prQuery.data.reviewedCommits,
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
@@ -525,14 +526,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // Whether every file the *currently displayed* commit's own diff touches
   // has a current mark scoped to it - i.e. the CommitMessagePanel's "mark
   // whole commit reviewed" button was used (or every file in it was
-  // individually marked). Deliberately not parameterized by an arbitrary
-  // commit sha: `data.files` is only ever this commit's own file list when
-  // that commit is the one currently loaded (see displayedCommitSha above).
+  // individually marked). Delegates to the server-computed reviewedCommits
+  // (see the GET /api/prs/[id] route) rather than re-deriving it from
+  // data.files, so the commit selector's per-commit badges and this header
+  // button always agree.
   const isDisplayedCommitReviewed = (): boolean =>
-    !!data &&
-    !!displayedCommitSha &&
-    data.files.length > 0 &&
-    data.files.every((f) => findReviewedMark(data.reviewedFiles, f.path, displayedCommitSha));
+    !!data && !!displayedCommitSha && data.reviewedCommits.includes(displayedCommitSha);
 
   const toggleDisplayedCommitReviewed = () => {
     if (!displayedCommitSha || !data) return;
@@ -649,6 +648,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 commits={data.commits}
                 selectedCommit={selectedCommit}
                 selectCommit={selectCommit}
+                reviewedCommits={data.reviewedCommits}
               />
               <FileViewControls
                 onExpandAll={expandAll}
