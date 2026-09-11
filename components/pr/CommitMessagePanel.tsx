@@ -1,6 +1,6 @@
 'use client';
 
-import { GitCommit, MessageSquarePlus } from 'lucide-react';
+import { Check, GitCommit, MessageSquarePlus } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
@@ -14,6 +14,8 @@ import { insertSuggestion } from '@/lib/suggestions';
 interface CommitMessagePanelProps {
   commit: CommitInfo;
   comments: CommentWithReplies[];
+  isReviewed: boolean;
+  toggleReviewed: () => void;
   isCommenting: boolean;
   setIsCommenting: Dispatch<SetStateAction<boolean>>;
   openCommitMessageComment: () => void;
@@ -37,6 +39,8 @@ interface CommitMessagePanelProps {
 export default function CommitMessagePanel({
   commit,
   comments,
+  isReviewed,
+  toggleReviewed,
   isCommenting,
   setIsCommenting,
   openCommitMessageComment,
@@ -68,6 +72,19 @@ export default function CommitMessagePanel({
         <GitCommit size={14} />
         <span className="commit-sha">{commit.shortSha}</span>
         <span className="commit-message-author">{commit.author}</span>
+        <button
+          type="button"
+          className={`reviewed-toggle ${isReviewed ? 'active' : ''}`}
+          onClick={toggleReviewed}
+          title={
+            isReviewed
+              ? 'Marked reviewed - every file this commit touches'
+              : 'Mark every file this commit touches as reviewed'
+          }
+        >
+          <Check size={14} />
+          {isReviewed ? 'Commit reviewed' : 'Mark commit reviewed'}
+        </button>
       </div>
       <pre className="commit-message-body">{fullMessage}</pre>
 

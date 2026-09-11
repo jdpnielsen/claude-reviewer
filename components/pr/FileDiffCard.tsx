@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Code,
@@ -49,6 +50,8 @@ interface FileDiffCardProps {
   // number has no reliable position in the cumulative diff.
   commitSpecificComments: CommentWithReplies[];
   commits: CommitInfo[];
+  isReviewed: boolean;
+  toggleReviewed: () => void;
   onJumpToFile: (filePath: string, commitSha: string | null) => void;
   isExpanded: boolean;
   toggleFile: (path: string) => void;
@@ -89,6 +92,8 @@ export default function FileDiffCard({
   fileComments,
   commitSpecificComments,
   commits,
+  isReviewed,
+  toggleReviewed,
   onJumpToFile,
   isExpanded,
   toggleFile,
@@ -185,6 +190,18 @@ export default function FileDiffCard({
             {isPreview ? 'Raw' : 'Preview'}
           </button>
         )}
+        <button
+          type="button"
+          className={`reviewed-toggle ${isReviewed ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleReviewed();
+          }}
+          title={isReviewed ? 'Marked reviewed' : 'Mark this file as reviewed'}
+        >
+          <Check size={14} />
+          {isReviewed ? 'Reviewed' : 'Mark reviewed'}
+        </button>
       </div>
 
       {isExpanded && unmatchedCommitSpecificComments.length > 0 && (

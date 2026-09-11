@@ -6,11 +6,13 @@ import {
   getLatestDiff,
   updatePRStatus,
   getCommentsWithReplies,
+  getReviewedFiles,
   lookupCommitRelocation,
   toPublicPR,
 } from '@/lib/database';
-import { ChangeType, PullRequestStatus } from '@/lib/enum';
-import { listCommits, getCommitDiff, isRepoAvailable } from '@/lib/git';
+import { parseDiffFiles } from '@/lib/diff';
+import { PullRequestStatus } from '@/lib/enum';
+import { listCommits, getCommitDiff, getBlobHash, isRepoAvailable } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -64,12 +66,27 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // Parse diff to get file list
     const files = parseDiffFiles(diff || '');
 
+    // A mark's `current` flag says whether the file's content still matches
+    // what it was when marked - see getBlobHash and setReviewedFile. Without
+    // the repo (repoAvailable false), there's no way to recompute this, so
+    // marks are passed through trusted as-is rather than guessed at.
+    const reviewedFiles = getReviewedFiles(id).map((r) => ({
+      file_path: r.file_path,
+      commit_sha: r.commit_sha,
+      marked_at: r.marked_at,
+      current: repoAvailable
+        ? (getBlobHash(pr.repo_path, r.commit_sha ?? pr.head_commit, r.file_path) ?? 'deleted') ===
+          r.content_hash
+        : true,
+    }));
+
     return NextResponse.json({
       pr: toPublicPR(pr),
       diff,
       files,
       comments,
       commits,
+      reviewedFiles,
       repoAvailable,
     });
   } catch (error: unknown) {
@@ -133,67 +150,4 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-// Parse diff to extract file information
-function parseDiffFiles(diff: string): Array<{
-  path: string;
-  oldPath?: string;
-  changeType: ChangeType;
-  additions: number;
-  deletions: number;
-}> {
-  const files: Array<{
-    path: string;
-    oldPath?: string;
-    changeType: ChangeType;
-    additions: number;
-    deletions: number;
-  }> = [];
-
-  // Split by diff headers
-  const diffParts = diff.split(/^diff --git /m).filter(Boolean);
-
-  for (const part of diffParts) {
-    const lines = part.split('\n');
-    const headerLine = lines[0];
-
-    // Extract file paths from header: a/path b/path
-    const pathMatch = headerLine.match(/a\/(.+?) b\/(.+)/);
-    if (!pathMatch) continue;
-
-    const oldPath = pathMatch[1];
-    const newPath = pathMatch[2];
-
-    // Determine change type
-    let changeType: ChangeType = ChangeType.Modified;
-    if (part.includes('new file mode')) {
-      changeType = ChangeType.Added;
-    } else if (part.includes('deleted file mode')) {
-      changeType = ChangeType.Deleted;
-    } else if (oldPath !== newPath) {
-      changeType = ChangeType.Renamed;
-    }
-
-    // Count additions and deletions
-    let additions = 0;
-    let deletions = 0;
-    for (const line of lines) {
-      if (line.startsWith('+') && !line.startsWith('+++')) {
-        additions++;
-      } else if (line.startsWith('-') && !line.startsWith('---')) {
-        deletions++;
-      }
-    }
-
-    files.push({
-      path: newPath,
-      oldPath: changeType === ChangeType.Renamed ? oldPath : undefined,
-      changeType,
-      additions,
-      deletions,
-    });
-  }
-
-  return files;
 }
