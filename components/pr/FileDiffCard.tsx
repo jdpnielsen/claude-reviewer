@@ -12,11 +12,9 @@ import {
   Plus,
 } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
-import CodeBlock from './CodeBlock';
 import CollapsibleCommentThread from './CollapsibleCommentThread';
+import MarkdownContent from './MarkdownContent';
 import NewCommentForm from './NewCommentForm';
 import SyntaxLine from './SyntaxLine';
 import type {
@@ -255,16 +253,9 @@ export default function FileDiffCard({
       )}
 
       {isExpanded && isPreview && isMd && (
-        <div className="markdown-preview">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code: CodeBlock,
-            }}
-          >
-            {getFileContentFromDiff(diff, file.path)}
-          </ReactMarkdown>
-        </div>
+        <MarkdownContent className="markdown-preview">
+          {getFileContentFromDiff(diff, file.path)}
+        </MarkdownContent>
       )}
 
       {isExpanded && !isPreview && (
