@@ -637,10 +637,14 @@ def update_pr_status(pr_uuid: str, status: PRStatus) -> bool:
 def update_pr_metadata(
     pr_uuid: str,
     title: str | None = None,
+    description: str | None = None,
     base_ref: str | None = None,
     head_ref: str | None = None,
 ) -> bool:
     """Update a PR's editable metadata, leaving any field passed as None alone.
+
+    None means "leave alone" rather than "clear", so an empty string is a real
+    value: passing description="" blanks the description.
 
     Only touches the pull_requests row: retargeting base_ref or head_ref does
     not by itself re-diff the PR, so callers are expected to follow up with
@@ -651,6 +655,9 @@ def update_pr_metadata(
     if title is not None:
         fields.append("title = ?")
         values.append(title)
+    if description is not None:
+        fields.append("description = ?")
+        values.append(description)
     if base_ref is not None:
         fields.append("base_ref = ?")
         values.append(base_ref)

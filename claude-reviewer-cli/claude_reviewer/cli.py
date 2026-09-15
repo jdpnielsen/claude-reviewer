@@ -454,13 +454,24 @@ def delete(pr_id: str, force: bool) -> None:
 )
 @click.option("--title", "-t", default=None, help="New PR title (keeps the current one by default)")
 @click.option(
+    "--description",
+    "-d",
+    default=None,
+    help="New PR description (keeps the current one by default; pass '' to clear it)",
+)
+@click.option(
     "--base", "-b", default=None, help="Retarget the PR at a new base branch and re-diff against it"
 )
 @click.option(
     "--head", "-h", default=None, help="Repoint the PR at a new head branch and re-diff from it"
 )
 def update(
-    pr_id: str, repo: str | None, title: str | None, base: str | None, head: str | None
+    pr_id: str,
+    repo: str | None,
+    title: str | None,
+    description: str | None,
+    base: str | None,
+    head: str | None,
 ) -> None:
     """Update PR diff after making changes, optionally retitling or retargeting it."""
     pr = db.get_pr_by_uuid(pr_id)
@@ -494,7 +505,7 @@ def update(
     base_commit = git.get_commit_sha(base_ref)
 
     # Update in database
-    db.update_pr_metadata(pr_id, title=title, base_ref=base, head_ref=head)
+    db.update_pr_metadata(pr_id, title=title, description=description, base_ref=base, head_ref=head)
     result = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
     relocate_comments(
         pr_id, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
@@ -506,6 +517,8 @@ def update(
     changes = ""
     if title:
         changes += f"Title: {title}\n"
+    if description is not None:
+        changes += "Description: cleared\n" if not description else "Description: updated\n"
     if base:
         changes += f"Base: {pr.base_ref} -> {base_ref}\n"
     if head:

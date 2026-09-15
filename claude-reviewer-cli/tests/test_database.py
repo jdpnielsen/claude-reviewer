@@ -189,8 +189,50 @@ class TestPullRequests:
         assert pr.title == "New title"
         assert pr.base_ref == "develop"
 
-    def test_update_pr_metadata_writes_all_three_fields_at_once(self, temp_db: Path) -> None:
-        """Test that title, base_ref and head_ref can move in a single call."""
+    def test_update_pr_metadata_changes_the_description_on_its_own(self, temp_db: Path) -> None:
+        """Test that the description updates without disturbing the title."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="Title",
+            description="Old body",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        assert db.update_pr_metadata(uuid, description="## New body\n\nWith markdown.") is True
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.description == "## New body\n\nWith markdown."
+        assert pr.title == "Title"
+
+    def test_update_pr_metadata_treats_an_empty_description_as_a_clear(self, temp_db: Path) -> None:
+        """Test that "" blanks the description, unlike None which leaves it alone."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="Title",
+            description="Old body",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        assert db.update_pr_metadata(uuid, description="") is True
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.description == ""
+
+        assert db.update_pr_metadata(uuid, title="Retitled") is True
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert pr.description == ""
+
+    def test_update_pr_metadata_writes_all_four_fields_at_once(self, temp_db: Path) -> None:
+        """Test that title, description, base_ref and head_ref can move in a single call."""
         uuid = db.create_pr(
             repo_path="/repo",
             title="Old title",
@@ -201,10 +243,15 @@ class TestPullRequests:
             diff="d",
         )
 
-        assert db.update_pr_metadata(uuid, title="T", base_ref="develop", head_ref="f2") is True
+        assert (
+            db.update_pr_metadata(
+                uuid, title="T", description="D", base_ref="develop", head_ref="f2"
+            )
+            is True
+        )
         pr = db.get_pr_by_uuid(uuid)
         assert pr is not None
-        assert (pr.title, pr.base_ref, pr.head_ref) == ("T", "develop", "f2")
+        assert (pr.title, pr.description, pr.base_ref, pr.head_ref) == ("T", "D", "develop", "f2")
 
     def test_update_pr_metadata_with_nothing_to_change_is_a_noop(self, temp_db: Path) -> None:
         """Test that an all-None call touches no row rather than blanking fields."""
