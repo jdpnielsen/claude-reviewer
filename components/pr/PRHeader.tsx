@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 
+import MarkdownContent from './MarkdownContent';
 import type { PullRequest } from '@/app/prs/[id]/types';
 import { PullRequestStatus } from '@/lib/enum';
 
@@ -209,7 +210,9 @@ export default function PRHeader({
         </span>
       </div>
 
-      {pr.description && <p className="pr-description">{pr.description}</p>}
+      {pr.description && (
+        <MarkdownContent className="pr-description">{pr.description}</MarkdownContent>
+      )}
     </div>
   );
 }

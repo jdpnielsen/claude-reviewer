@@ -1,9 +1,10 @@
 /**
- * Tests for the PR header's action buttons, in particular how they degrade when
- * the PR's checkout is gone (see isRepoAvailable in lib/git.ts). Sync and AI
- * Review both shell out to git in the repo, so they have to be disabled; Close
- * and Delete are database-only and must stay usable, since Delete is the only
- * way such a PR can be cleared out at all.
+ * Tests for the PR header: how its action buttons degrade when the PR's
+ * checkout is gone (see isRepoAvailable in lib/git.ts) - Sync and AI Review
+ * both shell out to git in the repo, so they have to be disabled; Close and
+ * Delete are database-only and must stay usable, since Delete is the only way
+ * such a PR can be cleared out at all - plus that the description renders as
+ * markdown rather than as one flat paragraph.
  */
 import { render, screen, fireEvent } from '@testing-library/react';
 import { GitPullRequest } from 'lucide-react';
@@ -24,10 +25,14 @@ const basePR: PullRequest = {
   updated_at: '2026-08-31T00:00:00Z',
 };
 
-function renderHeader(repoAvailable: boolean, onDelete: () => void = () => {}) {
+function renderHeader(
+  repoAvailable: boolean,
+  onDelete: () => void = () => {},
+  pr: PullRequest = basePR,
+) {
   return render(
     <PRHeader
-      pr={basePR}
+      pr={pr}
       config={{ icon: GitPullRequest, color: '#1f6feb', label: 'Pending' }}
       requestingAI={false}
       statusChanging={false}
@@ -81,5 +86,35 @@ describe('PRHeader', () => {
     // The confirmation lives in the page (useConfirm), so the button itself
     // only reports the intent.
     expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  test('the description renders as markdown, not as literal source text', () => {
+    renderHeader(true, () => {}, {
+      ...basePR,
+      description: '## Why\n\nIt uses `flags` and a list:\n\n- one\n- two',
+    });
+
+    expect(screen.getByRole('heading', { name: 'Why' })).toBeInTheDocument();
+    expect(screen.getByText('flags').tagName).toBe('CODE');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    // The raw markdown must not survive as text.
+    expect(screen.queryByText(/## Why/)).not.toBeInTheDocument();
+  });
+
+  test('a fenced code block in the description keeps its line breaks', () => {
+    const { container } = renderHeader(true, () => {}, {
+      ...basePR,
+      description: 'Run it:\n\n```bash\nclaude-reviewer update abc123\n```',
+    });
+
+    // A <pre> is what preserves the newlines a plain <p> would have collapsed.
+    expect(container.querySelector('.pr-description pre')).not.toBeNull();
+    expect(container.textContent).toContain('claude-reviewer update abc123');
+  });
+
+  test('no description means no empty description block', () => {
+    const { container } = renderHeader(true);
+
+    expect(container.querySelector('.pr-description')).toBeNull();
   });
 });
