@@ -606,6 +606,43 @@ class TestUpdateCommand:
         assert pr.title == "Renamed title"
         assert pr.base_ref == "main"
 
+    def test_description_rewrites_the_body_without_touching_the_title(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(
+            main, ["update", pr_uuid, "--description", "## Why\n\nBecause of `reasons`."]
+        )
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.description == "## Why\n\nBecause of `reasons`."
+        assert pr.title == "Original title"
+
+    def test_omitting_description_keeps_the_existing_one(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        db.update_pr_metadata(pr_uuid, description="Existing body")
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--title", "Renamed"])
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.description == "Existing body"
+
+    def test_empty_description_clears_the_body(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        db.update_pr_metadata(pr_uuid, description="Existing body")
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--description", ""])
+
+        assert result.exit_code == 0
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.description == ""
+
     def test_base_retargets_the_pr_and_re_diffs_against_it(self, temp_db: Path, repo: Path) -> None:
         pr_uuid = self._create_pr(repo)
 
