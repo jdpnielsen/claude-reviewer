@@ -237,6 +237,48 @@ textarea {
   margin-top: 1rem;
 }
 
+/* Two lines of the body at .markdown-body's 1.6 line-height. Collapsing is
+   purely this clamp - the full markdown stays in the DOM, so expanding is a
+   class toggle rather than a re-render, and Cmd-F still finds hidden text. */
+.pr-description-clamped {
+  max-height: 3.2em;
+  overflow: hidden;
+  position: relative;
+}
+
+/* The clamp lands on a line boundary for body text, but a heading or fenced
+   code block is taller than one line and gets cut mid-element. The fade makes
+   that read as "continues below" instead of as a rendering glitch. Gated on
+   .is-truncated so a description that fits isn't dimmed for nothing, and kept
+   to well under a line so it doesn't wash out text that IS fully visible. */
+.pr-description-clamped.is-truncated::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 0.7em;
+  background: linear-gradient(to bottom, transparent, var(--background));
+  pointer-events: none;
+}
+
+.pr-description-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #8b949e;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.pr-description-toggle:hover {
+  background: #30363d;
+  color: #c9d1d9;
+}
+
 .pr-tabbar {
   display: flex;
   align-items: center;

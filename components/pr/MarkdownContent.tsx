@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -9,12 +10,16 @@ import CodeBlock from './CodeBlock';
 export default function MarkdownContent({
   children,
   className,
+  ref,
 }: {
   children: string;
   className?: string;
+  // Exposed so a caller can measure the rendered body - CollapsibleDescription
+  // compares its scroll height against its clamped height.
+  ref?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className={className ? `markdown-body ${className}` : 'markdown-body'}>
+    <div ref={ref} className={className ? `markdown-body ${className}` : 'markdown-body'}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
         {children}
       </ReactMarkdown>

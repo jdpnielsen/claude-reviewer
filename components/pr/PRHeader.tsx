@@ -13,7 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 
-import MarkdownContent from './MarkdownContent';
+import CollapsibleDescription from './CollapsibleDescription';
 import type { PullRequest } from '@/app/prs/[id]/types';
 import { PullRequestStatus } from '@/lib/enum';
 
@@ -210,9 +210,9 @@ export default function PRHeader({
         </span>
       </div>
 
-      {pr.description && (
-        <MarkdownContent className="pr-description">{pr.description}</MarkdownContent>
-      )}
+      {/* Keyed so moving between PRs starts collapsed again rather than
+          inheriting the previous PR's expanded state. */}
+      {pr.description && <CollapsibleDescription key={pr.uuid} description={pr.description} />}
     </div>
   );
 }
