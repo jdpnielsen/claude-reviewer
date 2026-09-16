@@ -26,6 +26,7 @@ import type {
   LastClickedLine,
 } from '@/app/prs/[id]/types';
 import {
+  contextCacheKey,
   findAnchorMatchInDiff,
   getCrossSideRange,
   getFileContentFromDiff,
@@ -48,6 +49,10 @@ interface FileDiffCardProps {
   // number has no reliable position in the cumulative diff.
   commitSpecificComments: CommentWithReplies[];
   commits: CommitInfo[];
+  // The commit whose diff is being rendered, or null for the cumulative
+  // base...head diff. Only used to scope expanded-context lines to the right
+  // revision of the file - see contextCacheKey.
+  displayedCommitSha: string | null;
   isReviewed: boolean;
   toggleReviewed: () => void;
   onJumpToFile: (filePath: string, commitSha: string | null) => void;
@@ -90,6 +95,7 @@ export default function FileDiffCard({
   fileComments,
   commitSpecificComments,
   commits,
+  displayedCommitSha,
   isReviewed,
   toggleReviewed,
   onJumpToFile,
@@ -408,9 +414,20 @@ export default function FileDiffCard({
                       ? idx === nextHunkIdx - 1
                       : idx === diffLines.length - 1;
 
-                  // Context expansion keys
-                  const expandUpKey = `${file.path}:${hunkIndex}:up`;
-                  const expandDownKey = `${file.path}:${hunkIndex}:down`;
+                  // Context expansion keys - scoped to the commit on screen, since
+                  // the same hunk index means different lines in a different diff.
+                  const expandUpKey = contextCacheKey(
+                    displayedCommitSha,
+                    file.path,
+                    hunkIndex,
+                    'up',
+                  );
+                  const expandDownKey = contextCacheKey(
+                    displayedCommitSha,
+                    file.path,
+                    hunkIndex,
+                    'down',
+                  );
                   const expandedUpLines = expandedContext.get(expandUpKey) || [];
                   const expandedDownLines = expandedContext.get(expandDownKey) || [];
 
