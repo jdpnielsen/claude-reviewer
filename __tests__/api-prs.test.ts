@@ -17,8 +17,9 @@ const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-tes
 process.env.DATABASE_DIR = testDbDir;
 process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
-import { DELETE as prDeleteRoute, GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
+import { GET as contextRoute } from '../app/api/prs/[id]/context/route';
 import { POST as reviewRoute } from '../app/api/prs/[id]/review/route';
+import { DELETE as prDeleteRoute, GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
 import { POST as syncRoute } from '../app/api/prs/[id]/sync/route';
 import { GET as listPRsRoute } from '../app/api/prs/route';
 import {
@@ -588,5 +589,124 @@ describe('POST /api/prs/[id]/review', () => {
 
     const comments = getCommentsWithReplies(uuid);
     expect(comments[0].comment.review_action).toBeNull();
+  });
+});
+
+// The server half of "show 10 more lines": a single commit's diff is
+// `sha^..sha`, so its line numbers index the file at that commit. Without an
+// explicit ?commit= the route falls back to the PR head, which is how
+// expanding context inside an older commit's diff used to splice in text from
+// a later commit.
+describe('GET /api/prs/[id]/context', () => {
+  let repoDir: string;
+  let baseCommit: string;
+  let firstCommit: string;
+  let headCommit: string;
+
+  function contextReq(id: string, query: string): Request {
+    return new Request(`http://test/api/prs/${id}/context${query}`);
+  }
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-context-repo-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    runGit(repoDir, ['commit', '-m', 'base commit']);
+    runGit(repoDir, ['branch', '-M', 'main']);
+    baseCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+
+    runGit(repoDir, ['checkout', '-b', 'feature']);
+    // Same line number, different text in each commit - so which revision the
+    // route reads is visible in the response rather than inferred.
+    fs.writeFileSync(path.join(repoDir, 'total.ts'), 'one\nin first commit\nthree\n');
+    runGit(repoDir, ['add', 'total.ts']);
+    runGit(repoDir, ['commit', '-m', 'feature v1']);
+    firstCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+
+    fs.writeFileSync(path.join(repoDir, 'total.ts'), 'one\nin second commit\nthree\n');
+    runGit(repoDir, ['add', 'total.ts']);
+    runGit(repoDir, ['commit', '-m', 'feature v2']);
+    headCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  function makePR(title: string): string {
+    return createPR(repoDir, title, 'main', 'feature', baseCommit, headCommit, 'diff');
+  }
+
+  test('reads the file at the requested commit, not the PR head', async () => {
+    const uuid = makePR('context at an older commit');
+    const res = await contextRoute(
+      contextReq(uuid, `?file=total.ts&start=1&end=3&commit=${firstCommit}`) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).lines).toEqual(['one', 'in first commit', 'three']);
+  });
+
+  test('falls back to the PR head when no commit is given', async () => {
+    const uuid = makePR('context with no commit');
+    const res = await contextRoute(
+      contextReq(uuid, '?file=total.ts&start=1&end=3') as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).lines).toEqual(['one', 'in second commit', 'three']);
+  });
+
+  // The working tree holds the second commit's text, so falling back to it
+  // here would answer with content the requested commit never had.
+  test('404s rather than reading the working tree for a file absent from the requested commit', async () => {
+    const uuid = makePR('context for a missing file');
+    const res = await contextRoute(
+      contextReq(uuid, `?file=total.ts&start=1&end=3&commit=${baseCommit}`) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('File not found in commit');
+  });
+
+  // A PR can be created from uncommitted work, so the cumulative view still
+  // needs the working tree for files no commit contains yet.
+  test('still reads the working tree for the head default', async () => {
+    fs.writeFileSync(path.join(repoDir, 'uncommitted.ts'), 'never committed\n');
+    const uuid = makePR('context for uncommitted work');
+    const res = await contextRoute(
+      contextReq(uuid, '?file=uncommitted.ts&start=1&end=1') as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).lines).toEqual(['never committed']);
+  });
+
+  test('handles a path containing spaces and shell metacharacters', async () => {
+    const trickyPath = 'a file; echo pwned.ts';
+    fs.writeFileSync(path.join(repoDir, trickyPath), 'harmless\n');
+    runGit(repoDir, ['add', trickyPath]);
+    runGit(repoDir, ['commit', '-m', 'tricky path']);
+    const trickyCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+
+    const uuid = makePR('context for a tricky path');
+    const res = await contextRoute(
+      contextReq(
+        uuid,
+        `?file=${encodeURIComponent(trickyPath)}&start=1&end=1&commit=${trickyCommit}`,
+      ) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).lines).toEqual(['harmless']);
   });
 });
