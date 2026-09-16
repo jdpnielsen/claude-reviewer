@@ -27,6 +27,7 @@ import {
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
 import {
   buildContextUrl,
+  contextFileKey,
   findReviewedMark,
   shouldCollapseByDefault,
   statusConfig,
@@ -81,6 +82,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // Track expanded context: key is contextCacheKey(...), value is array of lines
   const [expandedContext, setExpandedContext] = useState<Map<string, string[]>>(new Map());
   const [loadingContext, setLoadingContext] = useState<Set<string>>(new Set());
+  // Each file's total line count as reported by the context API, keyed by
+  // contextFileKey(...). A diff only describes the parts that changed, so this
+  // is the only thing that tells the expand-down control where a file ends.
+  const [fileLineCounts, setFileLineCounts] = useState<Map<string, number>>(new Map());
   // Track which files show all lines (for large diffs)
   const [showAllLines, setShowAllLines] = useState<Set<string>>(new Set());
   // Track collapsed folders in sidebar
@@ -220,7 +225,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
 
     setLoadingContext((prev) => new Set(prev).add(key));
     try {
-      const contextData = await apiClient.get<{ lines: string[] }>(
+      const contextData = await apiClient.get<{ lines: string[]; totalLines: number }>(
         buildContextUrl(id, filePath, startLine, endLine, displayedCommitSha),
       );
       setExpandedContext((prev) => {
@@ -229,6 +234,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
         next.set(key, [...existing, ...contextData.lines]);
         return next;
       });
+      setFileLineCounts((prev) =>
+        new Map(prev).set(contextFileKey(displayedCommitSha, filePath), contextData.totalLines),
+      );
     } catch (e) {
       console.error('Failed to fetch context:', e);
     } finally {
@@ -745,6 +753,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   commitSpecificComments={getCommitSpecificFileComments(file.path)}
                   commits={data.commits}
                   displayedCommitSha={displayedCommitSha}
+                  fileLineCount={
+                    fileLineCounts.get(contextFileKey(displayedCommitSha, file.path)) ?? null
+                  }
                   isReviewed={isFileReviewed(file.path)}
                   toggleReviewed={() => toggleFileReviewed(file.path)}
                   onJumpToFile={jumpToFile}

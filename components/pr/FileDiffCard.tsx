@@ -33,10 +33,13 @@ import {
   getLanguage,
   getRangeTextFromDiff,
   isMarkdownFile,
+  linesAvailableAbove,
+  linesAvailableBelow,
   MAX_LINES_DEFAULT,
   parseFileDiff,
+  parseHunkRanges,
 } from '@/app/prs/[id]/utils';
-import { CommentResolutionMode, LineType } from '@/lib/enum';
+import { ChangeType, CommentResolutionMode, LineType } from '@/lib/enum';
 
 interface FileDiffCardProps {
   file: FileInfo;
@@ -53,6 +56,11 @@ interface FileDiffCardProps {
   // base...head diff. Only used to scope expanded-context lines to the right
   // revision of the file - see contextCacheKey.
   displayedCommitSha: string | null;
+  // How many lines this file has at that commit, once a context response has
+  // said so (see fetchContext); null until then. Bounds how far the last hunk
+  // can expand downwards - nothing else can tell the client where the file
+  // ends, since a diff only describes the parts that changed.
+  fileLineCount: number | null;
   isReviewed: boolean;
   toggleReviewed: () => void;
   onJumpToFile: (filePath: string, commitSha: string | null) => void;
@@ -96,6 +104,7 @@ export default function FileDiffCard({
   commitSpecificComments,
   commits,
   displayedCommitSha,
+  fileLineCount,
   isReviewed,
   toggleReviewed,
   onJumpToFile,
@@ -279,6 +288,14 @@ export default function FileDiffCard({
                 hunkStarts.push(idx);
               }
             });
+            // Which new-side lines each hunk covers, so each one's expand
+            // controls can be bounded by its neighbours - see
+            // linesAvailableAbove/Below.
+            const hunkRanges = parseHunkRanges(diffLines);
+            // A deleted file has no new-side content at all, so there is
+            // nothing to expand into in either direction.
+            const canExpand = file.changeType !== ChangeType.Deleted;
+            const EXPAND_STEP = 10;
 
             // Limit lines for large diffs unless "show all" is enabled
             const isLargeDiff = diffLines.length > MAX_LINES_DEFAULT;
@@ -435,6 +452,36 @@ export default function FileDiffCard({
                   const expandedUpCount = expandedUpLines.length;
                   const expandedDownCount = expandedDownLines.length;
 
+                  // Unseen lines left in the gap on either side of this hunk.
+                  // Zero hides the control: a button that fetches nothing reads
+                  // as "there's more here" and, at the end of a file, never goes
+                  // away no matter how often it's pressed.
+                  const availableAbove = canExpand
+                    ? linesAvailableAbove(hunkRanges, currentHunkIndex, expandedUpCount)
+                    : 0;
+                  const availableBelow = canExpand
+                    ? linesAvailableBelow(
+                        hunkRanges,
+                        currentHunkIndex,
+                        expandedDownCount,
+                        fileLineCount,
+                      )
+                    : 0;
+                  const upStep = Math.min(EXPAND_STEP, availableAbove);
+                  const downStep = Math.min(EXPAND_STEP, availableBelow);
+                  // Frozen per-iteration snapshots, for the same reason as
+                  // currentHunkIndex: hunkStartLine is one mutable binding shared
+                  // across the render pass, so by the time a click handler runs it
+                  // holds the *last* hunk's start line, not this hunk's.
+                  const hunkNewStart = hunkRanges[currentHunkIndex]?.newStart ?? hunkStartLine;
+                  // The header's own end rather than the running newLineNum: any
+                  // row the walk miscounts as context drifts newLineNum past the
+                  // hunk, and expanding from there asks for a range that
+                  // linesAvailableBelow - which trusts the header - has already
+                  // ruled out. Those two disagreeing is what left the control
+                  // fetching nothing yet never running out of lines to offer.
+                  const hunkNewEnd = hunkRanges[currentHunkIndex]?.newEnd ?? currentLine;
+
                   // Extends the in-progress comment range from the current shift-click/drag
                   // anchor (lastClickedLine) to this row, mirroring GitHub's line-range
                   // selection - either a same-side range, or (for an adjacent deleted+added
@@ -556,28 +603,25 @@ export default function FileDiffCard({
                       )}
 
                       {/* Expand up button - inside hunk, right after @@ header */}
-                      {line.startsWith('@@') &&
-                        hunkStartLine > 1 &&
-                        hunkStartLine - expandedUpCount > 1 && (
-                          <div className="expand-context-divider inside-hunk">
-                            <button
-                              className="expand-context-btn expand-up"
-                              onClick={() => {
-                                const linesToFetch = 10;
-                                const end = hunkStartLine - expandedUpCount - 1;
-                                const start = Math.max(1, end - linesToFetch + 1);
-                                fetchContext(file.path, start, end, expandUpKey);
-                              }}
-                              title={`Show ${Math.min(10, hunkStartLine - expandedUpCount - 1)} more lines above`}
-                            >
-                              {loadingContext.has(expandUpKey) ? (
-                                <MoreHorizontal size={10} />
-                              ) : (
-                                <Plus size={10} />
-                              )}
-                            </button>
-                          </div>
-                        )}
+                      {line.startsWith('@@') && availableAbove > 0 && (
+                        <div className="expand-context-divider inside-hunk">
+                          <button
+                            className="expand-context-btn expand-up"
+                            onClick={() => {
+                              const end = hunkNewStart - expandedUpCount - 1;
+                              const start = Math.max(1, end - upStep + 1);
+                              fetchContext(file.path, start, end, expandUpKey);
+                            }}
+                            title={`Show ${upStep} more lines above`}
+                          >
+                            {loadingContext.has(expandUpKey) ? (
+                              <MoreHorizontal size={10} />
+                            ) : (
+                              <Plus size={10} />
+                            )}
+                          </button>
+                        </div>
+                      )}
 
                       {/* Show already expanded lines above (after @@ header) */}
                       {line.startsWith('@@') &&
@@ -687,7 +731,7 @@ export default function FileDiffCard({
                         <>
                           {/* Show already expanded lines below */}
                           {expandedDownLines.map((expandedLine, i) => {
-                            const lineNum = currentLine + i + 1;
+                            const lineNum = hunkNewEnd + i + 1;
                             return (
                               <div
                                 key={`expanded-down-${i}`}
@@ -706,24 +750,25 @@ export default function FileDiffCard({
                             );
                           })}
                           {/* Expand down button - semicircle */}
-                          <div className="expand-context-divider inside-hunk">
-                            <button
-                              className="expand-context-btn expand-down"
-                              onClick={() => {
-                                const linesToFetch = 10;
-                                const start = currentLine + expandedDownCount + 1;
-                                const end = start + linesToFetch - 1;
-                                fetchContext(file.path, start, end, expandDownKey);
-                              }}
-                              title="Show 10 more lines below"
-                            >
-                              {loadingContext.has(expandDownKey) ? (
-                                <MoreHorizontal size={10} />
-                              ) : (
-                                <Plus size={10} />
-                              )}
-                            </button>
-                          </div>
+                          {availableBelow > 0 && (
+                            <div className="expand-context-divider inside-hunk">
+                              <button
+                                className="expand-context-btn expand-down"
+                                onClick={() => {
+                                  const start = hunkNewEnd + expandedDownCount + 1;
+                                  const end = start + downStep - 1;
+                                  fetchContext(file.path, start, end, expandDownKey);
+                                }}
+                                title={`Show ${downStep} more lines below`}
+                              >
+                                {loadingContext.has(expandDownKey) ? (
+                                  <MoreHorizontal size={10} />
+                                ) : (
+                                  <Plus size={10} />
+                                )}
+                              </button>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>

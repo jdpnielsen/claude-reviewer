@@ -12,6 +12,11 @@ interface RouteParams {
 
 function sliceResponse(content: string, startLine: number, endLine: number) {
   const lines = content.split('\n');
+  // A file's final newline terminates its last line rather than starting an
+  // empty one, so drop what split() leaves behind. The client bounds
+  // expand-down on totalLines, and counting the phantom would leave the
+  // control offering one blank row past the end of the file.
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   return NextResponse.json({
     lines: lines.slice(Math.max(0, startLine - 1), Math.min(lines.length, endLine)),
     startLine: Math.max(1, startLine),
