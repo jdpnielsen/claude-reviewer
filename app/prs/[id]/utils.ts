@@ -421,3 +421,38 @@ export const getFileContentFromDiff = (diffContent: string, filePath: string): s
   }
   return contentLines.join('\n');
 };
+
+// Namespaces a hunk's expanded-context cache entry (in page.tsx's
+// expandedContext/loadingContext) by the commit whose diff is on screen.
+// Without the commit in the key, `path:hunk:direction` collides across views:
+// a hunk expanded while viewing commit A would keep showing A's surrounding
+// lines after switching to commit B, whose diff has an entirely different
+// hunk 0. `null` is the cumulative (base...head) diff, which is its own view.
+export const contextCacheKey = (
+  commitSha: string | null,
+  filePath: string,
+  hunkIndex: number,
+  direction: 'up' | 'down',
+): string => `${commitSha ?? 'all'}:${filePath}:${hunkIndex}:${direction}`;
+
+// The diff on screen decides which revision of the file the surrounding
+// context has to come from: a single commit's diff is `sha^..sha`, so its line
+// numbers index the file at `sha`, and expanding from any later revision
+// (which is what the API falls back to - see its `commit` param defaulting to
+// head_commit) splices in text the commit never contained. `null` means the
+// cumulative base...head view, whose line numbers do index head.
+export const buildContextUrl = (
+  prId: string,
+  filePath: string,
+  startLine: number,
+  endLine: number,
+  commitSha: string | null,
+): string => {
+  const params = new URLSearchParams({
+    file: filePath,
+    start: String(startLine),
+    end: String(endLine),
+  });
+  if (commitSha) params.set('commit', commitSha);
+  return `/api/prs/${prId}/context?${params.toString()}`;
+};

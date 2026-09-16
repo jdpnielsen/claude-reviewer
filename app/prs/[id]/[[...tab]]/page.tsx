@@ -25,7 +25,12 @@ import {
   useUnmarkFileReviewedMutation,
 } from '@/app/prs/[id]/queries';
 import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
-import { findReviewedMark, shouldCollapseByDefault, statusConfig } from '@/app/prs/[id]/utils';
+import {
+  buildContextUrl,
+  findReviewedMark,
+  shouldCollapseByDefault,
+  statusConfig,
+} from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
 import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
@@ -73,7 +78,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const [replyContent, setReplyContent] = useState('');
   const [reviewSummary, setReviewSummary] = useState('');
   const [previewMode, setPreviewMode] = useState<Set<string>>(new Set());
-  // Track expanded context: key is "filePath:hunkIndex:direction", value is array of lines
+  // Track expanded context: key is contextCacheKey(...), value is array of lines
   const [expandedContext, setExpandedContext] = useState<Map<string, string[]>>(new Map());
   const [loadingContext, setLoadingContext] = useState<Set<string>>(new Set());
   // Track which files show all lines (for large diffs)
@@ -216,7 +221,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     setLoadingContext((prev) => new Set(prev).add(key));
     try {
       const contextData = await apiClient.get<{ lines: string[] }>(
-        `/api/prs/${id}/context?file=${encodeURIComponent(filePath)}&start=${startLine}&end=${endLine}`,
+        buildContextUrl(id, filePath, startLine, endLine, displayedCommitSha),
       );
       setExpandedContext((prev) => {
         const next = new Map(prev);
@@ -739,6 +744,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   fileComments={getFileComments(file.path)}
                   commitSpecificComments={getCommitSpecificFileComments(file.path)}
                   commits={data.commits}
+                  displayedCommitSha={displayedCommitSha}
                   isReviewed={isFileReviewed(file.path)}
                   toggleReviewed={() => toggleFileReviewed(file.path)}
                   onJumpToFile={jumpToFile}

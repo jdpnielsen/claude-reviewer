@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { FileInfo } from '../app/prs/[id]/types';
 import {
+  buildContextUrl,
+  contextCacheKey,
   findAnchorMatchInDiff,
   getCrossSideRange,
   getRangeTextFromDiff,
@@ -247,5 +249,60 @@ describe('shouldCollapseByDefault', () => {
     expect(shouldCollapseByDefault(file({ path: 'src/yarn.lock.md', additions: 1 }), false)).toBe(
       false,
     );
+  });
+});
+
+describe('contextCacheKey', () => {
+  it('gives the same hunk a different key in each commit view', () => {
+    const inCommitA = contextCacheKey('a'.repeat(40), 'lib/git.ts', 0, 'up');
+    const inCommitB = contextCacheKey('b'.repeat(40), 'lib/git.ts', 0, 'up');
+    const inCumulative = contextCacheKey(null, 'lib/git.ts', 0, 'up');
+    expect(new Set([inCommitA, inCommitB, inCumulative]).size).toBe(3);
+  });
+
+  it('still separates hunks, directions and files within one commit view', () => {
+    const sha = 'c'.repeat(40);
+    const keys = [
+      contextCacheKey(sha, 'lib/git.ts', 0, 'up'),
+      contextCacheKey(sha, 'lib/git.ts', 0, 'down'),
+      contextCacheKey(sha, 'lib/git.ts', 1, 'up'),
+      contextCacheKey(sha, 'lib/database.ts', 0, 'up'),
+    ];
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it('reuses one key for repeated expansions of the same hunk', () => {
+    const sha = 'd'.repeat(40);
+    expect(contextCacheKey(sha, 'lib/git.ts', 2, 'down')).toBe(
+      contextCacheKey(sha, 'lib/git.ts', 2, 'down'),
+    );
+  });
+});
+
+describe('buildContextUrl', () => {
+  it('pins the request to the commit whose diff is on screen', () => {
+    const sha = 'e'.repeat(40);
+    const url = buildContextUrl('pr-1', 'lib/git.ts', 90, 99, sha);
+    const params = new URL(url, 'http://x').searchParams;
+    expect(url.startsWith('/api/prs/pr-1/context?')).toBe(true);
+    expect(params.get('commit')).toBe(sha);
+    expect(params.get('file')).toBe('lib/git.ts');
+    expect(params.get('start')).toBe('90');
+    expect(params.get('end')).toBe('99');
+  });
+
+  it('omits commit for the cumulative diff, letting the API use the PR head', () => {
+    const params = new URL(buildContextUrl('pr-1', 'lib/git.ts', 1, 10, null), 'http://x')
+      .searchParams;
+    expect(params.has('commit')).toBe(false);
+  });
+
+  it('escapes a path that would otherwise break out of the query string', () => {
+    const params = new URL(
+      buildContextUrl('pr-1', 'app/prs/[id]/a b&start=1.ts', 1, 10, null),
+      'http://x',
+    ).searchParams;
+    expect(params.get('file')).toBe('app/prs/[id]/a b&start=1.ts');
+    expect(params.get('start')).toBe('1');
   });
 });
