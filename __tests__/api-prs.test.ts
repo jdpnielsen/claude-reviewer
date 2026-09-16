@@ -690,6 +690,21 @@ describe('GET /api/prs/[id]/context', () => {
     expect((await res.json()).lines).toEqual(['never committed']);
   });
 
+  // The client bounds expand-down on totalLines, so a final newline must not
+  // read as one extra, empty line past the end of the file.
+  test('does not count the final newline as an extra line', async () => {
+    const uuid = makePR('context line count');
+    const res = await contextRoute(
+      contextReq(uuid, `?file=total.ts&start=1&end=50&commit=${firstCommit}`) as never,
+      routeParams(uuid),
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.totalLines).toBe(3);
+    expect(json.lines).toEqual(['one', 'in first commit', 'three']);
+  });
+
   test('handles a path containing spaces and shell metacharacters', async () => {
     const trickyPath = 'a file; echo pwned.ts';
     fs.writeFileSync(path.join(repoDir, trickyPath), 'harmless\n');

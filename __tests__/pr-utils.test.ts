@@ -7,7 +7,10 @@ import {
   findAnchorMatchInDiff,
   getCrossSideRange,
   getRangeTextFromDiff,
+  linesAvailableAbove,
+  linesAvailableBelow,
   MAX_LINES_DEFAULT,
+  parseHunkRanges,
   shouldCollapseByDefault,
 } from '../app/prs/[id]/utils';
 import { ChangeType, LineType } from '../lib/enum';
@@ -304,5 +307,97 @@ describe('buildContextUrl', () => {
     ).searchParams;
     expect(params.get('file')).toBe('app/prs/[id]/a b&start=1.ts');
     expect(params.get('start')).toBe('1');
+  });
+});
+
+describe('parseHunkRanges', () => {
+  it('reads each hunk new-side extent in order', () => {
+    expect(
+      parseHunkRanges(['@@ -10,3 +10,4 @@ fn a', ' ctx', '@@ -40,2 +41,2 @@ fn b', ' ctx']),
+    ).toEqual([
+      { newStart: 10, newEnd: 13 },
+      { newStart: 41, newEnd: 42 },
+    ]);
+  });
+
+  it('treats an omitted count as one line', () => {
+    expect(parseHunkRanges(['@@ -1 +1 @@'])).toEqual([{ newStart: 1, newEnd: 1 }]);
+  });
+
+  it('gives a pure deletion an empty new-side range', () => {
+    const [range] = parseHunkRanges(['@@ -5,3 +4,0 @@']);
+    expect(range).toEqual({ newStart: 4, newEnd: 3 });
+    expect(range.newEnd - range.newStart + 1).toBe(0);
+  });
+
+  it('ignores diff body lines that merely start with @', () => {
+    expect(parseHunkRanges(['+@@ not a header', ' @@ -1,1 +1,1 @@'])).toEqual([]);
+  });
+});
+
+describe('linesAvailableAbove', () => {
+  // Hunks covering new-side 10-12 and 40-42: 9 lines above the first, and 27
+  // between them (13-39).
+  const ranges = parseHunkRanges(['@@ -10,3 +10,3 @@', '@@ -40,3 +40,3 @@']);
+
+  it('counts up to the top of the file for the first hunk', () => {
+    expect(linesAvailableAbove(ranges, 0, 0)).toBe(9);
+  });
+
+  it('stops at the previous hunk rather than running through it', () => {
+    expect(linesAvailableAbove(ranges, 1, 0)).toBe(27);
+  });
+
+  it('discounts what has already been expanded', () => {
+    expect(linesAvailableAbove(ranges, 0, 4)).toBe(5);
+    expect(linesAvailableAbove(ranges, 0, 9)).toBe(0);
+  });
+
+  it('never goes negative once the gap is exhausted', () => {
+    expect(linesAvailableAbove(ranges, 0, 20)).toBe(0);
+  });
+
+  it('reports nothing above a hunk that starts at line 1', () => {
+    expect(linesAvailableAbove(parseHunkRanges(['@@ -1,3 +1,3 @@']), 0, 0)).toBe(0);
+  });
+
+  it('reports nothing for a hunk index that does not exist', () => {
+    expect(linesAvailableAbove(ranges, 5, 0)).toBe(0);
+  });
+});
+
+describe('linesAvailableBelow', () => {
+  // Adjacent hunks - 1-2 then 3-4 - leave no gap between them at all.
+  const adjacent = parseHunkRanges(['@@ -1,2 +1,2 @@', '@@ -3,2 +3,2 @@']);
+  // 1-2 then 6-7 leaves lines 3-5.
+  const gapped = parseHunkRanges(['@@ -1,2 +1,2 @@', '@@ -6,2 +6,2 @@']);
+
+  it('stops at the next hunk', () => {
+    expect(linesAvailableBelow(gapped, 0, 0, null)).toBe(3);
+  });
+
+  it('reports nothing between two adjacent hunks', () => {
+    expect(linesAvailableBelow(adjacent, 0, 0, null)).toBe(0);
+  });
+
+  it('stops at the end of the file for the last hunk', () => {
+    expect(linesAvailableBelow(gapped, 1, 0, 10)).toBe(3);
+    expect(linesAvailableBelow(gapped, 1, 0, 7)).toBe(0);
+  });
+
+  it('discounts what has already been expanded', () => {
+    expect(linesAvailableBelow(gapped, 0, 2, null)).toBe(1);
+    expect(linesAvailableBelow(gapped, 0, 3, null)).toBe(0);
+  });
+
+  // Nothing but a context response can say where a file ends, so until one
+  // has, the last hunk keeps offering to expand rather than hiding a control
+  // that probably does have lines behind it.
+  it('treats an unknown file length as unbounded for the last hunk', () => {
+    expect(linesAvailableBelow(gapped, 1, 0, null)).toBe(Infinity);
+  });
+
+  it('reports nothing for a hunk index that does not exist', () => {
+    expect(linesAvailableBelow(gapped, 5, 0, 100)).toBe(0);
   });
 });

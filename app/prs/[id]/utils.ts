@@ -178,6 +178,12 @@ export const parseFileDiff = (diff: string, filePath: string): string[] => {
   if (!fileMatch) return [];
 
   const lines = fileMatch[0].split('\n');
+  // Every row of a unified diff carries a prefix character, even an empty
+  // context line (a lone space), so a truly empty string can only be what
+  // split() leaves behind after the chunk's final newline. Left in, it renders
+  // as a blank row and - worse - counts as a context line in the old/new line
+  // walk, putting every reader of those numbers one line past the truth.
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   return lines.filter(
     (l) =>
       !l.startsWith('diff --git') &&
@@ -434,6 +440,71 @@ export const contextCacheKey = (
   hunkIndex: number,
   direction: 'up' | 'down',
 ): string => `${commitSha ?? 'all'}:${filePath}:${hunkIndex}:${direction}`;
+
+// Same scoping for a whole file's line count (page.tsx's fileLineCounts),
+// which is likewise a fact about one revision of one file.
+export const contextFileKey = (commitSha: string | null, filePath: string): string =>
+  `${commitSha ?? 'all'}:${filePath}`;
+
+// The new-side lines one hunk covers, inclusive. `newEnd` is one *below*
+// `newStart` for a hunk that adds nothing on the new side (a pure deletion,
+// `+n,0`), which reads correctly as "covers no new-side lines".
+export interface HunkRange {
+  newStart: number;
+  newEnd: number;
+}
+
+// Every hunk's new-side extent, in order, so a hunk can be bounded by its
+// neighbours: the gap above hunk i ends where hunk i-1 stops, and the gap
+// below it starts where hunk i+1 begins. Without those bounds, expanding
+// context runs straight through the adjacent hunk and re-renders lines the
+// diff is already showing a few rows up. A missing count means 1 (`@@ -1 +1
+// @@`); an explicit 0 means the hunk touches no lines on that side, and git
+// reports the start as the line before the insertion point.
+export const parseHunkRanges = (diffLines: string[]): HunkRange[] => {
+  const ranges: HunkRange[] = [];
+  for (const line of diffLines) {
+    const match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (!match) continue;
+    const newStart = parseInt(match[1], 10);
+    const newCount = match[2] === undefined ? 1 : parseInt(match[2], 10);
+    ranges.push({ newStart, newEnd: newStart + newCount - 1 });
+  }
+  return ranges;
+};
+
+// How many unseen lines sit between hunk `hunkIndex` and whatever is above it
+// - the previous hunk, or the top of the file - discounting the ones already
+// expanded into that gap. Zero means there is nothing left to show, so the
+// expand-up control has no work to do and shouldn't be rendered.
+export const linesAvailableAbove = (
+  hunkRanges: HunkRange[],
+  hunkIndex: number,
+  expandedCount: number,
+): number => {
+  const hunk = hunkRanges[hunkIndex];
+  if (!hunk) return 0;
+  const floor = hunkIndex > 0 ? hunkRanges[hunkIndex - 1].newEnd : 0;
+  return Math.max(0, hunk.newStart - 1 - expandedCount - floor);
+};
+
+// The mirror of linesAvailableAbove, bounded below by the next hunk or by the
+// end of the file. `totalLines` is null until some context response has
+// reported it (see fetchContext), and the last hunk's control stays visible
+// while it's unknown rather than hiding something that may well be expandable.
+export const linesAvailableBelow = (
+  hunkRanges: HunkRange[],
+  hunkIndex: number,
+  expandedCount: number,
+  totalLines: number | null,
+): number => {
+  const hunk = hunkRanges[hunkIndex];
+  if (!hunk) return 0;
+  const next = hunkRanges[hunkIndex + 1];
+  const ceiling = next ? next.newStart - 1 : totalLines;
+  if (ceiling === null) return Infinity;
+  return Math.max(0, ceiling - hunk.newEnd - expandedCount);
+};
 
 // The diff on screen decides which revision of the file the surrounding
 // context has to come from: a single commit's diff is `sha^..sha`, so its line

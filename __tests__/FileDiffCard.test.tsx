@@ -24,18 +24,32 @@ const file: FileInfo = {
   deletions: 1,
 };
 
+// Wraps hunks (each a list of raw diff rows, starting with its @@ header) in
+// the file header the card parses the diff out of. The trailing newline
+// matters: git emits one, and splitting on it leaves an empty row that used to
+// count as a context line and push the line walk one past the end of the hunk.
+function buildDiff(hunks: string[][]): string {
+  return (
+    [
+      `diff --git a/${file.path} b/${file.path}`,
+      'index 1111111..2222222 100644',
+      `--- a/${file.path}`,
+      `+++ b/${file.path}`,
+      ...hunks.flat(),
+    ].join('\n') + '\n'
+  );
+}
+
 // One hunk starting at line 20, so there are 19 lines above it to expand into.
-const diff = [
-  `diff --git a/${file.path} b/${file.path}`,
-  'index 1111111..2222222 100644',
-  `--- a/${file.path}`,
-  `+++ b/${file.path}`,
-  '@@ -20,3 +20,3 @@ function total(items) {',
-  '   let sum = 0;',
-  '-  return items.length;',
-  '+  return sum;',
-  ' }',
-].join('\n');
+const diff = buildDiff([
+  [
+    '@@ -20,3 +20,3 @@ function total(items) {',
+    '   let sum = 0;',
+    '-  return items.length;',
+    '+  return sum;',
+    ' }',
+  ],
+]);
 
 const commits: CommitInfo[] = [
   {
@@ -60,20 +74,25 @@ type FetchContext = (filePath: string, startLine: number, endLine: number, key: 
 
 function renderCard(
   overrides: {
+    file?: FileInfo;
+    diff?: string;
     displayedCommitSha?: string | null;
+    fileLineCount?: number | null;
     expandedContext?: Map<string, string[]>;
     fetchContext?: FetchContext;
   } = {},
 ) {
+  const renderedFile = overrides.file ?? file;
   const noop = () => {};
   return render(
     <FileDiffCard
-      file={file}
-      diff={diff}
+      file={renderedFile}
+      diff={overrides.diff ?? diff}
       fileComments={[]}
       commitSpecificComments={[]}
       commits={commits}
       displayedCommitSha={overrides.displayedCommitSha ?? null}
+      fileLineCount={overrides.fileLineCount ?? null}
       isReviewed={false}
       toggleReviewed={noop}
       onJumpToFile={noop}
@@ -172,5 +191,247 @@ describe('FileDiffCard context expansion', () => {
 
     expect(container.querySelectorAll('.expanded-context')).toHaveLength(0);
     expect(container.textContent).not.toContain('only exists in first');
+  });
+});
+
+// Two hunks well clear of each other (new-side 10-12 and 40-42) and of the top
+// of the file, so both have a real gap to expand into in both directions.
+const twoHunkDiff = buildDiff([
+  [
+    '@@ -10,3 +10,3 @@ function first() {',
+    '   let a = 0;',
+    '-  return a;',
+    '+  return a + 1;',
+    ' }',
+  ],
+  [
+    '@@ -40,3 +40,3 @@ function second() {',
+    '   let b = 0;',
+    '-  return b;',
+    '+  return b + 1;',
+    ' }',
+  ],
+]);
+
+function upButtons(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('.expand-up'));
+}
+
+function downButtons(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('.expand-down'));
+}
+
+describe('FileDiffCard expand control visibility', () => {
+  it('offers no expansion above a hunk that starts at line 1', () => {
+    const { container } = renderCard({
+      diff: buildDiff([['@@ -1,3 +1,3 @@', ' one', '-two', '+TWO', ' three']]),
+    });
+    expect(upButtons(container)).toHaveLength(0);
+  });
+
+  it('offers no expansion in the zero-length gap between adjacent hunks', () => {
+    // Hunks 0 and 1 are adjacent (lines 1-2 then 3-4) so the gap between them
+    // is empty; hunk 2 is far below, leaving a real gap of lines 5-19.
+    const { container } = renderCard({
+      diff: buildDiff([
+        ['@@ -1,2 +1,2 @@', ' one', '-two', '+TWO'],
+        ['@@ -3,2 +3,2 @@', ' three', '-four', '+FOUR'],
+        ['@@ -20,2 +20,2 @@', ' twenty', '-x', '+X'],
+      ]),
+    });
+    // The only surviving upward control is hunk 2's, reaching back to hunk 1;
+    // hunk 0 sits at the top of the file and hunk 1 butts against hunk 0.
+    expect(upButtons(container).map((b) => b.getAttribute('title'))).toEqual([
+      'Show 10 more lines above',
+    ]);
+    // Likewise downward: hunk 0 butts against hunk 1, so its control is gone.
+    // Hunk 1 can reach down towards hunk 2, and hunk 2 is last, with no known
+    // end of file to stop it yet.
+    expect(downButtons(container).map((b) => b.getAttribute('title'))).toEqual([
+      'Show 10 more lines below',
+      'Show 10 more lines below',
+    ]);
+  });
+
+  it('offers only the lines that actually fit in a short gap', () => {
+    const { container } = renderCard({
+      diff: buildDiff([
+        ['@@ -1,2 +1,2 @@', ' one', '-two', '+TWO'],
+        ['@@ -6,2 +6,2 @@', ' six', '-seven', '+SEVEN'],
+      ]),
+    });
+    // Lines 3-5 sit between the hunks: three lines, not the usual ten.
+    expect(downButtons(container)[0]).toHaveAttribute('title', 'Show 3 more lines below');
+    expect(upButtons(container)[0]).toHaveAttribute('title', 'Show 3 more lines above');
+  });
+
+  it('hides the downward control once the file length says the hunk ends it', () => {
+    const atEnd = buildDiff([['@@ -20,3 +20,3 @@', ' twenty', '-x', '+X', ' twentytwo']]);
+    const { container } = renderCard({ diff: atEnd, fileLineCount: 22 });
+    expect(downButtons(container)).toHaveLength(0);
+
+    const { container: withMore } = renderCard({ diff: atEnd, fileLineCount: 30 });
+    expect(downButtons(withMore)[0]).toHaveAttribute('title', 'Show 8 more lines below');
+  });
+
+  it('keeps offering to expand down while the file length is unknown', () => {
+    const { container } = renderCard({
+      diff: buildDiff([['@@ -20,3 +20,3 @@', ' twenty', '-x', '+X', ' twentytwo']]),
+      fileLineCount: null,
+    });
+    expect(downButtons(container)[0]).toHaveAttribute('title', 'Show 10 more lines below');
+  });
+
+  it('offers no expansion at all in a deleted file', () => {
+    const { container } = renderCard({
+      file: { ...file, changeType: ChangeType.Deleted, additions: 0, deletions: 3 },
+      diff: buildDiff([['@@ -20,3 +20,0 @@', '-twenty', '-x', '-twentytwo']]),
+    });
+    expect(upButtons(container)).toHaveLength(0);
+    expect(downButtons(container)).toHaveLength(0);
+  });
+});
+
+describe('FileDiffCard expand range', () => {
+  // hunkStartLine is one mutable binding reused by every row of the render
+  // pass, so a click handler that read it directly saw the *last* hunk's start
+  // line - clicking "more lines above" on the first hunk fetched the lines
+  // above the last one instead.
+  it('expands above the clicked hunk, not the last one in the file', () => {
+    const fetchContext = vi.fn<FetchContext>();
+    const { container } = renderCard({ diff: twoHunkDiff, fetchContext });
+
+    fireEvent.click(upButtons(container)[0]);
+
+    // Hunk 0 starts at line 10, so the nine lines above it are 1-9.
+    expect(fetchContext.mock.calls[0].slice(0, 3)).toEqual([file.path, 1, 9]);
+  });
+
+  it('expands above a later hunk only as far as the previous one', () => {
+    const fetchContext = vi.fn<FetchContext>();
+    const { container } = renderCard({ diff: twoHunkDiff, fetchContext });
+
+    fireEvent.click(upButtons(container)[1]);
+
+    // Hunk 1 starts at line 40; hunk 0 already shows up to line 12.
+    expect(fetchContext.mock.calls[0].slice(0, 3)).toEqual([file.path, 30, 39]);
+  });
+
+  it('stops an expansion at the next hunk instead of overlapping it', () => {
+    const fetchContext = vi.fn<FetchContext>();
+    const { container } = renderCard({
+      diff: buildDiff([
+        ['@@ -1,2 +1,2 @@', ' one', '-two', '+TWO'],
+        ['@@ -6,2 +6,2 @@', ' six', '-seven', '+SEVEN'],
+      ]),
+      fetchContext,
+    });
+
+    fireEvent.click(downButtons(container)[0]);
+
+    expect(fetchContext.mock.calls[0].slice(0, 3)).toEqual([file.path, 3, 5]);
+  });
+
+  it('stops an expansion at the end of the file', () => {
+    const fetchContext = vi.fn<FetchContext>();
+    const { container } = renderCard({
+      diff: buildDiff([['@@ -20,3 +20,3 @@', ' twenty', '-x', '+X', ' twentytwo']]),
+      fileLineCount: 25,
+      fetchContext,
+    });
+
+    fireEvent.click(downButtons(container)[0]);
+
+    expect(fetchContext.mock.calls[0].slice(0, 3)).toEqual([file.path, 23, 25]);
+  });
+});
+
+// Drives the downward control the way the page does: each click's requested
+// range is answered with only the lines that really exist, appended under the
+// same cache key, and the card re-rendered - so the loop terminates only if
+// what the control asks for and what it counts as expanded stay in step.
+function expandDownToExhaustion(
+  diff: string,
+  fileLineCount: number,
+  hunkIndex: number,
+): { requested: Array<[number, number]>; exhausted: boolean } {
+  const key = contextCacheKey(null, file.path, hunkIndex, 'down');
+  const requested: Array<[number, number]> = [];
+  let lines: string[] = [];
+
+  for (let click = 0; click < 60; click++) {
+    const fetchContext = vi.fn<FetchContext>();
+    const { container, unmount } = renderCard({
+      diff,
+      fileLineCount,
+      fetchContext,
+      expandedContext: new Map([[key, lines]]),
+    });
+    // Clicking every control and picking out the one that reported our key
+    // identifies this hunk's button specifically - the buttons carry no hunk
+    // marker in the DOM, and "the last one on screen" stops being this hunk's
+    // as soon as a later hunk's gap is exhausted.
+    const buttons = downButtons(container);
+    buttons.forEach((b) => fireEvent.click(b));
+    unmount();
+    const call = fetchContext.mock.calls.find((c) => c[3] === key);
+    if (!call) return { requested, exhausted: true };
+
+    const [, start, end] = call;
+    requested.push([start, end]);
+    const served: string[] = [];
+    for (let n = start; n <= Math.min(end, fileLineCount); n++) served.push(`line ${n}`);
+    // A request that lands entirely past the end of the file can never grow
+    // the expanded count, so the control would sit there for ever.
+    if (served.length === 0) return { requested, exhausted: false };
+    lines = [...lines, ...served];
+  }
+  return { requested, exhausted: false };
+}
+
+describe('FileDiffCard expanding down to the end of a file', () => {
+  const lastHunk = buildDiff([['@@ -20,3 +20,3 @@ fn', ' twenty', '-x', '+X', ' twentytwo']]);
+
+  it('runs out of lines to offer instead of taking clicks for ever', () => {
+    // The hunk covers lines 20-22 of a 40-line file, so lines 23-40 are left.
+    const { requested, exhausted } = expandDownToExhaustion(lastHunk, 40, 0);
+
+    expect(exhausted).toBe(true);
+    // Ten, then the eight that remain - contiguous from the hunk's own last
+    // line, with nothing skipped and nothing asked for twice.
+    expect(requested).toEqual([
+      [23, 32],
+      [33, 40],
+    ]);
+  });
+
+  it('asks for exactly one range when the gap is smaller than a full step', () => {
+    const { requested, exhausted } = expandDownToExhaustion(lastHunk, 25, 0);
+
+    expect(exhausted).toBe(true);
+    expect(requested).toEqual([[23, 25]]);
+  });
+
+  it('tiles each hunk gap exactly once across a multi-hunk file', () => {
+    // Hunks cover 10-12 and 40-42 of a 50-line file, so hunk 0 owns the gap
+    // 13-39 (bounded by hunk 1) and hunk 1 owns 43-50 (bounded by the file).
+    const first = expandDownToExhaustion(twoHunkDiff, 50, 0);
+    expect(first.exhausted).toBe(true);
+    expect(first.requested).toEqual([
+      [13, 22],
+      [23, 32],
+      [33, 39],
+    ]);
+
+    const second = expandDownToExhaustion(twoHunkDiff, 50, 1);
+    expect(second.exhausted).toBe(true);
+    expect(second.requested).toEqual([[43, 50]]);
+  });
+
+  it('takes no clicks at all when the hunk already ends the file', () => {
+    const { requested, exhausted } = expandDownToExhaustion(lastHunk, 22, 0);
+
+    expect(exhausted).toBe(true);
+    expect(requested).toEqual([]);
   });
 });
