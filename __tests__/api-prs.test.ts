@@ -19,6 +19,15 @@ process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
 import { GET as contextRoute } from '../app/api/prs/[id]/context/route';
 import { POST as reviewRoute } from '../app/api/prs/[id]/review/route';
+import {
+  DELETE as reviewedCommitDeleteRoute,
+  POST as reviewedCommitRoute,
+} from '../app/api/prs/[id]/reviewed/commit/route';
+import {
+  DELETE as reviewedMessageDeleteRoute,
+  POST as reviewedMessageRoute,
+} from '../app/api/prs/[id]/reviewed/message/route';
+import { POST as reviewedFileRoute } from '../app/api/prs/[id]/reviewed/route';
 import { DELETE as prDeleteRoute, GET as prGetRoute, PATCH } from '../app/api/prs/[id]/route';
 import { POST as syncRoute } from '../app/api/prs/[id]/sync/route';
 import { GET as listPRsRoute } from '../app/api/prs/route';
@@ -30,6 +39,7 @@ import {
   getCommentsWithReplies,
   getPRByUuid,
   getLatestDiff,
+  setReviewedCommitMessage,
   submitReview,
   updatePRStatus,
   upsertCommitRelocation,
@@ -723,5 +733,172 @@ describe('GET /api/prs/[id]/context', () => {
 
     expect(res.status).toBe(200);
     expect((await res.json()).lines).toEqual(['harmless']);
+  });
+});
+
+// A commit message is its own reviewable unit: signing off on the wording and
+// signing off on the diff are separate acts, and only both together make the
+// commit "reviewed" (what the commit selector paints green).
+describe('reviewed commit message marks', () => {
+  let repoDir: string;
+  let baseCommit: string;
+  let headCommit: string;
+
+  function getReq(id: string): Request {
+    return new Request(`http://test/api/prs/${id}`);
+  }
+
+  function deleteReq(id: string, query: string): Request {
+    return new Request(`http://test/api/prs/${id}${query}`, { method: 'DELETE' });
+  }
+
+  function makePR(title: string): string {
+    return createPR(repoDir, title, 'main', 'feature', baseCommit, headCommit, 'diff');
+  }
+
+  async function prJson(uuid: string) {
+    const res = await prGetRoute(getReq(uuid) as never, routeParams(uuid));
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-msg-repo-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    runGit(repoDir, ['commit', '-m', 'base commit']);
+    runGit(repoDir, ['branch', '-M', 'main']);
+    baseCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+
+    runGit(repoDir, ['checkout', '-b', 'feature']);
+    fs.writeFileSync(path.join(repoDir, 'feature.txt'), 'first\n');
+    runGit(repoDir, ['add', 'feature.txt']);
+    runGit(repoDir, ['commit', '-m', 'feature v1']);
+    headCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('marking the message alone leaves the commit itself unreviewed', async () => {
+    const uuid = makePR('message only');
+
+    const res = await reviewedMessageRoute(
+      postReq(uuid, { commitSha: headCommit }) as never,
+      routeParams(uuid),
+    );
+    expect(res.status).toBe(200);
+
+    const json = await prJson(uuid);
+    expect(json.reviewedMessages).toEqual([
+      { commit_sha: headCommit, marked_at: expect.any(String), current: true },
+    ]);
+    // The diff is still unread, so nothing has turned green.
+    expect(json.reviewedFiles).toEqual([]);
+    expect(json.reviewedCommits).toEqual([]);
+  });
+
+  test('marking every file but not the message also leaves it unreviewed', async () => {
+    const uuid = makePR('files only');
+
+    await reviewedFileRoute(
+      postReq(uuid, { filePath: 'feature.txt', commitSha: headCommit }) as never,
+      routeParams(uuid),
+    );
+
+    const json = await prJson(uuid);
+    expect(json.reviewedMessages).toEqual([]);
+    expect(json.reviewedCommits).toEqual([]);
+  });
+
+  test('message plus every file adds up to a reviewed commit', async () => {
+    const uuid = makePR('both halves');
+
+    await reviewedFileRoute(
+      postReq(uuid, { filePath: 'feature.txt', commitSha: headCommit }) as never,
+      routeParams(uuid),
+    );
+    await reviewedMessageRoute(
+      postReq(uuid, { commitSha: headCommit }) as never,
+      routeParams(uuid),
+    );
+
+    expect((await prJson(uuid)).reviewedCommits).toEqual([headCommit]);
+  });
+
+  test('the bulk "mark commit reviewed" route covers the message too', async () => {
+    const uuid = makePR('bulk mark');
+
+    const res = await reviewedCommitRoute(
+      postReq(uuid, { commitSha: headCommit }) as never,
+      routeParams(uuid),
+    );
+    expect(res.status).toBe(200);
+
+    const json = await prJson(uuid);
+    expect(json.reviewedMessages.map((m: { commit_sha: string }) => m.commit_sha)).toEqual([
+      headCommit,
+    ]);
+    expect(json.reviewedCommits).toEqual([headCommit]);
+  });
+
+  test('unmarking the whole commit drops the message mark with the file ones', async () => {
+    const uuid = makePR('bulk unmark');
+    await reviewedCommitRoute(postReq(uuid, { commitSha: headCommit }) as never, routeParams(uuid));
+
+    const res = await reviewedCommitDeleteRoute(
+      deleteReq(uuid, `?commit=${headCommit}`) as never,
+      routeParams(uuid),
+    );
+    expect(res.status).toBe(200);
+
+    const json = await prJson(uuid);
+    expect(json.reviewedMessages).toEqual([]);
+    expect(json.reviewedFiles).toEqual([]);
+  });
+
+  test('unmarking just the message leaves the file marks alone', async () => {
+    const uuid = makePR('message unmark');
+    await reviewedCommitRoute(postReq(uuid, { commitSha: headCommit }) as never, routeParams(uuid));
+
+    const res = await reviewedMessageDeleteRoute(
+      deleteReq(uuid, `?commit=${headCommit}`) as never,
+      routeParams(uuid),
+    );
+    expect(res.status).toBe(200);
+
+    const json = await prJson(uuid);
+    expect(json.reviewedMessages).toEqual([]);
+    expect(json.reviewedFiles).toHaveLength(1);
+    expect(json.reviewedCommits).toEqual([]);
+  });
+
+  // The stored hash is of the message text, so a reword invalidates the mark
+  // the same way an edit invalidates a file's - stood in for here by a mark
+  // whose hash simply doesn't match what the commit says now.
+  test('a mark whose message text no longer matches comes back stale', async () => {
+    const uuid = makePR('reworded');
+    setReviewedCommitMessage(uuid, headCommit, 'hash-of-some-older-wording');
+
+    const json = await prJson(uuid);
+    expect(json.reviewedMessages).toEqual([
+      { commit_sha: headCommit, marked_at: expect.any(String), current: false },
+    ]);
+    expect(json.reviewedCommits).toEqual([]);
+  });
+
+  test('rejects a commit that is not part of the PR', async () => {
+    const uuid = makePR('unknown commit');
+    const res = await reviewedMessageRoute(
+      postReq(uuid, { commitSha: '3333333333333333333333333333333333333333' }) as never,
+      routeParams(uuid),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Unknown commit for this PR');
   });
 });

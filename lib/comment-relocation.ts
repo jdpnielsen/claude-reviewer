@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process';
 import {
   applyCommentRelocations,
   getComments,
+  relocateReviewedCommitMessages,
   relocateReviewedFiles,
   upsertCommitRelocation,
   type Comment,
@@ -245,7 +246,8 @@ function planRelocation(
 
 /**
  * Re-anchors everything a PR keys to a commit SHA - comments, the durable
- * `commit_relocations` map, and per-commit reviewed marks - after a sync
+ * `commit_relocations` map, and per-commit reviewed marks (files and commit
+ * messages alike) - after a sync
  * (rebase/amend/force-push) changed those SHAs and/or shifted line content.
  * Called from every place that rewrites
  * `pull_requests.head_commit`/`base_commit` (the web sync route, the CLI's
@@ -274,6 +276,7 @@ export function relocateComments(
   // Before the comments early-return below: a PR can have reviewed marks and
   // no comments at all, and that PR still needs its marks carried across.
   relocateReviewedFiles(prUuid, correspondence.matched);
+  relocateReviewedCommitMessages(prUuid, correspondence.matched);
 
   const comments = getComments(prUuid);
   if (comments.length === 0) return;

@@ -142,6 +142,21 @@ export interface ReviewedFile {
   marked_at: string;
 }
 
+// A commit *message* the reviewer has flagged as already looked at, tracked
+// separately from the files that commit touches: the wording of a message is
+// its own reviewable thing, and one can be fine while the other still needs
+// work. `content_hash` is a fingerprint of the message text (see
+// getCommitMessageHash) rather than the commit SHA, for the same reason
+// ReviewedFile stores a blob hash - a rebase that only re-SHAs the commit
+// keeps the mark, a reword invalidates it.
+export interface ReviewedCommitMessage {
+  id: number;
+  pr_id: number;
+  commit_sha: string;
+  content_hash: string;
+  marked_at: string;
+}
+
 // Repo-level conversations (independent of PRs)
 export interface RepoConversation {
   id: number;
@@ -418,6 +433,24 @@ function initSchema(db: Database.Database): void {
         ON reviewed_files(pr_id, file_path) WHERE commit_sha IS NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_commit
         ON reviewed_files(pr_id, file_path, commit_sha) WHERE commit_sha IS NOT NULL;
+
+    -- Commit messages flagged as already reviewed. Deliberately not a row in
+    -- reviewed_files under some sentinel path: a message always belongs to
+    -- exactly one commit (hence commit_sha NOT NULL, and a plain UNIQUE
+    -- rather than the partial indexes above), and its content_hash is a hash
+    -- of message text, not a git blob hash, so nothing that reads
+    -- reviewed_files could treat the two interchangeably anyway.
+    CREATE TABLE IF NOT EXISTS reviewed_commit_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+        commit_sha TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(pr_id, commit_sha)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reviewed_commit_messages_pr
+        ON reviewed_commit_messages(pr_id);
   `);
 
   seedAuthors(db);
@@ -1235,6 +1268,111 @@ export function relocateReviewedFiles(prUuid: string, matched: Map<string, strin
         row.content_hash,
         row.marked_at,
       );
+    }
+  });
+
+  transaction();
+  checkpoint();
+  return rows.length;
+}
+
+// =============================================================================
+// Reviewed Commit Message Operations
+// =============================================================================
+
+// Marks (or re-marks) one commit's message reviewed. Plain ON CONFLICT upsert
+// - unlike setReviewedFile, commit_sha is never NULL here, so there is only
+// one unique index to conflict against.
+export function setReviewedCommitMessage(
+  prUuid: string,
+  commitSha: string,
+  contentHash: string,
+): void {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) throw new Error(`PR ${prUuid} not found`);
+
+  db.prepare(
+    `INSERT INTO reviewed_commit_messages (pr_id, commit_sha, content_hash)
+     VALUES (?, ?, ?)
+     ON CONFLICT(pr_id, commit_sha)
+     DO UPDATE SET content_hash = excluded.content_hash, marked_at = CURRENT_TIMESTAMP`,
+  ).run(pr.id, commitSha, contentHash);
+  checkpoint();
+}
+
+export function unsetReviewedCommitMessage(prUuid: string, commitSha: string): boolean {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return false;
+
+  const result = db
+    .prepare('DELETE FROM reviewed_commit_messages WHERE pr_id = ? AND commit_sha = ?')
+    .run(pr.id, commitSha);
+  checkpoint();
+  return result.changes > 0;
+}
+
+export function getReviewedCommitMessages(prUuid: string): ReviewedCommitMessage[] {
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return [];
+
+  return db
+    .prepare('SELECT * FROM reviewed_commit_messages WHERE pr_id = ?')
+    .all(pr.id) as ReviewedCommitMessage[];
+}
+
+// The reviewed_commit_messages counterpart of relocateReviewedFiles - same
+// rebase problem, same resolution (see that function for why content_hash
+// rides along untouched and why unmatched commits keep their marks). Simpler
+// only because the row's identity is the commit SHA alone, so a chained
+// mapping can be handled by deleting every source row before re-inserting.
+export function relocateReviewedCommitMessages(
+  prUuid: string,
+  matched: Map<string, string>,
+): number {
+  const moves = [...matched].filter(([oldSha, newSha]) => oldSha !== newSha);
+  if (moves.length === 0) return 0;
+
+  const db = getDatabase();
+  const pr = db.prepare('SELECT id FROM pull_requests WHERE uuid = ?').get(prUuid) as
+    | { id: number }
+    | undefined;
+  if (!pr) return 0;
+
+  const newShaByOldSha = new Map(moves);
+  const placeholders = moves.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT commit_sha, content_hash, marked_at FROM reviewed_commit_messages
+       WHERE pr_id = ? AND commit_sha IN (${placeholders})`,
+    )
+    .all(pr.id, ...moves.map(([oldSha]) => oldSha)) as Pick<
+    ReviewedCommitMessage,
+    'commit_sha' | 'content_hash' | 'marked_at'
+  >[];
+  if (rows.length === 0) return 0;
+
+  const transaction = db.transaction(() => {
+    const del = db.prepare(
+      'DELETE FROM reviewed_commit_messages WHERE pr_id = ? AND commit_sha = ?',
+    );
+    for (const row of rows) del.run(pr.id, row.commit_sha);
+
+    const ins = db.prepare(
+      `INSERT OR REPLACE INTO reviewed_commit_messages
+         (pr_id, commit_sha, content_hash, marked_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+    for (const row of rows) {
+      ins.run(pr.id, newShaByOldSha.get(row.commit_sha), row.content_hash, row.marked_at);
     }
   });
 

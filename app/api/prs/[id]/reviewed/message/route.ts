@@ -1,25 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import {
-  getPRByUuid,
-  setReviewedCommitMessage,
-  setReviewedFile,
-  unsetReviewedCommitMessage,
-  unsetReviewedFilesForCommit,
-} from '@/lib/database';
-import { parseDiffFiles } from '@/lib/diff';
-import { getBlobHash, getCommitDiff, getCommitMessageHash, listCommits } from '@/lib/git';
+import { getPRByUuid, setReviewedCommitMessage, unsetReviewedCommitMessage } from '@/lib/database';
+import { getCommitMessageHash, listCommits } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// POST /api/prs/[id]/reviewed/commit - Mark the whole commit reviewed: its
-// message plus every file its own diff touches. The "review all of it in one
-// click" shortcut over the two finer-grained routes next to this one
-// (../reviewed for a single file, ../reviewed/message for the message alone),
-// which stay available for a reviewer who only wants to sign off on part of
-// it.
+// POST /api/prs/[id]/reviewed/message - Mark one commit's message reviewed.
+// Independent of the files that commit touches: a reviewer can be happy with
+// the wording and still have the diff to read, or the other way round.
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -39,24 +29,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
     }
 
-    const files = parseDiffFiles(getCommitDiff(pr.repo_path, commitSha));
-    for (const file of files) {
-      const contentHash = getBlobHash(pr.repo_path, commitSha, file.path) ?? 'deleted';
-      setReviewedFile(id, file.path, commitSha, contentHash);
+    const contentHash = getCommitMessageHash(pr.repo_path, commitSha);
+    if (contentHash === null) {
+      return NextResponse.json({ error: 'Could not read that commit message' }, { status: 400 });
     }
 
-    const messageHash = getCommitMessageHash(pr.repo_path, commitSha);
-    if (messageHash !== null) setReviewedCommitMessage(id, commitSha, messageHash);
-
-    return NextResponse.json({ success: true, fileCount: files.length });
+    setReviewedCommitMessage(id, commitSha, contentHash);
+    return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
-// DELETE /api/prs/[id]/reviewed/commit?commit=<sha> - The mirror of POST:
-// drop the commit's message mark and every file mark scoped to it at once.
+// DELETE /api/prs/[id]/reviewed/message?commit=<sha> - Unmark it.
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -72,9 +58,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    const removed = unsetReviewedFilesForCommit(id, commitSha);
-    unsetReviewedCommitMessage(id, commitSha);
-    return NextResponse.json({ success: true, fileCount: removed });
+    const success = unsetReviewedCommitMessage(id, commitSha);
+    if (!success) {
+      return NextResponse.json({ error: 'Not marked reviewed' }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

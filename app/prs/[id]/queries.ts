@@ -353,6 +353,29 @@ export function useUnmarkFileReviewedMutation(id: string) {
   });
 }
 
+// The commit-message-only marks, alongside the file ones above: the bulk
+// "whole commit" mutations below cover both, these two cover the message on
+// its own.
+export function useMarkCommitMessageReviewedMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commitSha: string) =>
+      apiClient.post(`/api/prs/${id}/reviewed/message`, { commitSha }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error marking commit message reviewed'),
+  });
+}
+
+export function useUnmarkCommitMessageReviewedMutation(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commitSha: string) =>
+      apiClient.delete(`/api/prs/${id}/reviewed/message${buildQuery({ commit: commitSha })}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
+    onError: () => alert('Error unmarking commit message reviewed'),
+  });
+}
+
 export function useMarkCommitReviewedMutation(id: string) {
   const queryClient = useQueryClient();
   return useMutation({

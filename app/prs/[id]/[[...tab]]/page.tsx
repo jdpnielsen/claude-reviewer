@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { CheckCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryState } from 'nuqs';
@@ -12,6 +12,7 @@ import {
   useDeleteCommentMutation,
   useDeletePRMutation,
   useEditCommentMutation,
+  useMarkCommitMessageReviewedMutation,
   useMarkCommitReviewedMutation,
   useMarkFileReviewedMutation,
   usePRCommentsPollQuery,
@@ -21,6 +22,7 @@ import {
   useSetPRStatusMutation,
   useSubmitReviewMutation,
   useSyncPRMutation,
+  useUnmarkCommitMessageReviewedMutation,
   useUnmarkCommitReviewedMutation,
   useUnmarkFileReviewedMutation,
 } from '@/app/prs/[id]/queries';
@@ -29,6 +31,7 @@ import {
   buildContextUrl,
   contextFileKey,
   findReviewedMark,
+  findReviewedMessageMark,
   shouldCollapseByDefault,
   statusConfig,
 } from '@/app/prs/[id]/utils';
@@ -122,12 +125,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const unmarkFileReviewedMutation = useUnmarkFileReviewedMutation(id);
   const markCommitReviewedMutation = useMarkCommitReviewedMutation(id);
   const unmarkCommitReviewedMutation = useUnmarkCommitReviewedMutation(id);
+  const markCommitMessageReviewedMutation = useMarkCommitMessageReviewedMutation(id);
+  const unmarkCommitMessageReviewedMutation = useUnmarkCommitMessageReviewedMutation(id);
 
   const data: PRData | undefined = prQuery.data && {
     ...prQuery.data,
     comments: commentsQuery.data?.comments ?? prQuery.data.comments,
     commits: commentsQuery.data?.commits ?? prQuery.data.commits,
     reviewedFiles: commentsQuery.data?.reviewedFiles ?? prQuery.data.reviewedFiles,
+    reviewedMessages: commentsQuery.data?.reviewedMessages ?? prQuery.data.reviewedMessages,
     reviewedCommits: commentsQuery.data?.reviewedCommits ?? prQuery.data.reviewedCommits,
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
@@ -197,8 +203,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   useEffect(() => {
     if (!prQuery.data) return;
     const files = prQuery.data.files;
-    const soleCommitSha =
-      prQuery.data.commits.length === 1 ? prQuery.data.commits[0].sha : null;
+    const soleCommitSha = prQuery.data.commits.length === 1 ? prQuery.data.commits[0].sha : null;
     const effectiveCommitSha = selectedCommit ?? soleCommitSha;
     const defaultOpen = files.filter(
       (f) =>
@@ -536,13 +541,29 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     }
   };
 
-  // Whether every file the *currently displayed* commit's own diff touches
-  // has a current mark scoped to it - i.e. the CommitMessagePanel's "mark
-  // whole commit reviewed" button was used (or every file in it was
-  // individually marked). Delegates to the server-computed reviewedCommits
-  // (see the GET /api/prs/[id] route) rather than re-deriving it from
-  // data.files, so the commit selector's per-commit badges and this header
-  // button always agree.
+  // Whether the *currently displayed* commit's message has a current mark of
+  // its own - which says nothing about the files that commit touches, and
+  // vice versa. Reviewing the wording and reviewing the change are separate
+  // jobs, often finished at different times.
+  const isDisplayedMessageReviewed = (): boolean =>
+    !!data && !!findReviewedMessageMark(data.reviewedMessages, displayedCommitSha);
+
+  const toggleDisplayedMessageReviewed = () => {
+    if (!displayedCommitSha) return;
+    if (isDisplayedMessageReviewed()) {
+      unmarkCommitMessageReviewedMutation.mutate(displayedCommitSha);
+    } else {
+      markCommitMessageReviewedMutation.mutate(displayedCommitSha);
+    }
+  };
+
+  // Whether the *currently displayed* commit is reviewed in full - message
+  // marked and every file its own diff touches marked - i.e. the
+  // tab bar's "mark commit reviewed" button was used, or every
+  // piece of it was signed off one at a time. Delegates to the
+  // server-computed reviewedCommits (see the GET /api/prs/[id] route) rather
+  // than re-deriving it from data.files, so the commit selector's per-commit
+  // badges and this tab-bar button always agree.
   const isDisplayedCommitReviewed = (): boolean =>
     !!data && !!displayedCommitSha && data.reviewedCommits.includes(displayedCommitSha);
 
@@ -668,6 +689,21 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 onCollapseAll={collapseAll}
                 canExpand={effectiveExpandedFiles.size < files.length}
               />
+              {displayedCommitSha && (
+                <button
+                  type="button"
+                  className={`reviewed-toggle ${isDisplayedCommitReviewed() ? 'active' : ''}`}
+                  onClick={toggleDisplayedCommitReviewed}
+                  title={
+                    isDisplayedCommitReviewed()
+                      ? 'Marked reviewed - this commit message and every file it touches'
+                      : "Mark this commit's message and every file it touches as reviewed"
+                  }
+                >
+                  <CheckCheck size={14} />
+                  {isDisplayedCommitReviewed() ? 'Commit reviewed' : 'Mark commit reviewed'}
+                </button>
+              )}
             </>
           )}
         </div>
@@ -721,8 +757,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     <CommitMessagePanel
                       commit={commit}
                       comments={getCommitMessageComments(displayedCommitSha)}
-                      isReviewed={isDisplayedCommitReviewed()}
-                      toggleReviewed={toggleDisplayedCommitReviewed}
+                      isMessageReviewed={isDisplayedMessageReviewed()}
+                      toggleMessageReviewed={toggleDisplayedMessageReviewed}
                       isCommenting={commentingOnCommitMessage}
                       setIsCommenting={setCommentingOnCommitMessage}
                       openCommitMessageComment={openCommitMessageComment}

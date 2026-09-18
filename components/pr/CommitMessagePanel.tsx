@@ -14,8 +14,8 @@ import { insertSuggestion } from '@/lib/suggestions';
 interface CommitMessagePanelProps {
   commit: CommitInfo;
   comments: CommentWithReplies[];
-  isReviewed: boolean;
-  toggleReviewed: () => void;
+  isMessageReviewed: boolean;
+  toggleMessageReviewed: () => void;
   isCommenting: boolean;
   setIsCommenting: Dispatch<SetStateAction<boolean>>;
   openCommitMessageComment: () => void;
@@ -39,8 +39,8 @@ interface CommitMessagePanelProps {
 export default function CommitMessagePanel({
   commit,
   comments,
-  isReviewed,
-  toggleReviewed,
+  isMessageReviewed,
+  toggleMessageReviewed,
   isCommenting,
   setIsCommenting,
   openCommitMessageComment,
@@ -74,16 +74,16 @@ export default function CommitMessagePanel({
         <span className="commit-message-author">{commit.author}</span>
         <button
           type="button"
-          className={`reviewed-toggle ${isReviewed ? 'active' : ''}`}
-          onClick={toggleReviewed}
+          className={`reviewed-toggle ${isMessageReviewed ? 'active' : ''}`}
+          onClick={toggleMessageReviewed}
           title={
-            isReviewed
-              ? 'Marked reviewed - every file this commit touches'
-              : 'Mark every file this commit touches as reviewed'
+            isMessageReviewed
+              ? 'Marked reviewed - this commit message, on its own'
+              : "Mark this commit's message reviewed, without its files"
           }
         >
           <Check size={14} />
-          {isReviewed ? 'Commit reviewed' : 'Mark commit reviewed'}
+          {isMessageReviewed ? 'Message reviewed' : 'Mark message reviewed'}
         </button>
       </div>
       <pre className="commit-message-body">{fullMessage}</pre>

@@ -1,7 +1,7 @@
 import { CheckCircle, Clock, GitMerge, XCircle } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 
-import type { FileInfo, FolderNode, ReviewedMark } from './types';
+import type { FileInfo, FolderNode, ReviewedMark, ReviewedMessageMark } from './types';
 import { LineType } from '@/lib/enum';
 
 // Cmd+Enter (macOS) or Ctrl+Enter (elsewhere) submits a comment form from its
@@ -61,6 +61,14 @@ export const findReviewedMark = (
   commitSha: string | null,
 ): ReviewedMark | undefined =>
   marks.find((m) => m.file_path === filePath && m.commit_sha === commitSha && m.current);
+
+// The same lookup for a commit message's own mark, with the same
+// stale-means-unmarked rule.
+export const findReviewedMessageMark = (
+  marks: ReviewedMessageMark[],
+  commitSha: string | null,
+): ReviewedMessageMark | undefined =>
+  commitSha === null ? undefined : marks.find((m) => m.commit_sha === commitSha && m.current);
 
 // Map file extensions to Prism language identifiers
 export const getLanguage = (filePath: string): string => {
