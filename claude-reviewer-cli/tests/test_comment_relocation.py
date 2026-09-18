@@ -107,6 +107,36 @@ def _reviewed_marks(pr_uuid: str) -> dict[str, tuple[str | None, str]]:
     return {r["file_path"]: (r["commit_sha"], r["content_hash"]) for r in rows}
 
 
+def _mark_message_reviewed(pr_uuid: str, commit_sha: str, content_hash: str) -> None:
+    """The commit-message counterpart of _mark_reviewed - same web-app-only
+    writer, same reason for inserting directly.
+    """
+    with db.get_connection() as conn:
+        pr = conn.execute("SELECT id FROM pull_requests WHERE uuid = ?", (pr_uuid,)).fetchone()
+        conn.execute(
+            """
+            INSERT INTO reviewed_commit_messages (pr_id, commit_sha, content_hash)
+            VALUES (?, ?, ?)
+            """,
+            (pr["id"], commit_sha, content_hash),
+        )
+
+
+def _reviewed_message_marks(pr_uuid: str) -> dict[str, str]:
+    """commit_sha -> content_hash for every commit-message mark on a PR."""
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT rcm.commit_sha, rcm.content_hash
+            FROM reviewed_commit_messages rcm
+            JOIN pull_requests pr ON pr.id = rcm.pr_id
+            WHERE pr.uuid = ?
+            """,
+            (pr_uuid,),
+        ).fetchall()
+    return {r["commit_sha"]: r["content_hash"] for r in rows}
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     repo_path = tmp_path / "repo"
@@ -489,3 +519,77 @@ class TestRelocateReviewedFiles:
         # Cumulative marks were never SHA-keyed, so relocation must not
         # touch them.
         assert marks["a.txt"][0] is None
+
+
+class TestRelocateReviewedCommitMessages:
+    """Commit-message marks are SHA-keyed exactly like the file marks above,
+    so a rebase needs the same rescue. Their content_hash is over the message
+    text rather than a blob, so a reword is what invalidates one.
+    """
+
+    def test_carries_a_message_mark_onto_the_rewritten_sha(self, temp_db: Path, repo: Path) -> None:
+        (repo / "base.txt").write_text("base\n")
+        _run_git(repo, ["add", "base.txt"])
+        base = _commit_with_date(repo, "base commit", "2024-01-01T00:00:00")
+
+        (repo / "a.txt").write_text("content a\n")
+        _run_git(repo, ["add", "a.txt"])
+        old_a = _commit_with_date(repo, "add a", "2024-01-02T00:00:00")
+
+        pr_uuid = db.create_pr(
+            repo_path=str(repo),
+            title="Message Rebase PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=base,
+            head_commit=old_a,
+            diff="diff",
+        )
+        _mark_message_reviewed(pr_uuid, old_a, "hash-of-add-a")
+
+        _run_git(repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (repo / "a.txt").write_text("content a\n")
+        _run_git(repo, ["add", "a.txt"])
+        new_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:00")
+        assert new_a != old_a
+
+        relocate_comments(pr_uuid, str(repo), base, old_a, base, new_a)
+
+        marks = _reviewed_message_marks(pr_uuid)
+        # The hash rides along untouched - whether the mark still counts is
+        # the web app's question to answer, against the message at the new SHA.
+        assert marks == {new_a: "hash-of-add-a"}
+
+    def test_leaves_a_dropped_commits_message_mark_alone(self, temp_db: Path, repo: Path) -> None:
+        (repo / "base.txt").write_text("base\n")
+        _run_git(repo, ["add", "base.txt"])
+        base = _commit_with_date(repo, "base commit", "2024-01-01T00:00:00")
+
+        (repo / "a.txt").write_text("content a\n")
+        _run_git(repo, ["add", "a.txt"])
+        _commit_with_date(repo, "add a", "2024-01-02T00:00:00")
+
+        (repo / "b.txt").write_text("content b\n")
+        _run_git(repo, ["add", "b.txt"])
+        old_b = _commit_with_date(repo, "add b", "2024-01-03T00:00:00")
+
+        pr_uuid = db.create_pr(
+            repo_path=str(repo),
+            title="Message Drop PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=base,
+            head_commit=old_b,
+            diff="diff",
+        )
+        _mark_message_reviewed(pr_uuid, old_b, "hash-of-add-b")
+
+        # Rebase that drops "add b" entirely - nothing for its mark to move to.
+        _run_git(repo, ["-c", "advice.detachedHead=false", "checkout", base])
+        (repo / "a.txt").write_text("content a\n")
+        _run_git(repo, ["add", "a.txt"])
+        surviving_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:00")
+
+        relocate_comments(pr_uuid, str(repo), base, old_b, base, surviving_a)
+
+        assert _reviewed_message_marks(pr_uuid) == {old_b: "hash-of-add-b"}

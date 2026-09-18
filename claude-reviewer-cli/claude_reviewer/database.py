@@ -18,6 +18,7 @@ Database Schema:
     - repo_conversations: File-anchored discussions outside of PRs
     - repo_conversation_messages: Messages within repo conversations
     - reviewed_files: Web-UI "already reviewed" marks (relocated on sync here)
+    - reviewed_commit_messages: the same, for commit messages rather than files
 
 Usage:
     from claude_reviewer.database import init_db, create_pr, get_pr_by_uuid
@@ -237,6 +238,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_cumulative
     ON reviewed_files(pr_id, file_path) WHERE commit_sha IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reviewed_files_commit
     ON reviewed_files(pr_id, file_path, commit_sha) WHERE commit_sha IS NOT NULL;
+
+-- Commit messages the reviewer flagged as already looked at in the web UI,
+-- tracked apart from the files the same commit touches. Written only by the
+-- web app, declared here for the same reason as reviewed_files above:
+-- relocate_reviewed_commit_messages() runs from `update`. Keep in sync with
+-- lib/database.ts.
+CREATE TABLE IF NOT EXISTS reviewed_commit_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pr_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+    commit_sha TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(pr_id, commit_sha)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviewed_commit_messages_pr
+    ON reviewed_commit_messages(pr_id);
 """
 
 
@@ -1015,6 +1033,61 @@ def relocate_reviewed_files(pr_uuid: str, matched: dict[str, str]) -> int:
                 (
                     pr["id"],
                     row["file_path"],
+                    moves[row["commit_sha"]],
+                    row["content_hash"],
+                    row["marked_at"],
+                ),
+            )
+
+        return len(rows)
+
+
+def relocate_reviewed_commit_messages(pr_uuid: str, matched: dict[str, str]) -> int:
+    """The reviewed_commit_messages counterpart of relocate_reviewed_files() -
+    same rebase problem, same resolution (see that function for why
+    content_hash rides along untouched and why unmatched commits keep their
+    marks). Simpler only because the row's identity is the commit SHA alone,
+    so a chained mapping is handled by deleting every source row before
+    re-inserting. Mirrors relocateReviewedCommitMessages in lib/database.ts.
+    """
+    moves = {old: new for old, new in matched.items() if old != new}
+    if not moves:
+        return 0
+
+    with get_connection() as conn:
+        pr = conn.execute(
+            "SELECT id FROM pull_requests WHERE uuid = ?",
+            (pr_uuid,),
+        ).fetchone()
+        if not pr:
+            return 0
+
+        placeholders = ", ".join("?" for _ in moves)
+        rows = conn.execute(
+            f"""
+            SELECT commit_sha, content_hash, marked_at
+            FROM reviewed_commit_messages
+            WHERE pr_id = ? AND commit_sha IN ({placeholders})
+            """,
+            (pr["id"], *moves),
+        ).fetchall()
+        if not rows:
+            return 0
+
+        for row in rows:
+            conn.execute(
+                "DELETE FROM reviewed_commit_messages WHERE pr_id = ? AND commit_sha = ?",
+                (pr["id"], row["commit_sha"]),
+            )
+        for row in rows:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO reviewed_commit_messages
+                    (pr_id, commit_sha, content_hash, marked_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    pr["id"],
                     moves[row["commit_sha"]],
                     row["content_hash"],
                     row["marked_at"],

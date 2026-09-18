@@ -20,12 +20,14 @@ import {
   closeDatabase,
   createPR,
   getComments,
+  getReviewedCommitMessages,
   getReviewedFiles,
   lookupCommitRelocation,
+  setReviewedCommitMessage,
   setReviewedFile,
 } from '../lib/database';
 import { CommentRelocationStatus, CommentTargetType, LineType } from '../lib/enum';
-import { getBlobHash } from '../lib/git';
+import { getBlobHash, getCommitMessageHash } from '../lib/git';
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -337,5 +339,51 @@ describe('relocateComments', () => {
     expect(marks.find((m) => m.file_path === 'b.txt')?.commit_sha).toBe(oldCommitB);
     // Cumulative marks were never SHA-keyed, so relocation must not touch them.
     expect(marks.find((m) => m.file_path === 'a.txt')?.commit_sha).toBeNull();
+  });
+
+  // Message marks are SHA-keyed exactly like file marks, so they need the same
+  // rescue - and the same content check, against the message text this time.
+  test('carries a commit-message mark onto the rewritten SHA across a pure rebase', () => {
+    const prUuid = createPR(repoDir, 'Message Rebase PR', 'main', 'feature', base, oldCommitA, 'd');
+    setReviewedCommitMessage(prUuid, oldCommitA, getCommitMessageHash(repoDir, oldCommitA)!);
+
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'line one\nline two\nline three\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const newCommitA = commitWithDate(repoDir, 'add a', '2024-04-01T00:00:00');
+    expect(newCommitA).not.toBe(oldCommitA);
+
+    relocateComments(prUuid, repoDir, base, oldCommitA, base, newCommitA);
+
+    const marks = getReviewedCommitMessages(prUuid);
+    expect(marks).toHaveLength(1);
+    expect(marks[0].commit_sha).toBe(newCommitA);
+    // Still current: the rebase moved the SHA but not a word of the message.
+    expect(getCommitMessageHash(repoDir, newCommitA)).toBe(marks[0].content_hash);
+  });
+
+  test('moves a mark the reword rewrote, but leaves it content-stale', () => {
+    const prUuid = createPR(repoDir, 'Message Reword PR', 'main', 'feature', base, oldCommitA, 'd');
+    setReviewedCommitMessage(prUuid, oldCommitA, getCommitMessageHash(repoDir, oldCommitA)!);
+
+    // Same tree, new wording - patch-id still matches it up, so the mark has
+    // somewhere to land; the message hash is what has to reject it.
+    runGit(repoDir, ['-c', 'advice.detachedHead=false', 'checkout', base]);
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'line one\nline two\nline three\n');
+    runGit(repoDir, ['add', 'a.txt']);
+    const rewordedA = commitWithDate(
+      repoDir,
+      'add a, with a better subject',
+      '2024-04-02T00:00:00',
+    );
+
+    relocateComments(prUuid, repoDir, base, oldCommitA, base, rewordedA);
+
+    const marks = getReviewedCommitMessages(prUuid);
+    expect(marks).toHaveLength(1);
+    expect(marks[0].commit_sha).toBe(rewordedA);
+    // Relocated but no longer current - the reviewer has to read the new
+    // wording, which is the whole point of tracking it separately.
+    expect(getCommitMessageHash(repoDir, rewordedA)).not.toBe(marks[0].content_hash);
   });
 });

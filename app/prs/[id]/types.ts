@@ -93,6 +93,16 @@ export interface ReviewedMark {
   marked_at: string;
 }
 
+// A commit message flagged as already reviewed, tracked independently of the
+// files the same commit touches. `current` goes false once the message has
+// been reworded since marking (a rebase that only re-SHA'd the commit doesn't
+// flip it - see lib/git.ts's getCommitMessageHash).
+export interface ReviewedMessageMark {
+  commit_sha: string;
+  current: boolean;
+  marked_at: string;
+}
+
 export interface PRData {
   pr: PullRequest;
   diff: string;
@@ -100,10 +110,12 @@ export interface PRData {
   comments: CommentWithReplies[];
   commits: CommitInfo[];
   reviewedFiles: ReviewedMark[];
-  // Shas (from `commits`) where every file that commit's own diff touches
-  // has a current mark scoped to it - what the commit selector uses to
-  // highlight a commit green, without needing to know each commit's file
-  // list itself (see the GET /api/prs/[id] route for how it's derived).
+  reviewedMessages: ReviewedMessageMark[];
+  // Shas (from `commits`) that are reviewed in full - message marked AND
+  // every file that commit's own diff touches marked - which is what the
+  // commit selector uses to highlight a commit green, without needing to know
+  // each commit's file list itself (see the GET /api/prs/[id] route for how
+  // it's derived).
   reviewedCommits: string[];
   // False when the PR's repo_path no longer exists (throwaway worktree
   // removed, clone moved), in which case `diff` is the stored snapshot and

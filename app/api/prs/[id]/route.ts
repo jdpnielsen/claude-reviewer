@@ -6,13 +6,20 @@ import {
   getLatestDiff,
   updatePRStatus,
   getCommentsWithReplies,
+  getReviewedCommitMessages,
   getReviewedFiles,
   lookupCommitRelocation,
   toPublicPR,
 } from '@/lib/database';
 import { parseDiffFiles } from '@/lib/diff';
 import { PullRequestStatus } from '@/lib/enum';
-import { listCommits, getCommitDiff, getBlobHash, isRepoAvailable } from '@/lib/git';
+import {
+  listCommits,
+  getCommitDiff,
+  getBlobHash,
+  getCommitMessageHash,
+  isRepoAvailable,
+} from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -81,25 +88,31 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         : true,
     }));
 
-    // A commit is "reviewed" (shown green in the commit selector) once every
-    // file its own diff touches has a current mark scoped to it - the same
-    // bar CommitMessagePanel's "mark commit reviewed" button clears in one
-    // shot, but also true if every file in it happened to be marked one at a
-    // time. Only worth a getCommitDiff call for a commit that has at least
-    // one current mark to begin with - most commits in a fresh PR have none,
-    // so this stays cheap regardless of how many commits the PR has.
-    const candidateCommitShas = [
-      ...new Set(
-        reviewedFiles
-          .filter((r) => r.commit_sha !== null && r.current)
-          .map((r) => r.commit_sha as string),
-      ),
-    ];
+    // The same content-addressed staleness check, for commit messages: the
+    // mark holds a hash of the message text, so a reword drops it while a
+    // rebase that only re-SHA'd the commit keeps it.
+    const reviewedMessages = getReviewedCommitMessages(id).map((r) => ({
+      commit_sha: r.commit_sha,
+      marked_at: r.marked_at,
+      current: repoAvailable
+        ? getCommitMessageHash(pr.repo_path, r.commit_sha) === r.content_hash
+        : true,
+    }));
+
+    // A commit is "reviewed" (shown green in the commit selector) once both
+    // halves of it have current marks: its message, and every file its own
+    // diff touches. That's the bar CommitMessagePanel's "mark commit
+    // reviewed" button clears in one shot, but it's equally true of a commit
+    // signed off a piece at a time. The message mark is the cheap gate here -
+    // a commit without one can't qualify however its files are marked, so
+    // most commits in a fresh PR cost no getCommitDiff call at all.
+    const candidateCommitShas = reviewedMessages.filter((r) => r.current).map((r) => r.commit_sha);
     const reviewedCommits = repoAvailable
       ? candidateCommitShas.filter((sha) => {
           if (!commits.some((c) => c.sha === sha)) return false;
+          // A commit touching no files (an empty commit) is fully reviewed
+          // once its message is - there is nothing else to look at.
           const commitFiles = parseDiffFiles(getCommitDiff(pr.repo_path, sha));
-          if (commitFiles.length === 0) return false;
           return commitFiles.every((f) =>
             reviewedFiles.some((r) => r.file_path === f.path && r.commit_sha === sha && r.current),
           );
@@ -113,6 +126,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       comments,
       commits,
       reviewedFiles,
+      reviewedMessages,
       reviewedCommits,
       repoAvailable,
     });

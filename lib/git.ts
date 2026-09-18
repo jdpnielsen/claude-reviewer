@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { simpleGit, SimpleGit } from 'simple-git';
@@ -176,6 +177,39 @@ export function getBlobHash(repoPath: string, sha: string, filePath: string): st
   } catch {
     return null;
   }
+}
+
+/**
+ * A commit's full message (subject plus body, `%B`), or null if the commit
+ * doesn't resolve in this repo. Trailing whitespace is stripped because git
+ * appends its own newline to the formatted output, which would otherwise make
+ * the hash below depend on git's formatting rather than on the message.
+ */
+export function getCommitMessage(repoPath: string, sha: string): string | null {
+  const cwd = resolveRepoPath(repoPath);
+  try {
+    return execFileSync('git', ['log', '-1', '--format=%B', sha], {
+      cwd,
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    }).trimEnd();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A fingerprint of a commit's message text, playing exactly the role
+ * getBlobHash plays for a file: it's what a "message reviewed" mark stores,
+ * so the mark survives a rebase that only re-SHAs the commit and goes stale
+ * the moment the wording actually changes. Not the commit SHA itself, which
+ * also moves when the tree, parent or author date change - none of which the
+ * reviewer was looking at when they approved the message.
+ */
+export function getCommitMessageHash(repoPath: string, sha: string): string | null {
+  const message = getCommitMessage(repoPath, sha);
+  if (message === null) return null;
+  return createHash('sha1').update(message, 'utf-8').digest('hex');
 }
 
 /** Read a file's content as of a specific commit (`git show sha:path`). */

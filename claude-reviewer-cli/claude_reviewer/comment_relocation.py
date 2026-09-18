@@ -15,6 +15,7 @@ from pathlib import Path
 from .database import (
     apply_comment_relocations,
     get_comments,
+    relocate_reviewed_commit_messages,
     relocate_reviewed_files,
     upsert_commit_relocation,
 )
@@ -255,7 +256,7 @@ def relocate_comments(
 ) -> None:
     """Re-anchors everything a PR keys to a commit SHA - comments, the
     durable `commit_relocations` map, and the web UI's per-commit reviewed
-    marks - after a sync (rebase/amend/force-push) changed those SHAs and/or
+    marks (files and commit messages alike) - after a sync (rebase/amend/force-push) changed those SHAs and/or
     shifted line content. Called from every place that rewrites
     `pull_requests.head_commit`/`base_commit` in the CLI (the `update`
     command and its two AI-auto-sync call sites in cli.py) with the OLD
@@ -279,6 +280,7 @@ def relocate_comments(
     # and no comments at all, and that PR still needs its marks carried
     # across.
     relocate_reviewed_files(pr_uuid, correspondence["matched"])
+    relocate_reviewed_commit_messages(pr_uuid, correspondence["matched"])
 
     comments = get_comments(pr_uuid)
     if not comments:
