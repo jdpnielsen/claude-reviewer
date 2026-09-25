@@ -1161,6 +1161,23 @@ class TestOrphanedThreads:
         assert "[orphaned]" in text
         assert as_json["status"] == "orphaned"
 
+    def test_comments_tags_a_comment_on_an_autosquash_preview_commit(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+        # A commit no range reaches, as the web UI's preview builds them.
+        tree = _run_git(repo, ["rev-parse", "HEAD^{tree}"])
+        squashed = _run_git(repo, ["commit-tree", tree, "-p", "HEAD", "-m", "squashed"])
+        db.add_comment(pr_uuid, "app.py", 1, "on the squash", commit_sha=squashed)
+
+        text = CliRunner().invoke(main, ["comments", pr_uuid]).output
+        [as_json] = json.loads(
+            CliRunner().invoke(main, ["comments", pr_uuid, "-f", "json"]).output
+        )["comments"]
+
+        assert f"[{squashed[:7]}, autosquash preview]" in text
+        assert as_json["in_autosquash_preview"] is True
+
     def test_move_reanchors_an_orphaned_thread(self, temp_db: Path, repo: Path) -> None:
         pr_uuid = self._create_pr(repo)
         comment_uuid = self._comment(pr_uuid, "Why shout?", "app.py:2")

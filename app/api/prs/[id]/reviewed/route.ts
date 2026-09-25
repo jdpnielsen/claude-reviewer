@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, setReviewedFile, unsetReviewedFile } from '@/lib/database';
-import { getBlobHash, listCommits } from '@/lib/git';
+import { getBlobHash, isPRCommit } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -27,8 +27,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const resolvedCommitSha = typeof commitSha === 'string' && commitSha ? commitSha : null;
     if (resolvedCommitSha) {
-      const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
-      if (!commits.some((c) => c.sha === resolvedCommitSha)) {
+      // One of the PR's commits, or one its autosquash preview built.
+      if (!isPRCommit(pr.repo_path, pr.base_commit, pr.head_commit, resolvedCommitSha)) {
         return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
       }
     }

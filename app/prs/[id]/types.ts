@@ -7,7 +7,7 @@ import {
   PullRequestStatus,
   ReviewAction,
 } from '@/lib/enum';
-import type { AutosquashResult } from '@/lib/git';
+import type { AutosquashResult, SquashedCommit } from '@/lib/git';
 
 export interface PullRequest {
   uuid: string;
@@ -130,6 +130,10 @@ export interface PRData {
   // Only with `?view=autosquash`: the branch as `rebase -i --autosquash`
   // would leave it, or why that couldn't be worked out. Null otherwise.
   autosquash: AutosquashView | null;
+  // The autosquash preview's rewritten commits, whenever a comment or
+  // reviewed mark is keyed to one (and always with `?view=autosquash`) - to
+  // name the commit those were made on. Empty otherwise.
+  previewCommits: SquashedCommit[];
 }
 
 export type AutosquashView = ({ error: null } & AutosquashResult) | { error: string };

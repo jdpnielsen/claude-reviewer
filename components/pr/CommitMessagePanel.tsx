@@ -41,8 +41,6 @@ interface CommitMessagePanelProps {
   // whether git would stop to have this message edited (see SquashedCommit).
   absorbed?: AbsorbedCommit[];
   messageNeedsEdit?: boolean;
-  // No commenting on or marking this message - see FileDiffCard's readOnly.
-  readOnly?: boolean;
 }
 
 export default function CommitMessagePanel({
@@ -60,7 +58,6 @@ export default function CommitMessagePanel({
   addComment,
   absorbed = [],
   messageNeedsEdit = false,
-  readOnly = false,
   ...commentThreadProps
 }: CommitMessagePanelProps) {
   const fullMessage = commitFullMessage(commit);
@@ -86,21 +83,19 @@ export default function CommitMessagePanel({
           </CopyableText>
           <span>{commit.author}</span>
         </div>
-        {!readOnly && (
-          <button
-            type="button"
-            className={`reviewed-toggle ${isMessageReviewed ? 'active' : ''}`}
-            onClick={toggleMessageReviewed}
-            title={
-              isMessageReviewed
-                ? 'Marked reviewed - this commit message, on its own'
-                : "Mark this commit's message reviewed, without its files"
-            }
-          >
-            <Check size={14} />
-            {isMessageReviewed ? 'Message reviewed' : 'Mark message reviewed'}
-          </button>
-        )}
+        <button
+          type="button"
+          className={`reviewed-toggle ${isMessageReviewed ? 'active' : ''}`}
+          onClick={toggleMessageReviewed}
+          title={
+            isMessageReviewed
+              ? 'Marked reviewed - this commit message, on its own'
+              : "Mark this commit's message reviewed, without its files"
+          }
+        >
+          <Check size={14} />
+          {isMessageReviewed ? 'Message reviewed' : 'Mark message reviewed'}
+        </button>
       </div>
       <pre className="commit-message-body">{fullMessage}</pre>
 
@@ -129,7 +124,7 @@ export default function CommitMessagePanel({
         <CollapsibleCommentThread key={item.comment.uuid} item={item} {...commentThreadProps} />
       ))}
 
-      {readOnly ? null : isCommenting ? (
+      {isCommenting ? (
         <div className="new-comment-form">
           <textarea
             ref={(el) => {

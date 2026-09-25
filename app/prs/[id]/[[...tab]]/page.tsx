@@ -155,16 +155,22 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     reviewedFiles: commentsQuery.data?.reviewedFiles ?? prQuery.data.reviewedFiles,
     reviewedMessages: commentsQuery.data?.reviewedMessages ?? prQuery.data.reviewedMessages,
     reviewedCommits: commentsQuery.data?.reviewedCommits ?? prQuery.data.reviewedCommits,
+    previewCommits: commentsQuery.data?.previewCommits ?? prQuery.data.previewCommits,
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
   // What the commit selector steps through: the PR's own commits, or the
   // squashed ones while the autosquash preview is on. `data.commits` itself
-  // stays the PR's own either way - it's what comments and reviewed marks
-  // (and the tags naming their commit) are keyed to.
+  // stays the PR's own either way. Comments and reviewed marks can be keyed
+  // to either, so the tags naming their commit look in both.
   const autosquash = autosquashOn ? (prQuery.data?.autosquash ?? null) : null;
   const squashed = autosquash?.error === null ? autosquash : null;
   const displayCommits = squashed ? squashed.commits : (data?.commits ?? []);
+  const labelCommits = [
+    ...(data?.commits ?? []),
+    ...(squashed?.commits ?? []),
+    ...(data?.previewCommits ?? []),
+  ];
   const hasFixupCommits = !!data?.commits.some((c) => isFixupishSubject(c.message));
 
   // A PR with exactly one commit has no real "cumulative diff (all commits)"
@@ -178,9 +184,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // null) visible inline instead of orphaned.
   const soleCommit = displayCommits.length === 1 ? displayCommits[0] : null;
   const displayedCommitSha = selectedCommit ?? soleCommit?.sha ?? null;
-  // A commit only the preview has - nothing can be stored against its sha.
   const displayedSquashed = squashed?.commits.find((c) => c.sha === displayedCommitSha);
-  const readOnly = !!displayedSquashed?.rewritten;
   const normalizeCommitSha = (sha: string | null) =>
     soleCommit && sha === null ? soleCommit.sha : sha;
 
@@ -192,7 +196,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // before the redirect below takes effect.
   const unknownCommitError =
     prQuery.error instanceof ApiError && prQuery.error.status === 400
-      ? (prQuery.error.data as { relocatedTo?: string | null } | undefined)
+      ? (prQuery.error.data as
+          | { relocatedTo?: string | null; inAutosquashPreview?: boolean }
+          | undefined)
       : undefined;
   const isUnknownCommitError = Boolean(unknownCommitError && 'relocatedTo' in unknownCommitError);
 
@@ -203,6 +209,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     if (!isUnknownCommitError) return;
     if (unknownCommitError?.relocatedTo) {
       setSelectedCommit(unknownCommitError.relocatedTo);
+    } else if (unknownCommitError?.inAutosquashPreview) {
+      // A link to a comment made in the autosquash preview.
+      setView('autosquash');
     } else {
       setCommitNotice(
         autosquashOn
@@ -515,7 +524,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const insertReplySuggestion = async (comment: Comment) => {
     let seedLines: string[];
     if (comment.target_type === CommentTargetType.CommitMessage) {
-      const commit = data?.commits.find((c) => c.sha === comment.commit_sha);
+      const commit = labelCommits.find((c) => c.sha === comment.commit_sha);
       if (!commit) return;
       seedLines = commitFullMessage(commit).split('\n');
     } else {
@@ -820,7 +829,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   Autosquash preview
                 </button>
               )}
-              {displayedCommitSha && !readOnly && (
+              {displayedCommitSha && (
                 <button
                   type="button"
                   className={`reviewed-toggle ${isDisplayedCommitReviewed() ? 'active' : ''}`}
@@ -893,7 +902,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                         commit={commit}
                         absorbed={displayedSquashed?.absorbed}
                         messageNeedsEdit={displayedSquashed?.messageNeedsEdit}
-                        readOnly={readOnly}
                         comments={getCommitMessageComments(displayedCommitSha)}
                         isMessageReviewed={isDisplayedMessageReviewed()}
                         toggleMessageReviewed={toggleDisplayedMessageReviewed}
@@ -926,7 +934,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     diff={diff}
                     fileComments={getFileComments(file.path)}
                     commitSpecificComments={getCommitSpecificFileComments(file.path)}
-                    commits={data.commits}
+                    commits={labelCommits}
                     displayedCommitSha={displayedCommitSha}
                     fileLineCount={
                       fileLineCounts.get(contextFileKey(displayedCommitSha, file.path)) ?? null
@@ -934,7 +942,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     repoPath={data.repoAvailable ? pr.repo_path : null}
                     isReviewed={isFileReviewed(file.path)}
                     toggleReviewed={() => toggleFileReviewed(file.path)}
-                    readOnly={readOnly}
                     prId={id}
                     onJumpToComment={jumpToComment}
                     isExpanded={effectiveExpandedFiles.has(file.path)}
@@ -979,7 +986,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
               // which the Files tab uses instead).
               <ConversationTab
                 comments={comments}
-                commits={data.commits}
+                commits={labelCommits}
                 prId={id}
                 onJumpToComment={jumpToComment}
                 editingComment={editingComment}

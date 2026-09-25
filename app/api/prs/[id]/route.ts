@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { previewKeyedShas, reconcilePreviewComments } from '@/lib/comment-relocation';
 import {
   deletePR,
   getPRByUuid,
@@ -14,13 +15,13 @@ import {
 import { parseDiffFiles } from '@/lib/diff';
 import { PullRequestStatus } from '@/lib/enum';
 import {
-  autosquashCommits,
+  getAutosquashPreview,
   listCommits,
   getCommitDiff,
   getBlobHash,
   getCommitMessageHash,
   isRepoAvailable,
-  type AutosquashResult,
+  type AutosquashPreview,
 } from '@/lib/git';
 
 interface RouteParams {
@@ -53,23 +54,35 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     // `?view=autosquash` previews the branch as `rebase -i --autosquash`
     // would leave it (see autosquashCommits). `commits` stays the PR's own
-    // list either way - comments and reviewed marks are keyed to those - and
-    // the squashed commits come alongside, as the ones `?commit=` may name.
-    // A failure (merge commits, a git too old for merge-tree --merge-base) is
-    // reported rather than 500ing, so the page can fall back to the normal
-    // view with the reason.
-    let autosquash: ({ error: null } & AutosquashResult) | { error: string } | null = null;
-    if (repoAvailable && url.searchParams.get('view') === 'autosquash') {
-      try {
-        autosquash = {
-          error: null,
-          ...autosquashCommits(pr.repo_path, pr.base_commit, pr.head_commit),
-        };
-      } catch (error: unknown) {
-        autosquash = { error: error instanceof Error ? error.message : 'Unknown error' };
-      }
+    // list either way, and the squashed commits come alongside, as the ones
+    // `?commit=` may name. A failure (merge commits, a git too old for
+    // merge-tree --merge-base) is reported rather than 500ing, so the page
+    // can fall back to the normal view with the reason.
+    //
+    // The preview's commits can be commented on and marked reviewed too, and
+    // whatever is keyed to one is carried over to its successor - the next
+    // preview, or the real commit once the author autosquashes for real (see
+    // reconcilePreviewComments). That runs here, before anything is read, so
+    // the preview is also built whenever something is keyed to one of its
+    // commits (cached per head, so the poll doesn't rebuild it).
+    const autosquashView = repoAvailable && url.searchParams.get('view') === 'autosquash';
+    const keyed = repoAvailable
+      ? previewKeyedShas(
+          id,
+          commits.map((c) => c.sha),
+        )
+      : [];
+    let preview: AutosquashPreview | null = null;
+    if (autosquashView || keyed.length > 0) {
+      preview = getAutosquashPreview(pr.repo_path, pr.base_commit, pr.head_commit);
+      reconcilePreviewComments(id, pr.repo_path, pr.base_commit, pr.head_commit, keyed, preview);
     }
+    const autosquash = autosquashView ? preview : null;
     const viewableCommits = autosquash && autosquash.error === null ? autosquash.commits : commits;
+    // The preview's own commits - not the PR commits it reuses unchanged -
+    // for labelling what's keyed to them outside the preview.
+    const previewCommits =
+      preview && preview.error === null ? preview.commits.filter((c) => c.rewritten) : [];
 
     let diff: string | null;
     if (commitParam) {
@@ -91,8 +104,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
               )
             : undefined;
         const relocatedTo = squashedFrom?.sha ?? lookupCommitRelocation(id, commitParam);
+        // Outside the preview, a link to one of its commits (a comment made
+        // there) can't be shown here - inAutosquashPreview says to turn the
+        // preview on and try again.
+        let inAutosquashPreview = false;
+        if (!autosquash) {
+          const current =
+            preview ?? getAutosquashPreview(pr.repo_path, pr.base_commit, pr.head_commit);
+          inAutosquashPreview =
+            current.error === null && current.commits.some((c) => c.sha === commitParam);
+        }
         return NextResponse.json(
-          { error: 'Unknown commit for this PR', relocatedTo },
+          { error: 'Unknown commit for this PR', relocatedTo, inAutosquashPreview },
           { status: 400 },
         );
       }
@@ -142,7 +165,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const candidateCommitShas = reviewedMessages.filter((r) => r.current).map((r) => r.commit_sha);
     const reviewedCommits = repoAvailable
       ? candidateCommitShas.filter((sha) => {
-          if (!commits.some((c) => c.sha === sha)) return false;
+          if (!commits.some((c) => c.sha === sha) && !previewCommits.some((c) => c.sha === sha)) {
+            return false;
+          }
           // A commit touching no files (an empty commit) is fully reviewed
           // once its message is - there is nothing else to look at.
           const commitFiles = parseDiffFiles(getCommitDiff(pr.repo_path, sha));
@@ -163,6 +188,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       reviewedCommits,
       repoAvailable,
       autosquash,
+      previewCommits,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

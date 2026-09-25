@@ -72,7 +72,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `create` | Create a new PR from current branch |
 | `list` | List all PRs |
 | `status` | Check PR status |
-| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes and orphaned threads; a review summary appears here too, as an "approved" or "changes requested" comment |
+| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes, orphaned threads, and comments made in the web UI's autosquash preview; a review summary appears here too, as an "approved" or "changes requested" comment |
 | `show` | Show detailed PR information |
 | `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha)` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review |
 | `move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a comment `update` couldn't follow to where its code is now |

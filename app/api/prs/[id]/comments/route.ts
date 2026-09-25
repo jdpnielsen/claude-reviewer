@@ -11,7 +11,7 @@ import {
   addReply,
 } from '@/lib/database';
 import { CommentResolutionMode, CommentTargetType, LineType } from '@/lib/enum';
-import { listCommits } from '@/lib/git';
+import { isPRCommit } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -101,8 +101,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           { status: 400 },
         );
       }
-      const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
-      if (!commits.some((c) => c.sha === commitSha)) {
+      // One of the PR's commits, or one its autosquash preview built.
+      if (!isPRCommit(pr.repo_path, pr.base_commit, pr.head_commit, commitSha)) {
         return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
       }
 

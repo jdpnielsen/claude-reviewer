@@ -8,7 +8,7 @@ import {
   unsetReviewedFilesForCommit,
 } from '@/lib/database';
 import { parseDiffFiles } from '@/lib/diff';
-import { getBlobHash, getCommitDiff, getCommitMessageHash, listCommits } from '@/lib/git';
+import { getBlobHash, getCommitDiff, getCommitMessageHash, isPRCommit } from '@/lib/git';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -34,8 +34,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    const commits = listCommits(pr.repo_path, pr.base_commit, pr.head_commit);
-    if (!commits.some((c) => c.sha === commitSha)) {
+    // One of the PR's commits, or one its autosquash preview built.
+    if (!isPRCommit(pr.repo_path, pr.base_commit, pr.head_commit, commitSha)) {
       return NextResponse.json({ error: 'Unknown commit for this PR' }, { status: 400 });
     }
 
