@@ -58,6 +58,10 @@ export interface Comment {
   anchor_content: string | null;
   anchor_context_before: string | null;
   anchor_context_after: string | null;
+  // An agent for an AI review or `claude-reviewer comment`, otherwise the
+  // reviewer (author is null for a comment written before authors existed).
+  author: string | null;
+  author_kind: AuthorKind;
 }
 
 export interface CommentWithReplies {

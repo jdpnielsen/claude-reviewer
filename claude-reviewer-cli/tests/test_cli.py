@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -871,3 +872,141 @@ class TestUpdateCommand:
         assert result.exit_code == 1
         assert "Not a git repository" in result.output
         assert "--repo" in result.output
+
+
+class TestCommentCommand:
+    """Tests for the `comment` command."""
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        """main, plus a feature branch with two commits changing app.py."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        _run_git(repo_path, ["init", "-b", "main"])
+        _run_git(repo_path, ["config", "user.email", "test@example.com"])
+        _run_git(repo_path, ["config", "user.name", "Test User"])
+
+        (repo_path / "app.py").write_text("one\ntwo\nthree\n")
+        _run_git(repo_path, ["add", "app.py"])
+        _run_git(repo_path, ["commit", "-m", "base commit"])
+
+        _run_git(repo_path, ["checkout", "-b", "feature"])
+        (repo_path / "app.py").write_text("one\nTWO\nthree\n")
+        _run_git(repo_path, ["commit", "-am", "shout two"])
+        (repo_path / "app.py").write_text("one\nTWO\nthree\nfour\n")
+        _run_git(repo_path, ["commit", "-am", "add four"])
+        return repo_path
+
+    def _create_pr(self, repo: Path) -> str:
+        return db.create_pr(
+            repo_path=str(repo),
+            title="PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=_run_git(repo, ["rev-parse", "main"]),
+            head_commit=_run_git(repo, ["rev-parse", "feature"]),
+            diff="d",
+        )
+
+    def test_line_comment_is_anchored_and_authored_by_the_agent(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["comment", pr_uuid, "Why shout?", "-l", "app.py:2-3"])
+
+        assert result.exit_code == 0, result.output
+        [c] = db.get_comments(pr_uuid)
+        assert (c.file_path, c.line_number, c.end_line_number) == ("app.py", 2, 3)
+        assert c.line_type == "new"
+        assert c.commit_sha is None
+        assert c.anchor_content == "TWO"
+        assert c.anchor_context_before == "one"
+        assert c.author_kind == "agent"
+        assert c.author == "claude"
+
+    def test_old_side_comment_anchors_to_the_base(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(
+            main, ["comment", pr_uuid, "was fine", "-l", "app.py:2", "--old"]
+        )
+
+        assert result.exit_code == 0, result.output
+        [c] = db.get_comments(pr_uuid)
+        assert c.line_type == "old"
+        assert c.anchor_content == "two"
+
+    def test_commit_scoped_comment_reads_that_commits_blob(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        first = _run_git(repo, ["rev-parse", "feature~1"])
+
+        result = CliRunner().invoke(
+            main, ["comment", pr_uuid, "note", "-l", "app.py:3", "--commit", first[:7]]
+        )
+
+        assert result.exit_code == 0, result.output
+        [c] = db.get_comments(pr_uuid)
+        assert c.commit_sha == first
+        assert c.anchor_context_after == ""
+
+    def test_commit_message_comment(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(
+            main,
+            ["comment", pr_uuid, "say why", "--commit-message", "feature", "--mode", "discuss"],
+        )
+
+        assert result.exit_code == 0, result.output
+        [c] = db.get_comments(pr_uuid)
+        assert c.target_type == "commit_message"
+        assert c.commit_sha == _run_git(repo, ["rev-parse", "feature"])
+        assert c.resolution_mode == CommentResolutionMode.DISCUSS
+
+    @pytest.mark.parametrize(
+        ("args", "error"),
+        [
+            (["-l", "app.py:9"], "no line 9"),
+            (["-l", "app.py:2-9"], "no line 9"),
+            (["-l", "base.txt:1"], "isn't changed"),
+            (["-l", "app.py"], "FILE:LINE"),
+            (["-l", "app.py:3-2"], "Invalid line range"),
+            (["-l", "app.py:1", "--commit", "main"], "not one of this PR's commits"),
+            (["--commit-message", "nope"], "not one of this PR's commits"),
+            ([], "exactly one of"),
+            (["-l", "app.py:1", "--commit-message", "feature"], "exactly one of"),
+        ],
+    )
+    def test_rejects_bad_locations(
+        self, temp_db: Path, repo: Path, args: list[str], error: str
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["comment", pr_uuid, "msg", *args])
+
+        assert result.exit_code != 0
+        assert error in result.output
+        assert db.get_comments(pr_uuid) == []
+
+    def test_comments_lists_the_agent_as_author(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        CliRunner().invoke(main, ["comment", pr_uuid, "Why shout?", "-l", "app.py:2"])
+        db.add_comment(pr_uuid, "app.py", 1, "human note")
+
+        result = CliRunner().invoke(main, ["comments", pr_uuid, "-f", "json"])
+
+        by_text = {c["text"]: c for c in json.loads(result.output)["comments"]}
+        assert by_text["Why shout?"]["author_kind"] == "agent"
+        assert by_text["human note"]["author_kind"] == "human"
+
+    def test_an_agent_comment_awaits_the_reviewer_not_claude(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+        CliRunner().invoke(main, ["comment", pr_uuid, "Why shout?", "-l", "app.py:2"])
+        human_uuid = db.add_comment(pr_uuid, "app.py", 1, "human note")
+
+        unanswered = db.get_unanswered_pr_comments(str(repo))
+
+        assert [c.uuid for _, c, _ in unanswered] == [human_uuid]

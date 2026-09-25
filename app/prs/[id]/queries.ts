@@ -95,6 +95,8 @@ export function useAddCommentMutation(id: string) {
           anchor_content: null,
           anchor_context_before: null,
           anchor_context_after: null,
+          author: null,
+          author_kind: AuthorKind.Human,
         },
         replies: [],
       };

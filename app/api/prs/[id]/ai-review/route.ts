@@ -1,8 +1,9 @@
 import { spawn } from 'child_process';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { captureAnchor } from '@/lib/comment-anchor';
 import { getPRByUuid, addComment, getLatestDiff } from '@/lib/database';
-import { LineType } from '@/lib/enum';
+import { AuthorKind, CommentResolutionMode, CommentTargetType, LineType } from '@/lib/enum';
 import { listCommits, blameCommit } from '@/lib/git';
 
 interface RouteParams {
@@ -146,6 +147,18 @@ Do NOT include explanatory text outside the JSON array.`;
           LineType.New,
           comment.line_number,
           commitSha,
+          CommentTargetType.Line,
+          captureAnchor(
+            pr.repo_path,
+            commitSha ?? pr.head_commit,
+            comment.file_path,
+            comment.line_number,
+          ),
+          null,
+          null,
+          CommentResolutionMode.Fix,
+          null,
+          AuthorKind.Agent,
         );
         addedComments.push(uuid);
       }

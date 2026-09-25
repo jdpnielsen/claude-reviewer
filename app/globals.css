@@ -1551,6 +1551,23 @@ textarea {
   color: #d29922;
 }
 
+.author-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.comment-author {
+  margin-bottom: 0.5rem;
+}
+
 div.resolution-mode-badge {
   margin-bottom: 0.5rem;
 }

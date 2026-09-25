@@ -72,7 +72,21 @@ export interface Comment {
   // primary (New-side) range rather than re-searching for it on its own blob.
   paired_line_number: number | null;
   paired_end_line_number: number | null;
+  // Who wrote the comment - an agent for an AI review or `claude-reviewer
+  // comment`, otherwise the reviewer. A comment with no author_id (written
+  // before this column existed, or by an older CLI) reads as the human.
+  author_id: number | null;
+  author: string | null;
+  author_kind: AuthorKind;
 }
+
+// Every comment read goes through this, so author/author_kind are always
+// filled in. LEFT JOIN, not JOIN: author_id is nullable - see Comment.
+const COMMENT_SELECT = `
+  SELECT c.*, a.name AS author, COALESCE(a.kind, '${AuthorKind.Human}') AS author_kind
+  FROM comments c
+  LEFT JOIN authors a ON a.id = c.author_id
+`;
 
 // Durable "this SHA used to mean that SHA" mapping for a PR, built up by
 // relocateComments() on every sync. Lets a stale `?commit=<old sha>` link
@@ -317,6 +331,7 @@ function initSchema(db: Database.Database): void {
         anchor_context_before TEXT,
         anchor_context_after TEXT,
         status TEXT NOT NULL DEFAULT 'active',
+        author_id INTEGER REFERENCES authors(id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -462,6 +477,7 @@ function initSchema(db: Database.Database): void {
   migrateCommentsPairedRange(db);
   migrateCommentsResolutionMode(db);
   migrateCommentsReviewAction(db);
+  migrateCommentsAuthor(db);
 }
 
 // A database created before the authors table existed has comment_replies/
@@ -603,6 +619,23 @@ function migrateCommentsReviewAction(db: Database.Database): void {
   if (!columns.some((c) => c.name === 'review_action')) {
     try {
       db.exec('ALTER TABLE comments ADD COLUMN review_action TEXT');
+    } catch (e) {
+      // A concurrent process (the Python CLI, or another reconnect) may have
+      // added the column between the check above and this ALTER.
+      if (!(e instanceof Error) || !/duplicate column/i.test(e.message)) throw e;
+    }
+  }
+  checkpoint();
+}
+
+// Adds author_id for databases created before a comment could be written by
+// an agent. Left NULL on every pre-existing row rather than backfilled, which
+// reads as the human (see Comment.author_id) - true of nearly all of them.
+function migrateCommentsAuthor(db: Database.Database): void {
+  const columns = db.pragma('table_info(comments)') as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'author_id')) {
+    try {
+      db.exec('ALTER TABLE comments ADD COLUMN author_id INTEGER REFERENCES authors(id)');
     } catch (e) {
       // A concurrent process (the Python CLI, or another reconnect) may have
       // added the column between the check above and this ALTER.
@@ -899,7 +932,12 @@ export function addComment(
   pairedEndLineNumber: number | null = null,
   resolutionMode: CommentResolutionMode = CommentResolutionMode.Fix,
   reviewAction: ReviewAction | null = null,
+  authorKind: AuthorKind = AuthorKind.Human,
 ): string {
+  // Resolved before getDatabase() - see createRepoConversation for why.
+  const authorId = (
+    authorKind === AuthorKind.Agent ? getDefaultAgentAuthor() : getDefaultHumanAuthor()
+  ).id;
   const db = getDatabase();
   const commentUuid = generateUuid();
 
@@ -913,9 +951,9 @@ export function addComment(
       INSERT INTO comments (
         uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type,
         content, anchor_content, anchor_context_before, anchor_context_after,
-        paired_line_number, paired_end_line_number, resolution_mode, review_action
+        paired_line_number, paired_end_line_number, resolution_mode, review_action, author_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       commentUuid,
       pr.id,
@@ -933,6 +971,7 @@ export function addComment(
       pairedEndLineNumber,
       resolutionMode,
       reviewAction,
+      authorId,
     );
 
     db.prepare('UPDATE pull_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(pr.id);
@@ -955,19 +994,19 @@ export function getComments(
     | undefined;
   if (!pr) return [];
 
-  let query = 'SELECT * FROM comments WHERE pr_id = ?';
+  let query = `${COMMENT_SELECT} WHERE c.pr_id = ?`;
   const params: (number | string)[] = [pr.id];
 
   if (unresolvedOnly) {
-    query += ' AND resolved = FALSE';
+    query += ' AND c.resolved = FALSE';
   }
 
   if (filePath) {
-    query += ' AND file_path = ?';
+    query += ' AND c.file_path = ?';
     params.push(filePath);
   }
 
-  query += ' ORDER BY file_path, line_number';
+  query += ' ORDER BY c.file_path, c.line_number';
 
   return db.prepare(query).all(...params) as Comment[];
 }
@@ -1449,7 +1488,7 @@ export function getReplies(commentUuid: string): CommentReply[] {
 
 export function getCommentByUuid(commentUuid: string): Comment | null {
   const db = getDatabase();
-  const row = db.prepare('SELECT * FROM comments WHERE uuid = ?').get(commentUuid);
+  const row = db.prepare(`${COMMENT_SELECT} WHERE c.uuid = ?`).get(commentUuid);
   return row as Comment | null;
 }
 
