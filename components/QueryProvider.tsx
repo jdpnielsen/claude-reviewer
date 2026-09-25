@@ -19,9 +19,15 @@ export function QueryProvider({ children }: { children: ReactNode }) {
         // console rather than surfacing them - this restores that as the
         // default for every query/mutation. Call sites that need to show the
         // user something (alert, inline error state) add their own onError
-        // on top; it runs in addition to this, not instead of it.
+        // on top; it runs in addition to this, not instead of it. A query
+        // that expects some failures and handles them itself says which in
+        // `meta.isExpectedError` (see usePRQuery), and those aren't logged.
         queryCache: new QueryCache({
-          onError: (error) => console.error(error),
+          onError: (error, query) => {
+            const isExpectedError = query.meta?.isExpectedError;
+            if (typeof isExpectedError === 'function' && isExpectedError(error)) return;
+            console.error(error);
+          },
         }),
         mutationCache: new MutationCache({
           onError: (error) => console.error(error),
