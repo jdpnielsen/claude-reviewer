@@ -176,29 +176,57 @@ export const githubDarkTheme = {
 
 export const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Parse diff into file chunks
-export const parseFileDiff = (diff: string, filePath: string): string[] => {
-  const fileMatch = diff.match(
-    new RegExp(
-      `diff --git a/${escapeRegex(filePath)} b/${escapeRegex(filePath)}[\\s\\S]*?(?=diff --git|$)`,
-    ),
-  );
-  if (!fileMatch) return [];
-
-  const lines = fileMatch[0].split('\n');
+// One file's section of a multi-file unified diff, split into lines, or null
+// when the diff doesn't touch the file. Matches on the b/ (new) path alone: a
+// renamed file's header reads `diff --git a/old b/new`, and callers only know
+// the new path. Both ends anchor to line starts, since content rows always
+// carry a +/-/space prefix and so can never be mistaken for a header.
+const findFileDiffChunk = (diff: string, filePath: string): string[] | null => {
+  const start = diff.search(new RegExp(`^diff --git a/.+ b/${escapeRegex(filePath)}$`, 'm'));
+  if (start < 0) return null;
+  const rest = diff.slice(start);
+  const next = rest.slice(1).search(/^diff --git /m);
+  const lines = (next < 0 ? rest : rest.slice(0, next + 1)).split('\n');
   // Every row of a unified diff carries a prefix character, even an empty
   // context line (a lone space), so a truly empty string can only be what
   // split() leaves behind after the chunk's final newline. Left in, it renders
   // as a blank row and - worse - counts as a context line in the old/new line
   // walk, putting every reader of those numbers one line past the truth.
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-  return lines.filter(
-    (l) =>
-      !l.startsWith('diff --git') &&
-      !l.startsWith('index ') &&
-      !l.startsWith('---') &&
-      !l.startsWith('+++'),
-  );
+  return lines;
+};
+
+// A file's hunks - its @@ headers and the rows under them. Git's extended
+// header lines above the first hunk (index, new/deleted file mode, old/new
+// mode, similarity, rename from/to, ---/+++) are dropped: the file card's
+// badge already says whether a file was added, deleted or renamed, and
+// parseFileDiffMeta surfaces what little else is worth showing.
+export const parseFileDiff = (diff: string, filePath: string): string[] => {
+  const lines = findFileDiffChunk(diff, filePath);
+  if (!lines) return [];
+  const firstHunk = lines.findIndex((l) => l.startsWith('@@'));
+  return firstHunk < 0 ? [] : lines.slice(firstHunk);
+};
+
+export interface FileDiffMeta {
+  // Set only when an existing file's mode changed (e.g. made executable). A
+  // new or deleted file's mode is left out, as GitHub does - it's almost
+  // always 100644 and says nothing the change-type badge doesn't.
+  modeChange: { from: string; to: string } | null;
+  // Git doesn't diff binary content, so such a file has no hunks to show.
+  binary: boolean;
+}
+
+export const parseFileDiffMeta = (diff: string, filePath: string): FileDiffMeta => {
+  const lines = findFileDiffChunk(diff, filePath) ?? [];
+  const firstHunk = lines.findIndex((l) => l.startsWith('@@'));
+  const header = firstHunk < 0 ? lines : lines.slice(0, firstHunk);
+  const oldMode = header.find((l) => l.startsWith('old mode '))?.slice('old mode '.length);
+  const newMode = header.find((l) => l.startsWith('new mode '))?.slice('new mode '.length);
+  return {
+    modeChange: oldMode && newMode ? { from: oldMode, to: newMode } : null,
+    binary: header.some((l) => l.startsWith('Binary files ') || l === 'GIT binary patch'),
+  };
 };
 
 // Extracts the current text of a line range on a given side of the diff,
@@ -404,26 +432,11 @@ export const isMarkdownFile = (path: string) => {
 
 // Extract full file content from diff for markdown preview
 export const getFileContentFromDiff = (diffContent: string, filePath: string): string => {
-  const fileMatch = diffContent.match(
-    new RegExp(
-      `diff --git a/${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} b/${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?(?=diff --git|$)`,
-    ),
-  );
-  if (!fileMatch) return '';
-
-  const lines = fileMatch[0].split('\n');
+  const lines = parseFileDiff(diffContent, filePath);
   const contentLines: string[] = [];
 
   for (const line of lines) {
-    if (
-      line.startsWith('diff --git') ||
-      line.startsWith('index ') ||
-      line.startsWith('---') ||
-      line.startsWith('+++') ||
-      line.startsWith('@@')
-    ) {
-      continue;
-    }
+    if (line.startsWith('@@')) continue;
     if (line.startsWith('-')) continue; // Skip deleted lines
     if (line.startsWith('+')) {
       contentLines.push(line.slice(1)); // Add new lines without +

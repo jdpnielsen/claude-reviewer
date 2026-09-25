@@ -929,6 +929,19 @@ textarea {
   color: #8b949e;
 }
 
+.file-mode-change {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #8b949e;
+}
+
+.diff-notice {
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #8b949e;
+}
+
 .preview-toggle {
   display: flex;
   align-items: center;

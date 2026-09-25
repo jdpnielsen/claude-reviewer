@@ -6,10 +6,13 @@ import {
   contextCacheKey,
   findAnchorMatchInDiff,
   getCrossSideRange,
+  getFileContentFromDiff,
   getRangeTextFromDiff,
   linesAvailableAbove,
   linesAvailableBelow,
   MAX_LINES_DEFAULT,
+  parseFileDiff,
+  parseFileDiffMeta,
   parseHunkRanges,
   shouldCollapseByDefault,
 } from '../app/prs/[id]/utils';
@@ -399,5 +402,88 @@ describe('linesAvailableBelow', () => {
 
   it('reports nothing for a hunk index that does not exist', () => {
     expect(linesAvailableBelow(gapped, 5, 0, 100)).toBe(0);
+  });
+});
+
+// Real `git diff` output: a file renamed and made executable with one line
+// changed, a new binary file, and a new text file whose content row happens
+// to look like a header.
+const extendedHeaderDiff =
+  [
+    'diff --git a/bin/old.sh b/bin/run.sh',
+    'old mode 100644',
+    'new mode 100755',
+    'similarity index 80%',
+    'rename from bin/old.sh',
+    'rename to bin/run.sh',
+    'index 1111111..2222222',
+    '--- a/bin/old.sh',
+    '+++ b/bin/run.sh',
+    '@@ -1,2 +1,2 @@',
+    ' #!/bin/sh',
+    '-echo old',
+    '+echo new',
+    'diff --git a/logo.png b/logo.png',
+    'new file mode 100644',
+    'index 0000000..3333333',
+    'Binary files /dev/null and b/logo.png differ',
+    'diff --git a/notes.md b/notes.md',
+    'new file mode 100644',
+    'index 0000000..4444444',
+    '--- /dev/null',
+    '+++ b/notes.md',
+    '@@ -0,0 +1,2 @@',
+    '+++ not a header',
+    '+diff --git a/x b/x',
+  ].join('\n') + '\n';
+
+describe('parseFileDiff', () => {
+  it("drops git's extended header lines, keeping only the hunks", () => {
+    expect(parseFileDiff(extendedHeaderDiff, 'bin/run.sh')).toEqual([
+      '@@ -1,2 +1,2 @@',
+      ' #!/bin/sh',
+      '-echo old',
+      '+echo new',
+    ]);
+  });
+
+  it('finds a renamed file by its new path', () => {
+    expect(parseFileDiff(extendedHeaderDiff, 'bin/run.sh')).not.toEqual([]);
+    expect(parseFileDiff(extendedHeaderDiff, 'bin/old.sh')).toEqual([]);
+  });
+
+  it('keeps content rows that look like headers', () => {
+    expect(parseFileDiff(extendedHeaderDiff, 'notes.md')).toEqual([
+      '@@ -0,0 +1,2 @@',
+      '+++ not a header',
+      '+diff --git a/x b/x',
+    ]);
+    expect(getFileContentFromDiff(extendedHeaderDiff, 'notes.md')).toBe(
+      '++ not a header\ndiff --git a/x b/x',
+    );
+  });
+
+  it('has no rows for a binary file', () => {
+    expect(parseFileDiff(extendedHeaderDiff, 'logo.png')).toEqual([]);
+  });
+});
+
+describe('parseFileDiffMeta', () => {
+  it('reports a mode change on an existing file', () => {
+    expect(parseFileDiffMeta(extendedHeaderDiff, 'bin/run.sh')).toEqual({
+      modeChange: { from: '100644', to: '100755' },
+      binary: false,
+    });
+  });
+
+  it("leaves out a new file's mode", () => {
+    expect(parseFileDiffMeta(extendedHeaderDiff, 'notes.md')).toEqual({
+      modeChange: null,
+      binary: false,
+    });
+  });
+
+  it('flags a binary file', () => {
+    expect(parseFileDiffMeta(extendedHeaderDiff, 'logo.png').binary).toBe(true);
   });
 });

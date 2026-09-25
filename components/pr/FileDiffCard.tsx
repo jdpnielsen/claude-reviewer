@@ -37,6 +37,7 @@ import {
   linesAvailableBelow,
   MAX_LINES_DEFAULT,
   parseFileDiff,
+  parseFileDiffMeta,
   parseHunkRanges,
 } from '@/app/prs/[id]/utils';
 import { ChangeType, CommentResolutionMode, LineType } from '@/lib/enum';
@@ -141,6 +142,7 @@ export default function FileDiffCard({
   deleteComment,
 }: FileDiffCardProps) {
   const diffLines = parseFileDiff(diff, file.path);
+  const diffMeta = parseFileDiffMeta(diff, file.path);
   const isMd = isMarkdownFile(file.path);
 
   // A commit-specific comment renders inline, right at its matched line,
@@ -190,6 +192,11 @@ export default function FileDiffCard({
           {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           <span className="file-path">{file.path}</span>
           <span className="file-badge">{file.changeType}</span>
+          {diffMeta.modeChange && (
+            <span className="file-mode-change" title="File mode changed">
+              {diffMeta.modeChange.from} → {diffMeta.modeChange.to}
+            </span>
+          )}
         </div>
         {isMd && isExpanded && (
           <button
@@ -271,6 +278,10 @@ export default function FileDiffCard({
         <MarkdownContent className="markdown-preview">
           {getFileContentFromDiff(diff, file.path)}
         </MarkdownContent>
+      )}
+
+      {isExpanded && !isPreview && diffMeta.binary && (
+        <div className="diff-notice">Binary file not shown</div>
       )}
 
       {isExpanded && !isPreview && (
