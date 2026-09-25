@@ -3,6 +3,8 @@ import { execFileSync } from 'child_process';
 import {
   applyCommentRelocations,
   getComments,
+  getReviewedCommitMessages,
+  getReviewedFiles,
   relocateReviewedCommitMessages,
   relocateReviewedFiles,
   upsertCommitRelocation,
@@ -12,8 +14,10 @@ import {
 import { CommentRelocationStatus, CommentTargetType, LineType } from './enum';
 import {
   computeCommitCorrespondence,
+  computeCommitListCorrespondence,
   getFileAtCommit,
   resolveRepoPath,
+  type AutosquashPreview,
   type CommitCorrespondence,
 } from './git';
 
@@ -268,7 +272,20 @@ export function relocateComments(
   if (oldBase === newBase && oldHead === newHead) return;
 
   const correspondence = computeCommitCorrespondence(repoPath, oldBase, oldHead, newBase, newHead);
+  applyCorrespondence(prUuid, repoPath, correspondence, oldBase, oldHead, newBase, newHead);
+}
 
+// Moves everything keyed to a commit in `correspondence` onto the commit it
+// became, and orphans the comments on commits that became nothing.
+function applyCorrespondence(
+  prUuid: string,
+  repoPath: string,
+  correspondence: CommitCorrespondence,
+  oldBase: string,
+  oldHead: string,
+  newBase: string,
+  newHead: string,
+): void {
   for (const [oldSha, newSha] of correspondence.matched) {
     if (oldSha !== newSha) upsertCommitRelocation(prUuid, oldSha, newSha);
   }
@@ -296,4 +313,76 @@ export function relocateComments(
   }
 
   applyCommentRelocations(updates);
+}
+
+/**
+ * The commits a PR's active comments and reviewed marks are keyed to that
+ * aren't among `realShas`, its own commits: commits of an autosquash preview
+ * (see reconcilePreviewComments). Orphaned comments don't count - they've
+ * already lost their commit, so there's nothing left to carry over.
+ */
+export function previewKeyedShas(prUuid: string, realShas: Iterable<string>): string[] {
+  const real = new Set(realShas);
+  const keyed = new Set<string>();
+  const add = (sha: string | null) => {
+    if (sha && !real.has(sha)) keyed.add(sha);
+  };
+  for (const c of getComments(prUuid)) {
+    if (c.status === CommentRelocationStatus.Active) add(c.commit_sha);
+  }
+  for (const f of getReviewedFiles(prUuid)) add(f.commit_sha);
+  for (const m of getReviewedCommitMessages(prUuid)) add(m.commit_sha);
+  return [...keyed];
+}
+
+// What reconcilePreviewComments has already done, so the 5s poll doesn't
+// redo it - a reviewed mark that matched nothing stays where it is (as on
+// any sync), and would otherwise be retried on every request.
+const reconciled = new Set<string>();
+
+/**
+ * Carries comments and reviewed marks made on autosquash preview commits
+ * over to the PR's current preview - which, once the author has run the real
+ * autosquash (and the PR has synced), is made of the PR's own commits.
+ *
+ * Preview commits exist only as objects the preview built: nothing a sync
+ * compares reaches them, so neither the web Sync route nor the CLI's
+ * `update` moves what's keyed to them. Instead this runs lazily, whenever the
+ * PR is read: `keyed` (previewKeyedShas) minus the current preview's own
+ * commits is what an earlier preview left behind, and those are matched onto
+ * the current preview the same way a sync matches commits - by patch-id,
+ * then by message. A fixup folded into a commit keeps its message, so a
+ * squashed commit that picks up another fixup still finds its successor.
+ *
+ * Nothing moves while the preview is broken (an error, or a conflict that
+ * cut it short) - that's the author's branch mid-edit, not a verdict on
+ * where the comments belong.
+ */
+export function reconcilePreviewComments(
+  prUuid: string,
+  repoPath: string,
+  base: string,
+  head: string,
+  keyed: string[],
+  preview: AutosquashPreview,
+): void {
+  if (preview.error !== null || preview.conflict) return;
+
+  const current = new Set(preview.commits.map((c) => c.sha));
+  const stale = keyed.filter((sha) => !current.has(sha)).sort();
+  if (stale.length === 0) return;
+
+  const key = [prUuid, base, head, ...stale].join('\0');
+  if (reconciled.has(key)) return;
+
+  const correspondence = computeCommitListCorrespondence(
+    repoPath,
+    stale,
+    preview.commits.map((c) => c.sha),
+  );
+  // Every commit is scoped by its own sha, so the ranges planRelocation
+  // falls back to for unscoped comments never come into it - but those are
+  // never keyed to a preview commit anyway.
+  applyCorrespondence(prUuid, repoPath, correspondence, base, head, base, head);
+  reconciled.add(key);
 }

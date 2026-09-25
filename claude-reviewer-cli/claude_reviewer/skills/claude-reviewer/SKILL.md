@@ -91,6 +91,17 @@ line, so deal with each one before handing the PR back:
 - **The code is gone**: `reply` saying what happened to it (e.g. "deleted - this
   path is handled by X now") so the reviewer isn't left guessing.
 
+### Comments on the autosquash preview
+
+On a branch with `fixup!`/`amend!`/`squash!` commits, the reviewer can review it in the
+web UI as `git rebase -i --autosquash` would leave it. A comment made there names a
+commit that exists only in that preview: `comments` tags it
+`[<sha>, autosquash preview]` (`"in_autosquash_preview": true` with `-f json`), and
+`git show <sha>` shows it - the PR commit of the same subject with its fixups folded
+in. Address it on that PR commit, with another fixup or by editing it, and `reply` as
+usual. The web UI moves the comment along as the branch changes, onto the real commit
+once the branch is autosquashed.
+
 ### Suggested changes
 
 A reviewer can propose exact replacement code for the lines a comment is anchored to,
@@ -176,7 +187,7 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `list [-s status] [--all]` | List PRs (current repo only unless `--all`). |
 | `status <id>` | `pending` / `approved` / `changes_requested` / `merged` / `closed`. |
 | `show <id>` | Full PR detail + diff preview. |
-| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`) agent-written comments (`[by claude]`) and ones `update` couldn't re-anchor (`[orphaned]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
+| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`) agent-written comments (`[by claude]`), ones `update` couldn't re-anchor (`[orphaned]`), and ones made in the web UI's autosquash preview (`[sha, autosquash preview]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
 | `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha) [--mode m] [-a author]` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review. Anchored like a web UI comment, so `update` relocates it. `--mode` is `fix` (default), `discuss` or `fix-if-agreed`; `-a` defaults to `claude`. |
 | `move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a line comment where its code is now, for a thread `update` reported it couldn't follow. Validated like `comment`'s `-l`. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |

@@ -150,7 +150,7 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer create -t "Title"` | Create a new PR for the current branch |
 | `claude-reviewer list` | List all PRs |
 | `claude-reviewer status <id>` | Check PR status (pending/approved/changes_requested) |
-| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes and orphaned threads; a review summary appears here too, as an "approved" or "changes requested" comment |
+| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes, orphaned threads, and comments made in the web UI's autosquash preview; a review summary appears here too, as an "approved" or "changes requested" comment |
 | `claude-reviewer show <id>` | Show detailed PR information |
 | `claude-reviewer comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha)` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review |
 | `claude-reviewer move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a comment `update` couldn't follow to where its code is now |
@@ -209,6 +209,10 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 - **Inline Comments** - Click any line number to add a comment
 - **Suggested Changes** - Propose exact replacement code inline; "Insert suggestion" seeds the comment box with the current lines to edit down, and can be clicked again to add more than one suggestion to the same comment, or used in a reply to counter an earlier suggestion
 - **File Navigation** - Jump between changed files via sidebar
+- **Autosquash Preview** - On a branch with `fixup!`/`amend!`/`squash!` commits, review it
+  as `git rebase -i --autosquash` would leave it. Comments and reviewed marks made there
+  follow each squashed commit as more fixups land, and onto the real commit once the
+  branch is autosquashed
 - **Review Actions** - Approve or request changes with optional summary
 - **Comment Resolution** - Mark comments as resolved/unresolved
 - **Resolution Mode** - Tell Claude how to treat a comment: just fix it, discuss it

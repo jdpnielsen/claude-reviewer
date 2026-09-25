@@ -31,8 +31,9 @@ export default function AutosquashNotice({ view, originalCount }: AutosquashNoti
           Previewing the branch as <code>git rebase -i --autosquash --keep-base</code> would leave
           it:{' '}
           {`${folded} of the PR's ${originalCount} commits fold into earlier ones. ` +
-            "Rewritten commits exist only in this preview, so they can't be commented on or " +
-            'marked reviewed - turn the preview off to do that on the real commits.'}
+            'Comments and reviewed marks on a rewritten commit follow it: onto the next ' +
+            'preview as the branch changes, and onto the real commit once the author ' +
+            'autosquashes.'}
         </span>
         {unmatched > 0 && (
           <span>

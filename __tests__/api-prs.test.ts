@@ -17,6 +17,7 @@ const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-tes
 process.env.DATABASE_DIR = testDbDir;
 process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
+import { POST as commentsRoute } from '../app/api/prs/[id]/comments/route';
 import { GET as contextRoute } from '../app/api/prs/[id]/context/route';
 import { POST as reviewRoute } from '../app/api/prs/[id]/review/route';
 import {
@@ -410,6 +411,36 @@ describe('GET /api/prs/[id] - autosquash view', () => {
     const { status, json } = await getJson(uuid, `?view=autosquash&commit=${fixup}`);
     expect(status).toBe(400);
     expect(json.relocatedTo).toBe(preview.json.autosquash.commits[0].sha);
+  });
+
+  test('a squashed commit can be commented on and marked reviewed', async () => {
+    const uuid = createAutosquashPR('annotate squashed');
+    const preview = await getJson(uuid, '?view=autosquash');
+    const squashedSha = preview.json.autosquash.commits[0].sha;
+
+    const comment = await commentsRoute(
+      postReq(uuid, {
+        content: 'on the squashed message',
+        commitSha: squashedSha,
+        targetType: CommentTargetType.CommitMessage,
+      }) as never,
+      routeParams(uuid),
+    );
+    expect(comment.status).toBe(201);
+    const mark = await reviewedCommitRoute(
+      postReq(uuid, { commitSha: squashedSha }) as never,
+      routeParams(uuid),
+    );
+    expect(mark.status).toBe(200);
+
+    // Outside the preview, it's named among previewCommits and counts as
+    // reviewed, and a link to it asks for the preview.
+    const { json } = await getJson(uuid, '');
+    expect(json.previewCommits.map((c: { sha: string }) => c.sha)).toContain(squashedSha);
+    expect(json.reviewedCommits).toContain(squashedSha);
+    const link = await getJson(uuid, `?commit=${squashedSha}`);
+    expect(link.status).toBe(400);
+    expect(link.json.inAutosquashPreview).toBe(true);
   });
 });
 

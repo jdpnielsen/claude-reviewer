@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import click
+from git import GitCommandError
 from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
@@ -42,16 +43,23 @@ console = Console()
 
 
 def print_comment(
-    c: Comment, replies: list[CommentReply] | None = None, indent: str = "  "
+    c: Comment,
+    replies: list[CommentReply] | None = None,
+    indent: str = "  ",
+    in_preview: bool = False,
 ) -> None:
     """Print a single comment as a scannable location header + indented content.
 
     highlight=False avoids Rich's automatic ReprHighlighter, which otherwise
     bolds numbers/brackets/parens inside the file path and content, producing
     jumbled, inconsistent coloring.
+
+    in_preview: the comment was made on a commit of the web UI's autosquash
+    preview - see _in_autosquash_preview.
     """
     side_note = " [dim]\\[old-side][/dim]" if c.line_type == "old" else ""
-    commit_note = f" [dim]\\[{c.commit_sha[:7]}][/dim]" if c.commit_sha else ""
+    preview_note = ", autosquash preview" if in_preview else ""
+    commit_note = f" [dim]\\[{c.commit_sha[:7]}{preview_note}][/dim]" if c.commit_sha else ""
     resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
     orphaned_note = (
         " [yellow]\\[orphaned][/yellow]" if c.status == CommentRelocationStatus.ORPHANED else ""
@@ -114,7 +122,27 @@ def _suggestions_in(content: str) -> list[list[str]]:
     return [s.lines for s in parse_comment(content) if not isinstance(s, ProseSegment)]
 
 
-def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
+def _in_autosquash_preview(c: Comment, pr_commits: set[str] | None) -> bool:
+    """Whether an active comment is keyed to a commit outside the PR's range.
+
+    That's a commit of the web UI's autosquash preview: the PR's history with
+    its fixup!/amend!/squash! commits folded in, built as unreferenced commits.
+    The web UI carries such comments over to the real commits once the branch
+    is autosquashed (see lib/comment-relocation.ts); until then the commit
+    they name is the squashed version of one of the PR's own. Never true
+    without the repo (pr_commits None), when there's nothing to compare with.
+    """
+    return (
+        pr_commits is not None
+        and c.commit_sha is not None
+        and c.status == CommentRelocationStatus.ACTIVE
+        and c.commit_sha not in pr_commits
+    )
+
+
+def _comment_json(
+    c: Comment, replies: list[CommentReply], in_preview: bool = False
+) -> dict[str, Any]:
     """Serialize a comment (+ its replies) for `comments --format json`."""
     return {
         "uuid": c.uuid,
@@ -122,6 +150,7 @@ def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
         "line": c.line_number,
         "end_line": c.end_line_number,
         "commit_sha": c.commit_sha,
+        "in_autosquash_preview": in_preview,
         "target_type": c.target_type,
         "line_type": c.line_type,
         "text": c.content,
@@ -304,6 +333,10 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
 
     reviews = db.get_reviews(pr_id)
     comments_with_replies = db.get_comments_with_replies(pr_id, unresolved_only=unresolved)
+    try:
+        pr_commits: set[str] | None = _pr_commits(GitOps(pr.repo_path), pr)
+    except (ValueError, GitCommandError):
+        pr_commits = None  # repo gone - comments still list, just unlabelled
 
     if output_format == "json":
         output = {
@@ -316,7 +349,10 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
                 }
                 for r in reviews
             ],
-            "comments": [_comment_json(c, replies) for c, replies in comments_with_replies],
+            "comments": [
+                _comment_json(c, replies, _in_autosquash_preview(c, pr_commits))
+                for c, replies in comments_with_replies
+            ],
         }
         print(json.dumps(output, indent=2))
     else:
@@ -337,7 +373,7 @@ def comments(pr_id: str, output_format: str, unresolved: bool) -> None:
         if comments_with_replies:
             console.print("[bold]Inline Comments:[/bold]\n")
             for c, replies in comments_with_replies:
-                print_comment(c, replies)
+                print_comment(c, replies, in_preview=_in_autosquash_preview(c, pr_commits))
                 console.print()
         elif not reviews:
             console.print("[dim]No comments or reviews found[/dim]")

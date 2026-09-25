@@ -249,17 +249,20 @@ interface PatchIdEntry {
 }
 
 /**
- * `git log -p <range> | git patch-id --stable`, piped through Node instead of
+ * `git log -p <revs> | git patch-id --stable`, piped through Node instead of
  * a shell (execFileSync's `input` option feeds the first command's stdout as
- * the second command's stdin) so no shell interpretation of `range` is
+ * the second command's stdin) so no shell interpretation of `revs` is
  * needed. Each output line is `<patch-id> <commit-sha>` - patch-id hashes a
  * commit's diff content only, so it survives being replayed onto a different
  * base (a pure rebase), unlike the commit's own SHA.
+ *
+ * `revs` is `git log` arguments naming the commits, in the order wanted -
+ * see rangeRevs and listRevs.
  */
-function computePatchIdEntries(cwd: string, range: string): PatchIdEntry[] {
+function computePatchIdEntries(cwd: string, revs: string[]): PatchIdEntry[] {
   let log: string;
   try {
-    log = execFileSync('git', ['log', '-p', '--no-color', '--reverse', range], {
+    log = execFileSync('git', ['log', '-p', '--no-color', ...revs], {
       cwd,
       encoding: 'utf-8',
       maxBuffer: 50 * 1024 * 1024,
@@ -292,12 +295,12 @@ interface MessageEntry {
   message: string;
 }
 
-function computeMessageEntries(cwd: string, range: string): MessageEntry[] {
+function computeMessageEntries(cwd: string, revs: string[]): MessageEntry[] {
   let output: string;
   try {
     output = execFileSync(
       'git',
-      ['log', '-z', '--reverse', `--format=%H${FIELD_SEP}%s${FIELD_SEP}%b`, range],
+      ['log', '-z', `--format=%H${FIELD_SEP}%s${FIELD_SEP}%b`, ...revs],
       { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
     );
   } catch {
@@ -311,6 +314,12 @@ function computeMessageEntries(cwd: string, range: string): MessageEntry[] {
       return { sha, message: `${subject}\n${body}` };
     });
 }
+
+// `git log` arguments for a range's commits, oldest-first...
+const rangeRevs = (base: string, head: string) => ['--reverse', `${base}..${head}`];
+// ...and for exactly the commits given, in the order given. Never call with an
+// empty list: `git log --no-walk` with no commits named walks HEAD instead.
+const listRevs = (shas: string[]) => ['--no-walk=unsorted', ...shas];
 
 export interface CommitCorrespondence {
   /** oldSha -> newSha, for every old commit a matching new commit was found for. */
@@ -357,11 +366,66 @@ export function computeCommitCorrespondence(
   }
   if (oldShas.length === 0) return { matched: new Map(), unmatched: [] };
 
+  return matchCommits(cwd, oldShas, rangeRevs(oldBase, oldHead), rangeRevs(newBase, newHead));
+}
+
+/**
+ * computeCommitCorrespondence's matching, for commits named one by one
+ * rather than as ranges: the autosquash preview's commits, which no range
+ * reaches. Old commits whose objects are gone (git gc has pruned an
+ * unreferenced preview commit) come back unmatched.
+ */
+export function computeCommitListCorrespondence(
+  repoPath: string,
+  oldShas: string[],
+  newShas: string[],
+): CommitCorrespondence {
+  const cwd = resolveRepoPath(repoPath);
+  const present = existingCommits(cwd, oldShas);
+  const presentShas = oldShas.filter((sha) => present.has(sha));
+  const missingShas = oldShas.filter((sha) => !present.has(sha));
+  if (presentShas.length === 0 || newShas.length === 0) {
+    return { matched: new Map(), unmatched: [...oldShas] };
+  }
+
+  const { matched, unmatched } = matchCommits(
+    cwd,
+    presentShas,
+    listRevs(presentShas),
+    listRevs(newShas),
+  );
+  return { matched, unmatched: [...unmatched, ...missingShas] };
+}
+
+// Which of `shas` name a commit this repo still has.
+function existingCommits(cwd: string, shas: string[]): Set<string> {
+  if (shas.length === 0) return new Set();
+  const output = execFileSync('git', ['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+    cwd,
+    encoding: 'utf-8',
+    input: `${shas.join('\n')}\n`,
+  });
+  // A missing object's line is `<name> missing`, whatever the format.
+  return new Set(
+    output
+      .split('\n')
+      .map((line) => line.split(' '))
+      .filter(([, type]) => type === 'commit')
+      .map(([sha]) => sha),
+  );
+}
+
+function matchCommits(
+  cwd: string,
+  oldShas: string[],
+  oldRevs: string[],
+  newRevs: string[],
+): CommitCorrespondence {
   const oldPatchIdBySha = new Map(
-    computePatchIdEntries(cwd, `${oldBase}..${oldHead}`).map((e) => [e.sha, e.patchId]),
+    computePatchIdEntries(cwd, oldRevs).map((e) => [e.sha, e.patchId]),
   );
   const newByPatchId = new Map<string, string[]>();
-  for (const { sha, patchId } of computePatchIdEntries(cwd, `${newBase}..${newHead}`)) {
+  for (const { sha, patchId } of computePatchIdEntries(cwd, newRevs)) {
     const list = newByPatchId.get(patchId);
     if (list) list.push(sha);
     else newByPatchId.set(patchId, [sha]);
@@ -388,10 +452,10 @@ export function computeCommitCorrespondence(
   // Message fallback for anything patch-id couldn't match - join on identical
   // subject+body among commits not already claimed on the new side.
   const oldMessageBySha = new Map(
-    computeMessageEntries(cwd, `${oldBase}..${oldHead}`).map((e) => [e.sha, e.message]),
+    computeMessageEntries(cwd, oldRevs).map((e) => [e.sha, e.message]),
   );
   const newByMessage = new Map<string, string[]>();
-  for (const { sha, message } of computeMessageEntries(cwd, `${newBase}..${newHead}`)) {
+  for (const { sha, message } of computeMessageEntries(cwd, newRevs)) {
     if (claimedNewShas.has(sha)) continue;
     const list = newByMessage.get(message);
     if (list) list.push(sha);
@@ -700,6 +764,68 @@ export function autosquashCommits(
   const matchesHead =
     git(['rev-parse', `${tip}^{tree}`]) === git(['rev-parse', `${headCommit}^{tree}`]);
   return { commits: squashed, conflict: null, matchesHead, sourceShas };
+}
+
+/** autosquashCommits' result, or why there isn't one. */
+export type AutosquashPreview = ({ error: null } & AutosquashResult) | { error: string };
+
+const PREVIEW_CACHE_SIZE = 32;
+const previewCache = new Map<string, { error: null } & AutosquashResult>();
+
+/**
+ * autosquashCommits for a PR's current base and head, remembered per
+ * (repo, base, head): the PR route asks on every 5s poll once anything is
+ * keyed to a preview commit, and a replay is a few git processes per commit.
+ * Safe to cache because the replay is deterministic - the same inputs give
+ * the same commits - with one catch: git gc can prune the unreferenced
+ * preview commits, so a cached result whose last commit is gone is rebuilt
+ * (with the same shas) rather than served. Failures aren't cached.
+ */
+export function getAutosquashPreview(
+  repoPath: string,
+  baseCommit: string,
+  headCommit: string,
+): AutosquashPreview {
+  const cwd = resolveRepoPath(repoPath);
+  const key = [cwd, baseCommit, headCommit].join('\0');
+
+  const cached = previewCache.get(key);
+  const tip = cached?.commits.at(-1)?.sha;
+  if (cached && (!tip || existingCommits(cwd, [tip]).has(tip))) {
+    // Re-insert, so the Map's insertion order doubles as least-recently-used.
+    previewCache.delete(key);
+    previewCache.set(key, cached);
+    return cached;
+  }
+
+  let preview: { error: null } & AutosquashResult;
+  try {
+    preview = { error: null, ...autosquashCommits(repoPath, baseCommit, headCommit) };
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+  previewCache.delete(key);
+  previewCache.set(key, preview);
+  if (previewCache.size > PREVIEW_CACHE_SIZE) {
+    previewCache.delete(previewCache.keys().next().value as string);
+  }
+  return preview;
+}
+
+/**
+ * Whether `sha` is a commit a PR's comments and reviewed marks may be keyed
+ * to: one of its own, or one its autosquash preview built. The preview is
+ * only built when the sha isn't one of the PR's own.
+ */
+export function isPRCommit(
+  repoPath: string,
+  baseCommit: string,
+  headCommit: string,
+  sha: string,
+): boolean {
+  if (listCommits(repoPath, baseCommit, headCommit).some((c) => c.sha === sha)) return true;
+  const preview = getAutosquashPreview(repoPath, baseCommit, headCommit);
+  return preview.error === null && preview.commits.some((c) => c.sha === sha);
 }
 
 export function getGitUserIdentity(): { name: string | null; email: string | null } {
