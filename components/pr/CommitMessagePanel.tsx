@@ -6,8 +6,13 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import CollapsibleCommentThread from './CollapsibleCommentThread';
 import ResolutionModeSelect from './ResolutionModeSelect';
-import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
-import { submitOnModEnter } from '@/app/prs/[id]/utils';
+import type {
+  Comment,
+  CommentWithReplies,
+  CommitInfo,
+  EditingComment,
+} from '@/app/prs/[id]/types';
+import { commitFullMessage, submitOnModEnter } from '@/app/prs/[id]/utils';
 import CopyableText from '@/components/CopyableText';
 import { CommentResolutionMode } from '@/lib/enum';
 import { insertSuggestion } from '@/lib/suggestions';
@@ -33,6 +38,7 @@ interface CommitMessagePanelProps {
   replyContent: string;
   setReplyContent: Dispatch<SetStateAction<string>>;
   addReply: (commentUuid: string) => void;
+  insertReplySuggestion: (comment: Comment) => void;
   resolveComment: (commentUuid: string, resolved: boolean) => void;
   deleteComment: (commentUuid: string, replyCount: number) => void;
 }
@@ -52,9 +58,7 @@ export default function CommitMessagePanel({
   addComment,
   ...commentThreadProps
 }: CommitMessagePanelProps) {
-  const fullMessage = commit.body.trim()
-    ? `${commit.message}\n\n${commit.body.trim()}`
-    : commit.message;
+  const fullMessage = commitFullMessage(commit);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // See NewCommentForm's identical effect - grows the box to fit its

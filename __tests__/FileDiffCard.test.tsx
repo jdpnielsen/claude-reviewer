@@ -128,6 +128,7 @@ function renderCard(
       replyContent=""
       setReplyContent={noop}
       addReply={noop}
+      insertReplySuggestion={noop}
       resolveComment={noop}
       deleteComment={noop}
     />,

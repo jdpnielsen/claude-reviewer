@@ -21,6 +21,7 @@ interface ConversationTabProps {
   replyContent: string;
   setReplyContent: Dispatch<SetStateAction<string>>;
   addReply: (commentUuid: string) => void;
+  insertReplySuggestion: (comment: Comment) => void;
 }
 
 function byCreatedAtAsc(a: CommentWithReplies, b: CommentWithReplies) {

@@ -101,6 +101,7 @@ interface FileDiffCardProps {
   replyContent: string;
   setReplyContent: Dispatch<SetStateAction<string>>;
   addReply: (commentUuid: string) => void;
+  insertReplySuggestion: (comment: Comment) => void;
   resolveComment: (commentUuid: string, resolved: boolean) => void;
   deleteComment: (commentUuid: string, replyCount: number) => void;
 }
@@ -147,6 +148,7 @@ export default function FileDiffCard({
   replyContent,
   setReplyContent,
   addReply,
+  insertReplySuggestion,
   resolveComment,
   deleteComment,
 }: FileDiffCardProps) {
@@ -285,6 +287,7 @@ export default function FileDiffCard({
                   replyContent={replyContent}
                   setReplyContent={setReplyContent}
                   addReply={addReply}
+                  insertReplySuggestion={insertReplySuggestion}
                 />
               </div>
             );
@@ -687,6 +690,7 @@ export default function FileDiffCard({
                           replyContent={replyContent}
                           setReplyContent={setReplyContent}
                           addReply={addReply}
+                          insertReplySuggestion={insertReplySuggestion}
                         />
                       ))}
 
@@ -729,6 +733,7 @@ export default function FileDiffCard({
                               replyContent={replyContent}
                               setReplyContent={setReplyContent}
                               addReply={addReply}
+                              insertReplySuggestion={insertReplySuggestion}
                             />
                           </div>
                         );

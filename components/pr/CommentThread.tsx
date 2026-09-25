@@ -1,12 +1,13 @@
 'use client';
 
+import { useLayoutEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import AuthorBadge from './AuthorBadge';
 import { CodeHighlight } from './CodeBlock';
 import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
-import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
-import { getLanguage, submitOnModEnter } from '@/app/prs/[id]/utils';
+import type { Comment, CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
+import { canSuggestOn, getLanguage, submitOnModEnter } from '@/app/prs/[id]/utils';
 import CopyableText from '@/components/CopyableText';
 import { AuthorKind, CommentResolutionMode } from '@/lib/enum';
 import { parseComment } from '@/lib/suggestions';
@@ -23,6 +24,16 @@ export interface CommentThreadProps {
   replyContent: string;
   setReplyContent: Dispatch<SetStateAction<string>>;
   addReply: (commentUuid: string) => void;
+  insertReplySuggestion: (comment: Comment) => void;
+}
+
+function SuggestionBlock({ lines, filePath }: { lines: string[]; filePath: string }) {
+  return (
+    <div className="suggestion-block">
+      <div className="suggestion-block-label">Suggested change</div>
+      <CodeHighlight code={lines.join('\n')} language={getLanguage(filePath)} />
+    </div>
+  );
 }
 
 export default function CommentThread({
@@ -37,8 +48,20 @@ export default function CommentThread({
   replyContent,
   setReplyContent,
   addReply,
+  insertReplySuggestion,
 }: CommentThreadProps) {
   const segments = parseComment(c.content);
+  const isReplying = replyingTo === c.uuid;
+
+  const replyRef = useRef<HTMLTextAreaElement | null>(null);
+  // See NewCommentForm's identical effect - grows the reply box to fit an
+  // inserted suggestion instead of scrolling it inside two rows.
+  useLayoutEffect(() => {
+    const el = replyRef.current;
+    if (!isReplying || !el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [isReplying, replyContent]);
 
   return (
     <div className={`inline-comment ${c.resolved ? 'resolved' : ''}`}>
@@ -81,13 +104,7 @@ export default function CommentThread({
                 {segment.text}
               </div>
             ) : (
-              <div key={i} className="suggestion-block">
-                <div className="suggestion-block-label">Suggested change</div>
-                <CodeHighlight
-                  code={segment.lines.join('\n')}
-                  language={getLanguage(c.file_path)}
-                />
-              </div>
+              <SuggestionBlock key={i} lines={segment.lines} filePath={c.file_path} />
             ),
           )}
           <div className="comment-buttons">
@@ -128,16 +145,29 @@ export default function CommentThread({
                   className={`comment-reply ${r.author_kind === AuthorKind.Agent ? 'reply-claude' : 'reply-human'}`}
                 >
                   <span className="reply-author">{r.author}:</span>
-                  <span className="reply-content">{r.content}</span>
+                  {/* A reply can carry a suggestion too - usually a revised
+                      take on one earlier in the thread. */}
+                  {parseComment(r.content).map((segment, i) =>
+                    segment.type === 'prose' ? (
+                      <span key={i} className="reply-content">
+                        {segment.text}
+                      </span>
+                    ) : (
+                      <SuggestionBlock key={i} lines={segment.lines} filePath={c.file_path} />
+                    ),
+                  )}
                 </div>
               ))}
             </div>
           )}
           {/* Reply form */}
-          {replyingTo === c.uuid ? (
+          {isReplying ? (
             <div className="reply-form">
               <textarea
-                ref={(el) => el?.focus()}
+                ref={(el) => {
+                  replyRef.current = el;
+                  el?.focus();
+                }}
                 placeholder="Write a reply..."
                 value={replyContent}
                 onChange={(e) => setReplyContent(e.target.value)}
@@ -146,6 +176,11 @@ export default function CommentThread({
               />
               <div className="comment-actions">
                 <button onClick={() => addReply(c.uuid)}>Reply</button>
+                {canSuggestOn(c) && (
+                  <button className="suggest-change-btn" onClick={() => insertReplySuggestion(c)}>
+                    Insert suggestion
+                  </button>
+                )}
                 <button
                   className="cancel"
                   onClick={() => {

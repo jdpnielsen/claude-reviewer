@@ -34,6 +34,7 @@ interface ThreadRowProps {
   replyContent: string;
   setReplyContent: Dispatch<SetStateAction<string>>;
   addReply: (commentUuid: string) => void;
+  insertReplySuggestion: (comment: Comment) => void;
 }
 
 function firstLineOf(content: string) {
