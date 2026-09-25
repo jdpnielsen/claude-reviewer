@@ -7,6 +7,7 @@ import { CodeHighlight } from './CodeBlock';
 import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
 import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
 import { getLanguage, submitOnModEnter } from '@/app/prs/[id]/utils';
+import CopyableText from '@/components/CopyableText';
 import { AuthorKind, CommentResolutionMode } from '@/lib/enum';
 import { parseComment } from '@/lib/suggestions';
 
@@ -109,6 +110,14 @@ export default function CommentThread({
             <button className="delete-btn" onClick={() => deleteComment(c.uuid, replies.length)}>
               Delete
             </button>
+            {/* The id `claude-reviewer comments` prints, so the reviewer can
+                point Claude at this thread without quoting it. An optimistic
+                comment's temporary id means nothing to the CLI yet. */}
+            {!c.uuid.startsWith('temp-') && (
+              <CopyableText text={c.uuid} className="comment-id" title="Copy comment ID">
+                {c.uuid}
+              </CopyableText>
+            )}
           </div>
           {/* Replies */}
           {replies.length > 0 && (

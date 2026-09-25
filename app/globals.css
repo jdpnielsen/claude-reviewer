@@ -1361,6 +1361,13 @@ textarea {
   gap: 0.5rem;
 }
 
+.comment-id {
+  margin-left: auto;
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #8b949e;
+}
+
 .edit-btn,
 .resolve-btn {
   font-size: 0.75rem;
