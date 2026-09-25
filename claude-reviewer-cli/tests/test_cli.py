@@ -17,6 +17,7 @@ import claude_reviewer.cli
 from claude_reviewer import database as db
 from claude_reviewer.cli import (
     SKILLS_DIR,
+    get_diff_line_context,
     get_local_server_pid_file,
     main,
     print_comment,
@@ -1140,3 +1141,40 @@ class TestOrphanedThreads:
         assert "no line 9" in result.output
         c = db.get_comment_by_uuid(comment_uuid)
         assert c is not None and c.line_number == 2
+
+
+class TestGetDiffLineContext:
+    DIFF = (
+        "diff --git a/parse.py b/parse.py\n"
+        "index 1111111..2222222 100644\n"
+        "--- a/parse.py\n"
+        "+++ b/parse.py\n"
+        "@@ -1,3 +1,4 @@\n"
+        " keep = 1\n"
+        "---- removed row\n"
+        "++++ added row\n"
+        "+new file mode 100644\n"
+        " tail = 2\n"
+        "\\ No newline at end of file\n"
+    )
+
+    def test_counts_content_rows_that_look_like_header_lines(self) -> None:
+        # The added row after "+++ added row" is new-side line 3, so "tail"
+        # is new 4 / old 3; skipping header-looking rows would shift both.
+        context = get_diff_line_context(self.DIFF, "parse.py", 4, "new")
+        assert context is not None
+        assert ">>>    3    4 |  tail = 2" in context
+        assert "--- removed row" in context
+        assert "+++ added row" in context
+        assert "new file mode 100644" in context
+
+    def test_old_side_line_inside_hunk(self) -> None:
+        context = get_diff_line_context(self.DIFF, "parse.py", 2, "old")
+        assert context is not None
+        assert ">>>    2      | ---- removed row" in context
+
+    def test_excludes_header_and_no_newline_marker(self) -> None:
+        context = get_diff_line_context(self.DIFF, "parse.py", 1, "new")
+        assert context is not None
+        assert "index 1111111" not in context
+        assert "No newline" not in context
