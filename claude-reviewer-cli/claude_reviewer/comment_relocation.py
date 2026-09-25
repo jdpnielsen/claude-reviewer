@@ -284,7 +284,7 @@ def relocate_comments(
     old_head: str,
     new_base: str,
     new_head: str,
-) -> None:
+) -> list[Comment]:
     """Re-anchors everything a PR keys to a commit SHA - comments, the
     durable `commit_relocations` map, and the web UI's per-commit reviewed
     marks (files and commit messages alike) - after a sync (rebase/amend/force-push) changed those SHAs and/or
@@ -295,9 +295,14 @@ def relocate_comments(
 
     No-op sync (nothing actually changed) is skipped entirely - this runs on
     every auto-sync after an AI edit, most of which find no new commits.
+
+    Returns the comments this sync orphaned (their code changed too much to
+    re-anchor), so the caller can surface them instead of leaving them
+    stranded at a stale line. Comments that were already orphaned before
+    this sync aren't repeated.
     """
     if old_base == new_base and old_head == new_head:
-        return
+        return []
 
     correspondence = compute_commit_correspondence(
         repo_path, old_base, old_head, new_base, new_head
@@ -315,7 +320,7 @@ def relocate_comments(
 
     comments = get_comments(pr_uuid)
     if not comments:
-        return
+        return []
 
     updates = []
     for comment in comments:
@@ -326,3 +331,11 @@ def relocate_comments(
             updates.append(update)
 
     apply_comment_relocations(updates)
+
+    by_id = {c.id: c for c in comments}
+    return [
+        by_id[u.comment_id]
+        for u in updates
+        if u.status == CommentRelocationStatus.ORPHANED
+        and by_id[u.comment_id].status != CommentRelocationStatus.ORPHANED
+    ]

@@ -329,8 +329,9 @@ class TestRelocateComments:
         _run_git(repo, ["add", "a.txt"])
         surviving_a = _commit_with_date(repo, "add a", "2024-02-01T00:00:00")
 
-        relocate_comments(pr_uuid, str(repo), base, old_b, base, surviving_a)
+        newly_orphaned = relocate_comments(pr_uuid, str(repo), base, old_b, base, surviving_a)
 
+        assert [c.uuid for c in newly_orphaned] == [commit_message_uuid]
         orphaned = db.get_comment_by_uuid(commit_message_uuid)
         assert orphaned is not None
         assert orphaned.commit_sha == old_b  # frozen at the last-known (now-gone) SHA
