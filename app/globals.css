@@ -887,6 +887,11 @@ textarea {
   margin-left: auto;
 }
 
+.commit-specific-comment-row .inline-comment-toggle {
+  width: 100%;
+  margin-left: 0;
+}
+
 .commit-specific-comment-row .inline-comment {
   margin: 0;
   margin-left: 0;
@@ -910,6 +915,11 @@ textarea {
 
 .matched-commit-comment .thread-commit-badge .view-file-btn {
   margin-left: auto;
+}
+
+.matched-commit-comment .inline-comment-toggle {
+  width: 100%;
+  margin-left: 0;
 }
 
 .matched-commit-comment .inline-comment {
@@ -1442,7 +1452,9 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  width: calc(100% - 2rem);
+  /* A <button> doesn't stretch to fill like a block does, so its width has to
+     subtract both horizontal margins itself to line up with .inline-comment. */
+  width: calc(100% - 60px - 1rem);
   margin: 0.5rem 1rem;
   margin-left: 60px;
   padding: 0.5rem 0.75rem;
