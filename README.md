@@ -204,6 +204,16 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 
 ![Diff Viewer](public/screenshots/diff-view.png)
 
+### Autosquash Preview
+Review a branch with `fixup!`/`amend!`/`squash!` commits as `git rebase -i --autosquash`
+would leave it - each squashed commit with its final message and the commits it folds in.
+
+![Autosquash preview of a squashed commit](public/screenshots/autosquash-preview.png)
+
+Marking a squashed commit reviewed carries over to the commits folded into it, and back:
+
+![Reviewed marks carried from the preview to a fixup commit](public/screenshots/autosquash-cascade.png)
+
 - **PR Dashboard** - View all PRs with status indicators
 - **GitHub-style Diff Viewer** - Syntax highlighted, unified diff view
 - **Inline Comments** - Click any line number to add a comment
