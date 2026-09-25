@@ -97,7 +97,8 @@ function renderCard(
       repoPath={overrides.repoPath ?? null}
       isReviewed={false}
       toggleReviewed={noop}
-      onJumpToFile={noop}
+      prId="pr1"
+      onJumpToComment={noop}
       isExpanded
       toggleFile={noop}
       isPreview={false}

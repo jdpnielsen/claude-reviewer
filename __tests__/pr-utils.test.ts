@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { FileInfo } from '../app/prs/[id]/types';
 import {
   buildContextUrl,
+  commentHref,
+  commentUuidFromHash,
   contextCacheKey,
   findAnchorMatchInDiff,
   getCrossSideRange,
@@ -500,5 +502,28 @@ describe('vscodeFileUrl', () => {
     expect(vscodeFileUrl('/my repo', 'app/[id]/a#b?.ts', 1)).toBe(
       'vscode://file/my%20repo/app/%5Bid%5D/a%23b%3F.ts:1',
     );
+  });
+});
+
+describe('commentHref', () => {
+  it("links to the comment's commit, naming the thread in the fragment", () => {
+    expect(commentHref('2ff9044b', 'c1', 'abc123')).toBe('/prs/2ff9044b?commit=abc123#comment-c1');
+  });
+
+  it('links to the cumulative diff for a comment made there', () => {
+    expect(commentHref('2ff9044b', 'c1', null)).toBe('/prs/2ff9044b#comment-c1');
+  });
+
+  it('round-trips through commentUuidFromHash', () => {
+    const href = commentHref('p', 'b24ad24a-9f', null);
+    expect(commentUuidFromHash(href.slice(href.indexOf('#')))).toBe('b24ad24a-9f');
+  });
+});
+
+describe('commentUuidFromHash', () => {
+  it('ignores fragments that name no comment', () => {
+    expect(commentUuidFromHash('')).toBeNull();
+    expect(commentUuidFromHash('#comment-')).toBeNull();
+    expect(commentUuidFromHash('#file-a-ts')).toBeNull();
   });
 });

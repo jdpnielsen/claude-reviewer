@@ -4,7 +4,6 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronRight,
-  File,
   GitCommit,
   Layers,
   XCircle,
@@ -12,17 +11,19 @@ import {
 import type { Dispatch, SetStateAction } from 'react';
 
 import AuthorBadge from './AuthorBadge';
+import CommentLink from './CommentLink';
 import CommentThread from './CommentThread';
 import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
-import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
+import type { Comment, CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 import { CommentResolutionMode, CommentTargetType, ReviewAction } from '@/lib/enum';
 
 interface ThreadRowProps {
+  prId: string;
   item: CommentWithReplies;
   commits: CommitInfo[];
   isExpanded: boolean;
   onToggle: () => void;
-  onJumpToFile: (filePath: string, commitSha: string | null) => void;
+  onJumpToComment: (comment: Comment) => void;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
   editComment: () => void;
@@ -40,11 +41,12 @@ function firstLineOf(content: string) {
 }
 
 export default function ThreadRow({
+  prId,
   item,
   commits,
   isExpanded,
   onToggle,
-  onJumpToFile,
+  onJumpToComment,
   ...commentThreadProps
 }: ThreadRowProps) {
   const { comment } = item;
@@ -126,16 +128,9 @@ export default function ThreadRow({
           </span>
         )}
         {!isReviewSummary && (
-          <button
-            className="view-file-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onJumpToFile(isCommitMessage ? '' : comment.file_path, comment.commit_sha);
-            }}
-          >
-            <File size={14} />
+          <CommentLink prId={prId} comment={comment} onJumpToComment={onJumpToComment}>
             {isCommitMessage ? 'View commit' : 'View in Files'}
-          </button>
+          </CommentLink>
         )}
       </div>
 

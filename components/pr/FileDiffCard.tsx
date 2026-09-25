@@ -7,7 +7,6 @@ import {
   Code,
   ExternalLink,
   Eye,
-  File,
   GitCommit,
   MoreHorizontal,
   Plus,
@@ -15,10 +14,12 @@ import {
 import type { Dispatch, SetStateAction } from 'react';
 
 import CollapsibleCommentThread from './CollapsibleCommentThread';
+import CommentLink from './CommentLink';
 import MarkdownContent from './MarkdownContent';
 import NewCommentForm from './NewCommentForm';
 import SyntaxLine from './SyntaxLine';
 import type {
+  Comment,
   CommentingAt,
   CommentWithReplies,
   CommitInfo,
@@ -69,7 +70,8 @@ interface FileDiffCardProps {
   repoPath: string | null;
   isReviewed: boolean;
   toggleReviewed: () => void;
-  onJumpToFile: (filePath: string, commitSha: string | null) => void;
+  prId: string;
+  onJumpToComment: (comment: Comment) => void;
   isExpanded: boolean;
   toggleFile: (path: string) => void;
   isPreview: boolean;
@@ -114,7 +116,8 @@ export default function FileDiffCard({
   repoPath,
   isReviewed,
   toggleReviewed,
-  onJumpToFile,
+  prId,
+  onJumpToComment,
   isExpanded,
   toggleFile,
   isPreview,
@@ -262,14 +265,13 @@ export default function FileDiffCard({
                   <span className="thread-commit-message">
                     {commitAt?.message ?? 'unknown commit'}
                   </span>
-                  <button
-                    type="button"
-                    className="view-file-btn"
-                    onClick={() => onJumpToFile(file.path, item.comment.commit_sha)}
+                  <CommentLink
+                    prId={prId}
+                    comment={item.comment}
+                    onJumpToComment={onJumpToComment}
                   >
-                    <File size={14} />
                     View in commit
-                  </button>
+                  </CommentLink>
                 </div>
                 <CollapsibleCommentThread
                   item={item}
@@ -707,14 +709,13 @@ export default function FileDiffCard({
                               <span className="thread-commit-message">
                                 {commitAt?.message ?? 'unknown commit'}
                               </span>
-                              <button
-                                type="button"
-                                className="view-file-btn"
-                                onClick={() => onJumpToFile(file.path, item.comment.commit_sha)}
+                              <CommentLink
+                                prId={prId}
+                                comment={item.comment}
+                                onJumpToComment={onJumpToComment}
                               >
-                                <File size={14} />
                                 View in commit
-                              </button>
+                              </CommentLink>
                             </div>
                             <CollapsibleCommentThread
                               item={item}

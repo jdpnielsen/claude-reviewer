@@ -7,9 +7,10 @@ import ThreadRow from './ThreadRow';
 import type { Comment, CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 
 interface ConversationTabProps {
+  prId: string;
   comments: CommentWithReplies[];
   commits: CommitInfo[];
-  onJumpToFile: (filePath: string, commitSha: string | null) => void;
+  onJumpToComment: (comment: Comment) => void;
   editingComment: EditingComment | null;
   setEditingComment: Dispatch<SetStateAction<EditingComment | null>>;
   editComment: () => void;
@@ -27,9 +28,10 @@ function byCreatedAtAsc(a: CommentWithReplies, b: CommentWithReplies) {
 }
 
 export default function ConversationTab({
+  prId,
   comments,
   commits,
-  onJumpToFile,
+  onJumpToComment,
   ...commentThreadProps
 }: ConversationTabProps) {
   // Threads explicitly toggled away from their default state (expanded if
@@ -74,11 +76,12 @@ export default function ConversationTab({
           {unresolved.map((item) => (
             <ThreadRow
               key={item.comment.uuid}
+              prId={prId}
               item={item}
               commits={commits}
               isExpanded={isThreadExpanded(item.comment)}
               onToggle={() => toggleThread(item.comment.uuid)}
-              onJumpToFile={onJumpToFile}
+              onJumpToComment={onJumpToComment}
               {...commentThreadProps}
             />
           ))}
@@ -91,11 +94,12 @@ export default function ConversationTab({
           {resolved.map((item) => (
             <ThreadRow
               key={item.comment.uuid}
+              prId={prId}
               item={item}
               commits={commits}
               isExpanded={isThreadExpanded(item.comment)}
               onToggle={() => toggleThread(item.comment.uuid)}
-              onJumpToFile={onJumpToFile}
+              onJumpToComment={onJumpToComment}
               {...commentThreadProps}
             />
           ))}
