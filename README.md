@@ -212,7 +212,8 @@ GitHub-style diff viewer with syntax highlighting and inline commenting.
 - **Autosquash Preview** - On a branch with `fixup!`/`amend!`/`squash!` commits, review it
   as `git rebase -i --autosquash` would leave it. Comments and reviewed marks made there
   follow each squashed commit as more fixups land, and onto the real commit once the
-  branch is autosquashed
+  branch is autosquashed. Reviewed marks also carry across: marking a squashed commit
+  covers the commits folded into it, and marking all of those covers the squashed commit
 - **Review Actions** - Approve or request changes with optional summary
 - **Comment Resolution** - Mark comments as resolved/unresolved
 - **Resolution Mode** - Tell Claude how to treat a comment: just fix it, discuss it

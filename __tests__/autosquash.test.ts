@@ -112,13 +112,14 @@ describe('squashMessages', () => {
     expect(squashMessages('add a\n\nbody', [{ kind: 'fixup', message: 'fixup! add a' }])).toEqual({
       message: 'add a\n\nbody',
       needsEdit: false,
+      sources: [true, false],
     });
   });
 
   test("an amend replaces it with the amend commit's body", () => {
     expect(
       squashMessages('add a', [{ kind: 'amend', message: 'amend! add a\n\nadd a, better\n\nwhy' }]),
-    ).toEqual({ message: 'add a, better\n\nwhy', needsEdit: false });
+    ).toEqual({ message: 'add a, better\n\nwhy', needsEdit: false, sources: [false, true] });
   });
 
   test('a squash appends its body and needs an edit; an amend after it appends too', () => {
@@ -127,7 +128,21 @@ describe('squashMessages', () => {
         { kind: 'squash', message: 'squash! add a\n\nmore about a' },
         { kind: 'amend', message: 'amend! add a\n\neven more' },
       ]),
-    ).toEqual({ message: 'add a\n\nmore about a\n\neven more', needsEdit: true });
+    ).toEqual({
+      message: 'add a\n\nmore about a\n\neven more',
+      needsEdit: true,
+      sources: [true, true, true],
+    });
+  });
+
+  test('an amend! with no body keeps the message, and counts for nothing', () => {
+    expect(
+      squashMessages('add a', [
+        { kind: 'amend', message: 'amend! add a' },
+        { kind: 'amend', message: 'amend! add a\n\nfinal' },
+        { kind: 'fixup', message: 'fixup! add a' },
+      ]),
+    ).toEqual({ message: 'final', needsEdit: false, sources: [false, false, true, false] });
   });
 });
 

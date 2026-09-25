@@ -904,6 +904,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                         messageNeedsEdit={displayedSquashed?.messageNeedsEdit}
                         comments={getCommitMessageComments(displayedCommitSha)}
                         isMessageReviewed={isDisplayedMessageReviewed()}
+                        messageReviewedVia={
+                          findReviewedMessageMark(data.reviewedMessages, displayedCommitSha)?.via
+                        }
                         toggleMessageReviewed={toggleDisplayedMessageReviewed}
                         isCommenting={commentingOnCommitMessage}
                         setIsCommenting={setCommentingOnCommitMessage}
@@ -941,6 +944,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     }
                     repoPath={data.repoAvailable ? pr.repo_path : null}
                     isReviewed={isFileReviewed(file.path)}
+                    reviewedVia={
+                      findReviewedMark(data.reviewedFiles, file.path, displayedCommitSha)?.via
+                    }
                     toggleReviewed={() => toggleFileReviewed(file.path)}
                     prId={id}
                     onJumpToComment={jumpToComment}

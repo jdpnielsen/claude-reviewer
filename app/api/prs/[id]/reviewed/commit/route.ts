@@ -9,6 +9,12 @@ import {
 } from '@/lib/database';
 import { parseDiffFiles } from '@/lib/diff';
 import { getBlobHash, getCommitDiff, getCommitMessageHash, isPRCommit } from '@/lib/git';
+import {
+  cascadeGroups,
+  commitFilePaths,
+  unmarkFileCascade,
+  unmarkMessageCascade,
+} from '@/lib/reviewed-cascade';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -56,7 +62,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/prs/[id]/reviewed/commit?commit=<sha> - The mirror of POST:
-// drop the commit's message mark and every file mark scoped to it at once.
+// drop the commit's message mark and every file mark scoped to it at once,
+// plus the marks across the autosquash preview they were derived from (see
+// lib/reviewed-cascade.ts).
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -74,6 +82,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     const removed = unsetReviewedFilesForCommit(id, commitSha);
     unsetReviewedCommitMessage(id, commitSha);
+    const groups = cascadeGroups(pr.repo_path, pr.base_commit, pr.head_commit);
+    if (groups.length > 0) {
+      const filesOf = (sha: string) => commitFilePaths(pr.repo_path, sha);
+      for (const path of filesOf(commitSha)) {
+        unmarkFileCascade(id, groups, path, commitSha, filesOf);
+      }
+      unmarkMessageCascade(id, groups, commitSha);
+    }
     return NextResponse.json({ success: true, fileCount: removed });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

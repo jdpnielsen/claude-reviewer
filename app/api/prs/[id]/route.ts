@@ -23,6 +23,13 @@ import {
   isRepoAvailable,
   type AutosquashPreview,
 } from '@/lib/git';
+import {
+  cascadeGroups,
+  commitFilePaths,
+  deriveReviewedMarks,
+  type FileMark,
+  type MessageMark,
+} from '@/lib/reviewed-cascade';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -133,8 +140,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // what it was when marked - see getBlobHash and setReviewedFile. Without
     // the repo (repoAvailable false), there's no way to recompute this, so
     // marks are passed through trusted as-is rather than guessed at.
-    const rawReviewedFiles = getReviewedFiles(id);
-    const reviewedFiles = rawReviewedFiles.map((r) => ({
+    const storedReviewedFiles: FileMark[] = getReviewedFiles(id).map((r) => ({
       file_path: r.file_path,
       commit_sha: r.commit_sha,
       marked_at: r.marked_at,
@@ -147,13 +153,29 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // The same content-addressed staleness check, for commit messages: the
     // mark holds a hash of the message text, so a reword drops it while a
     // rebase that only re-SHA'd the commit keeps it.
-    const reviewedMessages = getReviewedCommitMessages(id).map((r) => ({
+    const storedReviewedMessages: MessageMark[] = getReviewedCommitMessages(id).map((r) => ({
       commit_sha: r.commit_sha,
       marked_at: r.marked_at,
       current: repoAvailable
         ? getCommitMessageHash(pr.repo_path, r.commit_sha) === r.content_hash
         : true,
     }));
+
+    // Marks on the preview's commits and on the PR commits they fold together
+    // cover each other (see lib/reviewed-cascade.ts), so the derived ones are
+    // served alongside the stored ones, tagged with `via`.
+    const groups =
+      repoAvailable && (storedReviewedFiles.length > 0 || storedReviewedMessages.length > 0)
+        ? cascadeGroups(pr.repo_path, pr.base_commit, pr.head_commit, commits)
+        : [];
+    const derived = deriveReviewedMarks(
+      groups,
+      storedReviewedFiles,
+      storedReviewedMessages,
+      (sha) => commitFilePaths(pr.repo_path, sha),
+    );
+    const reviewedFiles = [...storedReviewedFiles, ...derived.files];
+    const reviewedMessages = [...storedReviewedMessages, ...derived.messages];
 
     // A commit is "reviewed" (shown green in the commit selector) once both
     // halves of it have current marks: its message, and every file its own
@@ -165,14 +187,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const candidateCommitShas = reviewedMessages.filter((r) => r.current).map((r) => r.commit_sha);
     const reviewedCommits = repoAvailable
       ? candidateCommitShas.filter((sha) => {
-          if (!commits.some((c) => c.sha === sha) && !previewCommits.some((c) => c.sha === sha)) {
+          if (
+            !commits.some((c) => c.sha === sha) &&
+            !previewCommits.some((c) => c.sha === sha) &&
+            !groups.some((g) => g.sha === sha)
+          ) {
             return false;
           }
           // A commit touching no files (an empty commit) is fully reviewed
           // once its message is - there is nothing else to look at.
-          const commitFiles = parseDiffFiles(getCommitDiff(pr.repo_path, sha));
-          return commitFiles.every((f) =>
-            reviewedFiles.some((r) => r.file_path === f.path && r.commit_sha === sha && r.current),
+          return commitFilePaths(pr.repo_path, sha).every((path) =>
+            reviewedFiles.some((r) => r.file_path === path && r.commit_sha === sha && r.current),
           );
         })
       : [];

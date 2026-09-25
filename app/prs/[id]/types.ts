@@ -91,11 +91,19 @@ export interface CommitInfo {
 // once the file's content has changed since marking (a rebase/amend alone
 // doesn't flip this - see lib/git.ts's getBlobHash) - the UI treats a
 // non-current mark the same as no mark at all.
+//
+// `via` is set on a mark that isn't stored but follows from the ones that are,
+// across the autosquash preview (see lib/reviewed-cascade.ts): 'preview' when
+// the squashed commit this commit folds into has it marked, 'commits' when
+// every commit folded into this squashed one has.
+export type ReviewedVia = 'preview' | 'commits';
+
 export interface ReviewedMark {
   file_path: string;
   commit_sha: string | null;
   current: boolean;
   marked_at: string;
+  via?: ReviewedVia;
 }
 
 // A commit message flagged as already reviewed, tracked independently of the
@@ -106,6 +114,7 @@ export interface ReviewedMessageMark {
   commit_sha: string;
   current: boolean;
   marked_at: string;
+  via?: ReviewedVia;
 }
 
 export interface PRData {
