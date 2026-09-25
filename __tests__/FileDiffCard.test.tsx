@@ -78,6 +78,7 @@ function renderCard(
     diff?: string;
     displayedCommitSha?: string | null;
     fileLineCount?: number | null;
+    repoPath?: string | null;
     expandedContext?: Map<string, string[]>;
     fetchContext?: FetchContext;
   } = {},
@@ -93,6 +94,7 @@ function renderCard(
       commits={commits}
       displayedCommitSha={overrides.displayedCommitSha ?? null}
       fileLineCount={overrides.fileLineCount ?? null}
+      repoPath={overrides.repoPath ?? null}
       isReviewed={false}
       toggleReviewed={noop}
       onJumpToFile={noop}
@@ -469,5 +471,33 @@ describe('FileDiffCard git header noise', () => {
       ),
     });
     expect(container.querySelector('.file-mode-change')?.textContent).toBe('100644 → 100755');
+  });
+});
+
+describe('open in editor link', () => {
+  const link = (container: HTMLElement) => container.querySelector('a.open-in-editor');
+
+  it('opens the file in VS Code at the first hunk', () => {
+    const { container } = renderCard({ repoPath: '/work/repo' });
+
+    const firstHunkStart = diff.match(/^@@ -\d+(?:,\d+)? \+(\d+)/m)![1];
+    expect(link(container)?.getAttribute('href')).toBe(
+      `vscode://file/work/repo/lib/total.ts:${firstHunkStart}`,
+    );
+  });
+
+  it('is hidden when the checkout is gone', () => {
+    const { container } = renderCard({ repoPath: null });
+
+    expect(link(container)).toBeNull();
+  });
+
+  it('is hidden for a deleted file, which the working tree no longer has', () => {
+    const { container } = renderCard({
+      repoPath: '/work/repo',
+      file: { ...file, changeType: ChangeType.Deleted },
+    });
+
+    expect(link(container)).toBeNull();
   });
 });

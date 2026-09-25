@@ -793,6 +793,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   fileLineCount={
                     fileLineCounts.get(contextFileKey(displayedCommitSha, file.path)) ?? null
                   }
+                  repoPath={data.repoAvailable ? pr.repo_path : null}
                   isReviewed={isFileReviewed(file.path)}
                   toggleReviewed={() => toggleFileReviewed(file.path)}
                   onJumpToFile={jumpToFile}
