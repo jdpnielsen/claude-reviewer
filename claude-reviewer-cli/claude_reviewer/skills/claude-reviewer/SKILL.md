@@ -98,7 +98,10 @@ GitHub-style, instead of just describing the fix in prose — and a single comme
 contain more than one suggestion fence. `comments` renders each as a labeled,
 syntax-highlighted block instead of raw fenced markdown; with `-f json` they're also
 broken out as a `suggestions` field (a list of proposed-line-lists, empty if the
-comment has none) so you don't have to re-parse the text yourself. Treat it like any
+comment has none) so you don't have to re-parse the text yourself. A reply can carry
+one too — typically the reviewer's revised take on an earlier suggestion — rendered
+the same way and given its own `suggestions` field in the JSON; when a thread has
+several, read the replies to see which one the reviewer settled on. Treat it like any
 other feedback: apply the suggested code with your own edit tools, then `reply`
 explaining what you did (or why you did something different) before `update`. There's
 no separate "apply" command — the CLI only surfaces suggestions, it doesn't touch

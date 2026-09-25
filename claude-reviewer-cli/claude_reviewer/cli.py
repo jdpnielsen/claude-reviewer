@@ -85,25 +85,37 @@ def print_comment(
         f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
-    for segment in parse_comment(c.content):
-        if isinstance(segment, ProseSegment):
-            console.print(f"{indent}  {segment.text}", highlight=False)
-        else:
-            console.print(f"{indent}  [bold]Suggested change:[/bold]", highlight=False)
-            code = "\n".join(segment.lines)
-            lexer = Syntax.guess_lexer(c.file_path, code=code) if c.file_path else "text"
-            console.print(Padding(Syntax(code, lexer, theme="monokai"), (0, 0, 0, len(indent) + 2)))
+    _print_content(c.content, c.file_path, f"{indent}  ")
     for reply in replies or []:
         author_color = "green" if reply.author_kind == "agent" else "blue"
-        console.print(
-            f"{indent}  [{author_color}]↳ {reply.author}:[/{author_color}] {reply.content}",
-            highlight=False,
-        )
+        label = f"{indent}  [{author_color}]↳ {reply.author}:[/{author_color}]"
+        # A reply can carry a suggestion of its own - usually a revised take
+        # on one earlier in the thread - so it gets the same rendering.
+        if _suggestions_in(reply.content):
+            console.print(label, highlight=False)
+            _print_content(reply.content, c.file_path, f"{indent}    ")
+        else:
+            console.print(f"{label} {reply.content}", highlight=False)
+
+
+def _print_content(content: str, file_path: str, indent: str) -> None:
+    """Print comment/reply text, with ```suggestion fences as labeled code blocks."""
+    for segment in parse_comment(content):
+        if isinstance(segment, ProseSegment):
+            console.print(f"{indent}{segment.text}", highlight=False)
+        else:
+            console.print(f"{indent}[bold]Suggested change:[/bold]", highlight=False)
+            code = "\n".join(segment.lines)
+            lexer = Syntax.guess_lexer(file_path, code=code) if file_path else "text"
+            console.print(Padding(Syntax(code, lexer, theme="monokai"), (0, 0, 0, len(indent))))
+
+
+def _suggestions_in(content: str) -> list[list[str]]:
+    return [s.lines for s in parse_comment(content) if not isinstance(s, ProseSegment)]
 
 
 def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
     """Serialize a comment (+ its replies) for `comments --format json`."""
-    suggestions = [s.lines for s in parse_comment(c.content) if not isinstance(s, ProseSegment)]
     return {
         "uuid": c.uuid,
         "file": c.file_path,
@@ -113,14 +125,17 @@ def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
         "target_type": c.target_type,
         "line_type": c.line_type,
         "text": c.content,
-        "suggestions": suggestions,
+        "suggestions": _suggestions_in(c.content),
         "resolved": c.resolved,
         "status": c.status.value,
         "resolution_mode": c.resolution_mode.value,
         "review_action": c.review_action,
         "author": c.author,
         "author_kind": c.author_kind,
-        "replies": [{"author": r.author, "text": r.content} for r in replies],
+        "replies": [
+            {"author": r.author, "text": r.content, "suggestions": _suggestions_in(r.content)}
+            for r in replies
+        ],
     }
 
 
