@@ -8,6 +8,7 @@ import CollapsibleCommentThread from './CollapsibleCommentThread';
 import ResolutionModeSelect from './ResolutionModeSelect';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 import { submitOnModEnter } from '@/app/prs/[id]/utils';
+import CopyableText from '@/components/CopyableText';
 import { CommentResolutionMode } from '@/lib/enum';
 import { insertSuggestion } from '@/lib/suggestions';
 
@@ -69,9 +70,13 @@ export default function CommitMessagePanel({
   return (
     <div className="commit-message-panel">
       <div className="commit-message-header">
-        <GitCommit size={14} />
-        <span className="commit-sha">{commit.shortSha}</span>
-        <span className="commit-message-author">{commit.author}</span>
+        <div className="commit-message-meta">
+          <GitCommit size={14} />
+          <CopyableText text={commit.sha} className="commit-sha" title="Copy full SHA">
+            {commit.shortSha}
+          </CopyableText>
+          <span>{commit.author}</span>
+        </div>
         <button
           type="button"
           className={`reviewed-toggle ${isMessageReviewed ? 'active' : ''}`}
