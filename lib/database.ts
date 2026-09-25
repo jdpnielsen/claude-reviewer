@@ -765,6 +765,23 @@ export function listPRs(
   return db.prepare(query).all(...params) as PullRequest[];
 }
 
+// Unresolved comment count per PR id, for the list page - one query for the
+// whole page rather than one per row. Counts the same thing as the PR page's
+// Conversation tab badge (every comment with resolved = 0). A PR with none
+// has no entry; callers default to 0.
+export function getUnresolvedCommentCounts(prIds: number[]): Map<number, number> {
+  if (prIds.length === 0) return new Map();
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      `SELECT pr_id, COUNT(*) AS count FROM comments
+       WHERE resolved = 0 AND pr_id IN (${prIds.map(() => '?').join(',')})
+       GROUP BY pr_id`,
+    )
+    .all(...prIds) as { pr_id: number; count: number }[];
+  return new Map(rows.map((r) => [r.pr_id, r.count]));
+}
+
 export function updatePRStatus(uuid: string, status: PullRequest['status']): boolean {
   const db = getDatabase();
   const result = db

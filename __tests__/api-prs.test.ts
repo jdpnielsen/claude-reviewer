@@ -39,6 +39,7 @@ import {
   getCommentsWithReplies,
   getPRByUuid,
   getLatestDiff,
+  resolveComment,
   setReviewedCommitMessage,
   submitReview,
   updatePRStatus,
@@ -900,5 +901,59 @@ describe('reviewed commit message marks', () => {
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('Unknown commit for this PR');
+  });
+});
+
+describe('GET /api/prs counts', () => {
+  let repoDir: string;
+  let baseCommit: string;
+  let headCommit: string;
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-counts-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+    fs.writeFileSync(path.join(repoDir, 'base.txt'), 'base\n');
+    runGit(repoDir, ['add', 'base.txt']);
+    runGit(repoDir, ['commit', '-m', 'base']);
+    baseCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+    for (const n of [1, 2]) {
+      fs.writeFileSync(path.join(repoDir, `f${n}.txt`), `${n}\n`);
+      runGit(repoDir, ['add', '.']);
+      runGit(repoDir, ['commit', '-m', `feature ${n}`]);
+    }
+    headCommit = runGit(repoDir, ['rev-parse', 'HEAD']);
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  async function listed(repo: string, uuid: string) {
+    const res = await listPRsRoute(
+      new Request(`http://test/api/prs?repo=${encodeURIComponent(repo)}`) as never,
+    );
+    return (await res.json()).prs.find((pr: { uuid: string }) => pr.uuid === uuid);
+  }
+
+  test('reports the commit count and only unresolved comments', async () => {
+    const uuid = createPR(repoDir, 'counts', 'main', 'f', baseCommit, headCommit, 'd');
+    addComment(uuid, 'f1.txt', 1, 'open one');
+    addComment(uuid, 'f2.txt', 1, 'open two');
+    const done = addComment(uuid, 'f2.txt', 1, 'resolved');
+    resolveComment(done, true);
+
+    const pr = await listed(repoDir, uuid);
+    expect(pr.commit_count).toBe(2);
+    expect(pr.unresolved_count).toBe(2);
+  });
+
+  test('commit_count is null when the checkout is gone, rather than failing the list', async () => {
+    const uuid = createPR('/gone/for/counts', 'gone', 'main', 'f', 'a', 'b', 'd');
+
+    const pr = await listed('/gone/for/counts', uuid);
+    expect(pr.commit_count).toBeNull();
+    expect(pr.unresolved_count).toBe(0);
   });
 });
