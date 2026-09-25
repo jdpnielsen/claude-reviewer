@@ -17,13 +17,19 @@ import claude_reviewer.cli
 from claude_reviewer import database as db
 from claude_reviewer.cli import (
     SKILLS_DIR,
+    _comment_json,
     get_diff_line_context,
     get_local_server_pid_file,
     main,
     print_comment,
     stop_local_server,
 )
-from claude_reviewer.models import Comment, CommentRelocationStatus, CommentResolutionMode
+from claude_reviewer.models import (
+    Comment,
+    CommentRelocationStatus,
+    CommentReply,
+    CommentResolutionMode,
+)
 
 
 @pytest.fixture
@@ -399,6 +405,65 @@ class TestPrintComment:
         assert "Suggested change:" in output
         assert "return total - 1" in output
         assert "```suggestion" not in output
+
+    def test_renders_a_suggestion_in_a_reply(self, capsys: pytest.CaptureFixture[str]) -> None:
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="```suggestion\nreturn total - 1\n```",
+        )
+        reply = CommentReply(
+            id=2,
+            uuid="r1",
+            comment_id=1,
+            author_id=1,
+            author="Claude",
+            author_kind="agent",
+            content="Or clamp it:\n\n```suggestion\nreturn max(total - 1, 0)\n```",
+        )
+
+        print_comment(comment, [reply])
+
+        output = capsys.readouterr().out
+        assert "↳ Claude:" in output
+        assert "Or clamp it:" in output
+        assert output.count("Suggested change:") == 2
+        assert "return max(total - 1, 0)" in output
+        assert "```" not in output
+
+    def test_json_breaks_out_reply_suggestions(self) -> None:
+        comment = Comment(
+            id=1,
+            uuid="abc12345",
+            pr_id=1,
+            file_path="a.py",
+            line_number=1,
+            end_line_number=1,
+            content="off by one",
+        )
+        reply = CommentReply(
+            id=2,
+            uuid="r1",
+            comment_id=1,
+            author_id=1,
+            author="Claude",
+            author_kind="agent",
+            content="```suggestion\nreturn total - 1\n```",
+        )
+
+        replies = _comment_json(comment, [reply])["replies"]
+
+        assert replies == [
+            {
+                "author": "Claude",
+                "text": "```suggestion\nreturn total - 1\n```",
+                "suggestions": [["return total - 1"]],
+            }
+        ]
 
     def test_comment_without_a_suggestion_prints_content_as_is(
         self, capsys: pytest.CaptureFixture[str]
