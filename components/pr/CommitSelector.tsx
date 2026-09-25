@@ -11,6 +11,9 @@ import type { AbsorbedCommit } from '@/lib/git';
 // reviewed mark (see reviewedCommits on PRData / the GET /api/prs/[id]
 // route) - the same color the file-level "Reviewed" badge uses.
 const REVIEWED_COLOR = '#3fb950';
+// Amber once the review has started on it - a file or the message marked,
+// or a comment made - but it isn't reviewed in full.
+const PARTIALLY_REVIEWED_COLOR = '#d29922';
 
 interface CommitSelectorProps {
   // `absorbed` is set on the autosquash preview's commits - the ones folded
@@ -19,6 +22,7 @@ interface CommitSelectorProps {
   selectedCommit: string | null;
   selectCommit: (sha: string | null) => void;
   reviewedCommits: string[];
+  partiallyReviewedCommits: string[];
 }
 
 export default function CommitSelector({
@@ -26,6 +30,7 @@ export default function CommitSelector({
   selectedCommit,
   selectCommit,
   reviewedCommits,
+  partiallyReviewedCommits,
 }: CommitSelectorProps) {
   const [open, setOpen] = useState(false);
   const ref = useClickOutside(() => setOpen(false));
@@ -47,6 +52,19 @@ export default function CommitSelector({
   const canGoPrev = selectedIndex > 0;
   const canGoNext = selectedIndex >= 0 && selectedIndex < commits.length - 1;
 
+  const reviewColor = (sha: string) =>
+    reviewedCommits.includes(sha)
+      ? REVIEWED_COLOR
+      : partiallyReviewedCommits.includes(sha)
+        ? PARTIALLY_REVIEWED_COLOR
+        : undefined;
+  const reviewTitle = (sha: string) =>
+    reviewedCommits.includes(sha)
+      ? ' - reviewed'
+      : partiallyReviewedCommits.includes(sha)
+        ? ' - partially reviewed'
+        : '';
+
   const goPrev = () => canGoPrev && selectCommit(commits[selectedIndex - 1].sha);
   const goNext = () => canGoNext && selectCommit(commits[selectedIndex + 1].sha);
 
@@ -66,10 +84,7 @@ export default function CommitSelector({
       <button className="commit-selector-trigger" onClick={() => setOpen((o) => !o)}>
         {current ? (
           <>
-            <GitCommit
-              size={14}
-              color={reviewedCommits.includes(current.sha) ? REVIEWED_COLOR : undefined}
-            />
+            <GitCommit size={14} color={reviewColor(current.sha)} />
             <span className="commit-selector-label">{current.message}</span>
             <span className="commit-sha">{current.shortSha}</span>
           </>
@@ -115,14 +130,9 @@ export default function CommitSelector({
                 selectCommit(commit.sha);
                 setOpen(false);
               }}
-              title={`${commit.shortSha} by ${commit.author}${
-                reviewedCommits.includes(commit.sha) ? ' - reviewed' : ''
-              }`}
+              title={`${commit.shortSha} by ${commit.author}${reviewTitle(commit.sha)}`}
             >
-              <GitCommit
-                size={14}
-                color={reviewedCommits.includes(commit.sha) ? REVIEWED_COLOR : undefined}
-              />
+              <GitCommit size={14} color={reviewColor(commit.sha)} />
               <span className="file-name">{commit.message}</span>
               {commit.absorbed && commit.absorbed.length > 0 && (
                 <span

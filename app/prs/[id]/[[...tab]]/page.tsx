@@ -681,6 +681,22 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     }
   };
 
+  // Commits the review has started on - a current mark of their own (a file
+  // or the message), or a comment on them - that aren't reviewedCommits yet:
+  // amber in the commit selector.
+  const partiallyReviewedCommits = data
+    ? [
+        ...new Set(
+          [
+            ...[...data.reviewedFiles, ...data.reviewedMessages].filter((m) => m.current),
+            ...data.comments.map((c) => c.comment),
+          ]
+            .map((m) => m.commit_sha)
+            .filter((sha): sha is string => sha !== null),
+        ),
+      ].filter((sha) => !data.reviewedCommits.includes(sha))
+    : [];
+
   // Whether the *currently displayed* commit is reviewed in full - message
   // marked and every file its own diff touches marked - i.e. the
   // tab bar's "mark commit reviewed" button was used, or every
@@ -808,6 +824,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 selectedCommit={selectedCommit}
                 selectCommit={selectCommit}
                 reviewedCommits={data.reviewedCommits}
+                partiallyReviewedCommits={partiallyReviewedCommits}
               />
               <FileViewControls
                 onExpandAll={expandAll}
