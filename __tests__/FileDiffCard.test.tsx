@@ -435,3 +435,39 @@ describe('FileDiffCard expanding down to the end of a file', () => {
     expect(requested).toEqual([]);
   });
 });
+
+describe('FileDiffCard git header noise', () => {
+  it("doesn't render a new file's mode line as a diff row", () => {
+    const added: FileInfo = {
+      path: 'lib/new.ts',
+      changeType: ChangeType.Added,
+      additions: 1,
+      deletions: 0,
+    };
+    const { container } = renderCard({
+      file: added,
+      diff:
+        [
+          'diff --git a/lib/new.ts b/lib/new.ts',
+          'new file mode 100644',
+          'index 0000000..1111111',
+          '--- /dev/null',
+          '+++ b/lib/new.ts',
+          '@@ -0,0 +1 @@',
+          '+export const x = 1;',
+        ].join('\n') + '\n',
+    });
+    expect(container.textContent).not.toContain('new file mode');
+    expect(container.textContent).toContain('export const x = 1;');
+  });
+
+  it('shows a mode change in the file header', () => {
+    const { container } = renderCard({
+      diff: buildDiff([]).replace(
+        'index 1111111..2222222 100644',
+        'old mode 100644\nnew mode 100755',
+      ),
+    });
+    expect(container.querySelector('.file-mode-change')?.textContent).toBe('100644 → 100755');
+  });
+});
