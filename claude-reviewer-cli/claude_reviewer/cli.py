@@ -1643,14 +1643,19 @@ def get_diff_line_context(
             continue
 
         old_ln = new_ln = 0
+        in_hunk = False
         rows: list[tuple[int | None, int | None, str]] = []
         for line in section_lines[1:]:
             hunk_match = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line)
             if hunk_match:
                 old_ln = int(hunk_match.group(1)) - 1
                 new_ln = int(hunk_match.group(2)) - 1
+                in_hunk = True
                 continue
-            if line.startswith(("---", "+++", "index ", "new file mode", "deleted file mode")):
+            # Git's extended header (index, mode, rename, ---/+++ lines) sits
+            # above the first hunk. Inside a hunk every row is content, even
+            # one that reads "+++ ..." or "new file mode ...".
+            if not in_hunk or line.startswith("\\"):
                 continue
             if line.startswith("+"):
                 new_ln += 1
