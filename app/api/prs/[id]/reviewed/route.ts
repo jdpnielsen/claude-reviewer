@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, setReviewedFile, unsetReviewedFile } from '@/lib/database';
 import { getBlobHash, isPRCommit } from '@/lib/git';
+import { cascadeGroups, commitFilePaths, unmarkFileCascade } from '@/lib/reviewed-cascade';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -48,7 +49,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/prs/[id]/reviewed?file=<path>&commit=<sha> - Unmark a file.
-// `commit` omitted means the cumulative/PR-wide mark.
+// `commit` omitted means the cumulative/PR-wide mark. A commit-scoped mark
+// may be one derived from the autosquash preview or the commits it folds
+// (see lib/reviewed-cascade.ts) - its sources go too, so it stays unmarked.
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -65,8 +68,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    const success = unsetReviewedFile(id, filePath, commitSha || null);
-    if (!success) {
+    let removed = unsetReviewedFile(id, filePath, commitSha || null) ? 1 : 0;
+    if (commitSha) {
+      const groups = cascadeGroups(pr.repo_path, pr.base_commit, pr.head_commit);
+      removed += unmarkFileCascade(id, groups, filePath, commitSha, (sha) =>
+        commitFilePaths(pr.repo_path, sha),
+      );
+    }
+    if (removed === 0) {
       return NextResponse.json({ error: 'Not marked reviewed' }, { status: 404 });
     }
     return NextResponse.json({ success: true });

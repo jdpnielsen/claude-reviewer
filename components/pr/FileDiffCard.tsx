@@ -26,6 +26,7 @@ import type {
   EditingComment,
   FileInfo,
   LastClickedLine,
+  ReviewedVia,
 } from '@/app/prs/[id]/types';
 import {
   contextCacheKey,
@@ -41,6 +42,7 @@ import {
   parseFileDiff,
   parseFileDiffMeta,
   parseHunkRanges,
+  VIA_TITLES,
   vscodeFileUrl,
 } from '@/app/prs/[id]/utils';
 import { ChangeType, CommentResolutionMode, LineType } from '@/lib/enum';
@@ -69,6 +71,9 @@ interface FileDiffCardProps {
   // no longer there.
   repoPath: string | null;
   isReviewed: boolean;
+  // Set when the mark follows from the autosquash preview or its commits
+  // rather than being made here - see ReviewedMark.via.
+  reviewedVia?: ReviewedVia;
   toggleReviewed: () => void;
   prId: string;
   onJumpToComment: (comment: Comment) => void;
@@ -116,6 +121,7 @@ export default function FileDiffCard({
   fileLineCount,
   repoPath,
   isReviewed,
+  reviewedVia,
   toggleReviewed,
   prId,
   onJumpToComment,
@@ -238,10 +244,20 @@ export default function FileDiffCard({
             e.stopPropagation();
             toggleReviewed();
           }}
-          title={isReviewed ? 'Marked reviewed' : 'Mark this file as reviewed'}
+          title={
+            isReviewed
+              ? reviewedVia
+                ? `${VIA_TITLES[reviewedVia]} - unmarking unmarks it there too`
+                : 'Marked reviewed'
+              : 'Mark this file as reviewed'
+          }
         >
           <Check size={14} />
-          {isReviewed ? 'Reviewed' : 'Mark reviewed'}
+          {isReviewed
+            ? reviewedVia
+              ? `Reviewed (via ${reviewedVia})`
+              : 'Reviewed'
+            : 'Mark reviewed'}
         </button>
       </div>
 

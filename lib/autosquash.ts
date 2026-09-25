@@ -148,6 +148,9 @@ export interface SquashedMessage {
   /** A squash! was folded in, so git would stop and open an editor on this
    * message - what's shown is the message as it'd be saved unedited. */
   needsEdit: boolean;
+  /** Per message - the target's, then each step's - whether its text is in
+   * `message`: a fixup!'s never is, and an amend! drops everything before it. */
+  sources: boolean[];
 }
 
 /**
@@ -163,20 +166,28 @@ export function squashMessages(
 ): SquashedMessage {
   let message = targetMessage.trimEnd();
   let seenSquash = false;
+  const sources = [true, ...steps.map(() => false)];
 
-  for (const step of steps) {
-    if (step.kind === 'fixup') continue;
+  steps.forEach((step, i) => {
+    if (step.kind === 'fixup') return;
     // Every step's subject is its marker line - that's what made it a step.
     const body = stripSubject(step.message).trimEnd();
     if (step.kind === 'amend' && !seenSquash) {
       // git refuses to commit an empty message, so an amend! with no body
       // would stop the rebase - keep the old message rather than show that.
-      if (body) message = body;
-      continue;
+      if (body) {
+        message = body;
+        sources.fill(false);
+        sources[i + 1] = true;
+      }
+      return;
     }
     seenSquash = true;
-    if (body) message = `${message}\n\n${body}`;
-  }
+    if (body) {
+      message = `${message}\n\n${body}`;
+      sources[i + 1] = true;
+    }
+  });
 
-  return { message, needsEdit: seenSquash };
+  return { message, needsEdit: seenSquash, sources };
 }

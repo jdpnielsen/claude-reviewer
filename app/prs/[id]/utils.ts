@@ -8,19 +8,19 @@ import type {
   FolderNode,
   ReviewedMark,
   ReviewedMessageMark,
+  ReviewedVia,
 } from './types';
 import { CommentTargetType, LineType } from '@/lib/enum';
 
 // Cmd+Enter (macOS) or Ctrl+Enter (elsewhere) submits a comment form from its
 // textarea, mirroring GitHub's convention, without swallowing a plain Enter
 // (which should still just insert a newline).
-export const submitOnModEnter =
-  (submit: () => void) => (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      submit();
-    }
-  };
+export const submitOnModEnter = (submit: () => void) => (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    submit();
+  }
+};
 
 // Limit lines rendered per file for performance on large diffs.
 export const MAX_LINES_DEFAULT = 300;
@@ -76,6 +76,12 @@ export const findReviewedMessageMark = (
   commitSha: string | null,
 ): ReviewedMessageMark | undefined =>
   commitSha === null ? undefined : marks.find((m) => m.commit_sha === commitSha && m.current);
+
+// A derived mark's reviewed button's tooltip - where the mark comes from.
+export const VIA_TITLES: Record<ReviewedVia, string> = {
+  preview: 'Reviewed in the autosquash preview, in the commit this one folds into',
+  commits: 'Reviewed in every commit folded into this one',
+};
 
 // Map file extensions to Prism language identifiers
 export const getLanguage = (filePath: string): string => {
@@ -367,9 +373,7 @@ export const findAnchorMatchInDiff = (
     return true;
   });
 
-  return narrowed.length === 1
-    ? { anchorLine: sideLines[narrowed[0]].anchorLine, lineType }
-    : null;
+  return narrowed.length === 1 ? { anchorLine: sideLines[narrowed[0]].anchorLine, lineType } : null;
 };
 
 // A shift-click range whose two ends fall on opposite sides (an added line

@@ -497,6 +497,9 @@ export interface SquashedCommit extends CommitInfo {
   rewritten: boolean;
   /** See SquashedMessage.needsEdit. */
   messageNeedsEdit: boolean;
+  /** The commits - the target and/or its amend!/squash! steps - whose own
+   * message text ended up in this one's (see SquashedMessage.sources). */
+  messageSources: string[];
   /** See AutosquashGroup.unmatchedMarker. */
   unmatchedMarker: boolean;
 }
@@ -690,6 +693,7 @@ export function autosquashCommits(
         absorbed,
         rewritten: false,
         messageNeedsEdit: false,
+        messageSources: [target.sha],
         unmatchedMarker,
       });
       tip = target.sha;
@@ -720,7 +724,7 @@ export function autosquashCommits(
         );
       }
 
-      const { message, needsEdit } = squashMessages(
+      const { message, needsEdit, sources } = squashMessages(
         targetMessage,
         steps.map(({ commit, kind }) => ({
           kind,
@@ -741,6 +745,9 @@ export function autosquashCommits(
         absorbed,
         rewritten: true,
         messageNeedsEdit: needsEdit,
+        messageSources: [target, ...steps.map((s) => s.commit)]
+          .filter((_, i) => sources[i])
+          .map((c) => c.sha),
         unmatchedMarker,
       });
       tip = sha;

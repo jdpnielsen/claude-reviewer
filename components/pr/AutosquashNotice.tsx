@@ -33,7 +33,8 @@ export default function AutosquashNotice({ view, originalCount }: AutosquashNoti
           {`${folded} of the PR's ${originalCount} commits fold into earlier ones. ` +
             'Comments and reviewed marks on a rewritten commit follow it: onto the next ' +
             'preview as the branch changes, and onto the real commit once the author ' +
-            'autosquashes.'}
+            'autosquashes. A reviewed mark here also counts for the commits folded in, ' +
+            'and theirs for the squashed commit.'}
         </span>
         {unmatched > 0 && (
           <span>

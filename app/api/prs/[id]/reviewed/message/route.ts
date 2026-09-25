@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPRByUuid, setReviewedCommitMessage, unsetReviewedCommitMessage } from '@/lib/database';
 import { getCommitMessageHash, isPRCommit } from '@/lib/git';
+import { cascadeGroups, unmarkMessageCascade } from '@/lib/reviewed-cascade';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -42,7 +43,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
 }
 
-// DELETE /api/prs/[id]/reviewed/message?commit=<sha> - Unmark it.
+// DELETE /api/prs/[id]/reviewed/message?commit=<sha> - Unmark it, along with
+// whatever it was derived from across the autosquash preview (see
+// lib/reviewed-cascade.ts).
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -58,8 +61,11 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'PR not found' }, { status: 404 });
     }
 
-    const success = unsetReviewedCommitMessage(id, commitSha);
-    if (!success) {
+    const groups = cascadeGroups(pr.repo_path, pr.base_commit, pr.head_commit);
+    const removed =
+      (unsetReviewedCommitMessage(id, commitSha) ? 1 : 0) +
+      unmarkMessageCascade(id, groups, commitSha);
+    if (removed === 0) {
       return NextResponse.json({ error: 'Not marked reviewed' }, { status: 404 });
     }
     return NextResponse.json({ success: true });

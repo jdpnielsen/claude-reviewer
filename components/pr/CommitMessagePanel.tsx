@@ -6,8 +6,14 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import CollapsibleCommentThread from './CollapsibleCommentThread';
 import ResolutionModeSelect from './ResolutionModeSelect';
-import type { Comment, CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
-import { commitFullMessage, submitOnModEnter } from '@/app/prs/[id]/utils';
+import type {
+  Comment,
+  CommentWithReplies,
+  CommitInfo,
+  EditingComment,
+  ReviewedVia,
+} from '@/app/prs/[id]/types';
+import { commitFullMessage, submitOnModEnter, VIA_TITLES } from '@/app/prs/[id]/utils';
 import CopyableText from '@/components/CopyableText';
 import { CommentResolutionMode } from '@/lib/enum';
 import type { AbsorbedCommit } from '@/lib/git';
@@ -17,6 +23,8 @@ interface CommitMessagePanelProps {
   commit: CommitInfo;
   comments: CommentWithReplies[];
   isMessageReviewed: boolean;
+  // See ReviewedMark.via.
+  messageReviewedVia?: ReviewedVia;
   toggleMessageReviewed: () => void;
   isCommenting: boolean;
   setIsCommenting: Dispatch<SetStateAction<boolean>>;
@@ -47,6 +55,7 @@ export default function CommitMessagePanel({
   commit,
   comments,
   isMessageReviewed,
+  messageReviewedVia,
   toggleMessageReviewed,
   isCommenting,
   setIsCommenting,
@@ -89,12 +98,18 @@ export default function CommitMessagePanel({
           onClick={toggleMessageReviewed}
           title={
             isMessageReviewed
-              ? 'Marked reviewed - this commit message, on its own'
+              ? messageReviewedVia
+                ? `${VIA_TITLES[messageReviewedVia]} - unmarking unmarks it there too`
+                : 'Marked reviewed - this commit message, on its own'
               : "Mark this commit's message reviewed, without its files"
           }
         >
           <Check size={14} />
-          {isMessageReviewed ? 'Message reviewed' : 'Mark message reviewed'}
+          {isMessageReviewed
+            ? messageReviewedVia
+              ? `Message reviewed (via ${messageReviewedVia})`
+              : 'Message reviewed'
+            : 'Mark message reviewed'}
         </button>
       </div>
       <pre className="commit-message-body">{fullMessage}</pre>
