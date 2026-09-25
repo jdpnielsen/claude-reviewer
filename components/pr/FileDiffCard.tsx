@@ -70,6 +70,10 @@ interface FileDiffCardProps {
   repoPath: string | null;
   isReviewed: boolean;
   toggleReviewed: () => void;
+  // Nothing on this diff can be commented on or marked reviewed - a commit
+  // that exists only in the autosquash preview has no sha for either to be
+  // stored against. Existing threads still render and stay repliable.
+  readOnly?: boolean;
   prId: string;
   onJumpToComment: (comment: Comment) => void;
   isExpanded: boolean;
@@ -117,6 +121,7 @@ export default function FileDiffCard({
   repoPath,
   isReviewed,
   toggleReviewed,
+  readOnly = false,
   prId,
   onJumpToComment,
   isExpanded,
@@ -231,26 +236,28 @@ export default function FileDiffCard({
             Open
           </a>
         )}
-        <button
-          type="button"
-          className={`reviewed-toggle ${isReviewed ? 'active' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleReviewed();
-          }}
-          title={isReviewed ? 'Marked reviewed' : 'Mark this file as reviewed'}
-        >
-          <Check size={14} />
-          {isReviewed ? 'Reviewed' : 'Mark reviewed'}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className={`reviewed-toggle ${isReviewed ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleReviewed();
+            }}
+            title={isReviewed ? 'Marked reviewed' : 'Mark this file as reviewed'}
+          >
+            <Check size={14} />
+            {isReviewed ? 'Reviewed' : 'Mark reviewed'}
+          </button>
+        )}
       </div>
 
       {isExpanded && unmatchedCommitSpecificComments.length > 0 && (
         <div className="commit-specific-comments">
           <div className="commit-specific-comments-heading">
-            Comments on individual commits ({unmatchedCommitSpecificComments.length}) - made
-            against a single commit&apos;s diff, and their line couldn&apos;t be confidently
-            matched to this one
+            Comments on individual commits ({unmatchedCommitSpecificComments.length}) - made against
+            a single commit&apos;s diff, and their line couldn&apos;t be confidently matched to this
+            one
           </div>
           {unmatchedCommitSpecificComments.map((item) => {
             const commitAt = commits.find((c) => c.sha === item.comment.commit_sha);
@@ -267,11 +274,7 @@ export default function FileDiffCard({
                   <span className="thread-commit-message">
                     {commitAt?.message ?? 'unknown commit'}
                   </span>
-                  <CommentLink
-                    prId={prId}
-                    comment={item.comment}
-                    onJumpToComment={onJumpToComment}
-                  >
+                  <CommentLink prId={prId} comment={item.comment} onJumpToComment={onJumpToComment}>
                     View in commit
                   </CommentLink>
                 </div>
@@ -565,10 +568,12 @@ export default function FileDiffCard({
                       {!line.startsWith('@@') && (
                         <div className={`diff-line ${lineClasses}`}>
                           <span
-                            className="line-gutter"
+                            className={`line-gutter ${readOnly ? 'read-only' : ''}`}
                             role="button"
-                            tabIndex={0}
+                            tabIndex={readOnly ? -1 : 0}
+                            aria-disabled={readOnly || undefined}
                             onKeyDown={(e) => {
+                              if (readOnly) return;
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
                                 openLineComment({
@@ -587,7 +592,7 @@ export default function FileDiffCard({
                               }
                             }}
                             onMouseDown={(e) => {
-                              if (e.button !== 0) return;
+                              if (readOnly || e.button !== 0) return;
                               // Blocks native text-selection-drag from starting here, so a
                               // drag across gutter rows is unambiguously a range selection.
                               e.preventDefault();
@@ -614,7 +619,7 @@ export default function FileDiffCard({
                               // the selection exactly like a shift-click onto this row. A
                               // row that can't extend the anchor just leaves the drag
                               // stalled at the last valid range, rather than resetting it.
-                              if (e.buttons === 1) extendCommentRange();
+                              if (!readOnly && e.buttons === 1) extendCommentRange();
                             }}
                           >
                             <span className={`line-num line-num-old ${lineClasses}`}>
@@ -626,10 +631,7 @@ export default function FileDiffCard({
                             <span className={`line-indicator ${lineClasses}`}>{indicator}</span>
                           </span>
                           <span className={`line-content ${lineClasses}`}>
-                            <SyntaxLine
-                              code={line.slice(1)}
-                              language={getLanguage(file.path)}
-                            />
+                            <SyntaxLine code={line.slice(1)} language={getLanguage(file.path)} />
                           </span>
                         </div>
                       )}

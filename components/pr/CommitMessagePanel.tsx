@@ -6,15 +6,11 @@ import type { Dispatch, SetStateAction } from 'react';
 
 import CollapsibleCommentThread from './CollapsibleCommentThread';
 import ResolutionModeSelect from './ResolutionModeSelect';
-import type {
-  Comment,
-  CommentWithReplies,
-  CommitInfo,
-  EditingComment,
-} from '@/app/prs/[id]/types';
+import type { Comment, CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
 import { commitFullMessage, submitOnModEnter } from '@/app/prs/[id]/utils';
 import CopyableText from '@/components/CopyableText';
 import { CommentResolutionMode } from '@/lib/enum';
+import type { AbsorbedCommit } from '@/lib/git';
 import { insertSuggestion } from '@/lib/suggestions';
 
 interface CommitMessagePanelProps {
@@ -41,6 +37,12 @@ interface CommitMessagePanelProps {
   insertReplySuggestion: (comment: Comment) => void;
   resolveComment: (commentUuid: string, resolved: boolean) => void;
   deleteComment: (commentUuid: string, replyCount: number) => void;
+  // For a commit in the autosquash preview: the commits folded into it, and
+  // whether git would stop to have this message edited (see SquashedCommit).
+  absorbed?: AbsorbedCommit[];
+  messageNeedsEdit?: boolean;
+  // No commenting on or marking this message - see FileDiffCard's readOnly.
+  readOnly?: boolean;
 }
 
 export default function CommitMessagePanel({
@@ -56,6 +58,9 @@ export default function CommitMessagePanel({
   resolutionMode,
   setResolutionMode,
   addComment,
+  absorbed = [],
+  messageNeedsEdit = false,
+  readOnly = false,
   ...commentThreadProps
 }: CommitMessagePanelProps) {
   const fullMessage = commitFullMessage(commit);
@@ -81,27 +86,50 @@ export default function CommitMessagePanel({
           </CopyableText>
           <span>{commit.author}</span>
         </div>
-        <button
-          type="button"
-          className={`reviewed-toggle ${isMessageReviewed ? 'active' : ''}`}
-          onClick={toggleMessageReviewed}
-          title={
-            isMessageReviewed
-              ? 'Marked reviewed - this commit message, on its own'
-              : "Mark this commit's message reviewed, without its files"
-          }
-        >
-          <Check size={14} />
-          {isMessageReviewed ? 'Message reviewed' : 'Mark message reviewed'}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className={`reviewed-toggle ${isMessageReviewed ? 'active' : ''}`}
+            onClick={toggleMessageReviewed}
+            title={
+              isMessageReviewed
+                ? 'Marked reviewed - this commit message, on its own'
+                : "Mark this commit's message reviewed, without its files"
+            }
+          >
+            <Check size={14} />
+            {isMessageReviewed ? 'Message reviewed' : 'Mark message reviewed'}
+          </button>
+        )}
       </div>
       <pre className="commit-message-body">{fullMessage}</pre>
+
+      {absorbed.length > 0 && (
+        <div className="commit-absorbed">
+          Folds in:
+          <ul>
+            {absorbed.map((a) => (
+              <li key={a.sha}>
+                <code>{a.kind}</code>
+                <span className="commit-sha">{a.shortSha}</span>
+                <span>{a.message}</span>
+              </li>
+            ))}
+          </ul>
+          {messageNeedsEdit && (
+            <p>
+              A squash! is folded in, so git would stop here for the message to be edited -
+              it&apos;s shown as it would be saved unchanged.
+            </p>
+          )}
+        </div>
+      )}
 
       {comments.map((item) => (
         <CollapsibleCommentThread key={item.comment.uuid} item={item} {...commentThreadProps} />
       ))}
 
-      {isCommenting ? (
+      {readOnly ? null : isCommenting ? (
         <div className="new-comment-form">
           <textarea
             ref={(el) => {

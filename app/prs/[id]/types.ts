@@ -7,6 +7,7 @@ import {
   PullRequestStatus,
   ReviewAction,
 } from '@/lib/enum';
+import type { AutosquashResult } from '@/lib/git';
 
 export interface PullRequest {
   uuid: string;
@@ -126,7 +127,12 @@ export interface PRData {
   // `commits` is empty - nothing git-backed can be recomputed. The page
   // degrades to a read-and-delete view rather than erroring out.
   repoAvailable: boolean;
+  // Only with `?view=autosquash`: the branch as `rebase -i --autosquash`
+  // would leave it, or why that couldn't be worked out. Null otherwise.
+  autosquash: AutosquashView | null;
 }
+
+export type AutosquashView = ({ error: null } & AutosquashResult) | { error: string };
 
 // Folder tree structure for sidebar
 export interface FolderNode {

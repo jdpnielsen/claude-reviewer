@@ -5,6 +5,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, GitCommit, Layers } from 'lucid
 import { useState } from 'react';
 
 import type { CommitInfo } from '@/app/prs/[id]/types';
+import type { AbsorbedCommit } from '@/lib/git';
 
 // Green tint for a commit's icon once every file it touches has a current
 // reviewed mark (see reviewedCommits on PRData / the GET /api/prs/[id]
@@ -12,7 +13,9 @@ import type { CommitInfo } from '@/app/prs/[id]/types';
 const REVIEWED_COLOR = '#3fb950';
 
 interface CommitSelectorProps {
-  commits: CommitInfo[];
+  // `absorbed` is set on the autosquash preview's commits - the ones folded
+  // into each, counted on its row.
+  commits: (CommitInfo & { absorbed?: AbsorbedCommit[] })[];
   selectedCommit: string | null;
   selectCommit: (sha: string | null) => void;
   reviewedCommits: string[];
@@ -121,6 +124,14 @@ export default function CommitSelector({
                 color={reviewedCommits.includes(commit.sha) ? REVIEWED_COLOR : undefined}
               />
               <span className="file-name">{commit.message}</span>
+              {commit.absorbed && commit.absorbed.length > 0 && (
+                <span
+                  className="commit-absorbed-badge"
+                  title={`Folds in:\n${commit.absorbed.map((a) => a.message).join('\n')}`}
+                >
+                  +{commit.absorbed.length}
+                </span>
+              )}
               <span className="commit-sha">{commit.shortSha}</span>
             </button>
           ))}
