@@ -321,6 +321,98 @@ describe('GET /api/prs/[id] - stale ?commit= handling', () => {
   });
 });
 
+describe('GET /api/prs/[id] - autosquash view', () => {
+  let repoDir: string;
+  let baseCommit: string;
+  let addA: string;
+  let fixup: string;
+
+  function getReq(id: string, query: string): Request {
+    return new Request(`http://test/api/prs/${id}${query}`);
+  }
+
+  function commitFile(file: string, content: string, message: string): string {
+    fs.writeFileSync(path.join(repoDir, file), content);
+    runGit(repoDir, ['add', file]);
+    runGit(repoDir, ['commit', '-m', message]);
+    return runGit(repoDir, ['rev-parse', 'HEAD']);
+  }
+
+  function createAutosquashPR(title: string): string {
+    return createPR(repoDir, title, 'main', 'feature', baseCommit, fixup, 'diff');
+  }
+
+  async function getJson(id: string, query: string) {
+    const res = await prGetRoute(getReq(id, query) as never, routeParams(id));
+    return { status: res.status, json: await res.json() };
+  }
+
+  beforeAll(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-api-autosquash-repo-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+    runGit(repoDir, ['config', 'commit.gpgSign', 'false']);
+
+    baseCommit = commitFile('base.txt', 'base\n', 'base commit');
+    runGit(repoDir, ['branch', '-M', 'main']);
+    runGit(repoDir, ['checkout', '-b', 'feature']);
+    addA = commitFile('a.txt', 'a1\n', 'add a');
+    commitFile('b.txt', 'b1\n', 'add b');
+    fixup = commitFile('a.txt', 'a2\n', 'fixup! add a');
+  });
+
+  afterAll(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('without ?view=autosquash there is no preview', async () => {
+    const uuid = createAutosquashPR('no preview');
+    const { status, json } = await getJson(uuid, '');
+    expect(status).toBe(200);
+    expect(json.autosquash).toBeNull();
+    expect(json.commits).toHaveLength(3);
+  });
+
+  test('?view=autosquash returns the squashed commits alongside the real ones', async () => {
+    const uuid = createAutosquashPR('preview');
+    const { status, json } = await getJson(uuid, '?view=autosquash');
+    expect(status).toBe(200);
+    expect(json.commits).toHaveLength(3);
+    expect(json.autosquash).toMatchObject({ error: null, conflict: null, matchesHead: true });
+    expect(
+      json.autosquash.commits.map((c: { message: string; absorbed: unknown[] }) => [
+        c.message,
+        c.absorbed.length,
+      ]),
+    ).toEqual([
+      ['add a', 1],
+      ['add b', 0],
+    ]);
+    expect(json.autosquash.commits[0].originalSha).toBe(addA);
+  });
+
+  test('a squashed commit can be selected, and its diff includes the fixup', async () => {
+    const uuid = createAutosquashPR('select squashed');
+    const preview = await getJson(uuid, '?view=autosquash');
+    const squashedSha = preview.json.autosquash.commits[0].sha;
+
+    const { status, json } = await getJson(uuid, `?view=autosquash&commit=${squashedSha}`);
+    expect(status).toBe(200);
+    expect(json.diff).toContain('+a2');
+    expect(json.diff).not.toContain('b.txt');
+  });
+
+  test('a real commit that was folded away relocates to the commit it folded into', async () => {
+    const uuid = createAutosquashPR('relocate');
+    const preview = await getJson(uuid, '?view=autosquash');
+
+    const { status, json } = await getJson(uuid, `?view=autosquash&commit=${fixup}`);
+    expect(status).toBe(400);
+    expect(json.relocatedTo).toBe(preview.json.autosquash.commits[0].sha);
+  });
+});
+
 describe('GET /api/prs excludeClosed', () => {
   function listReq(query: string): Request {
     return new Request(`http://test/api/prs${query}`);

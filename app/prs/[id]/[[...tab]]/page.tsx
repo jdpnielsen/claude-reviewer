@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCheck, Loader2 } from 'lucide-react';
+import { CheckCheck, Combine, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryState } from 'nuqs';
@@ -45,6 +45,7 @@ import {
   statusConfig,
 } from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
+import AutosquashNotice from '@/components/pr/AutosquashNotice';
 import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
 import ConversationTab from '@/components/pr/ConversationTab';
@@ -55,7 +56,8 @@ import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
 import { TargetedCommentContext } from '@/components/pr/TargetedCommentContext';
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient, ApiError, buildQuery } from '@/lib/api-client';
+import { isFixupishSubject } from '@/lib/autosquash';
 import {
   ChangeType,
   CommentResolutionMode,
@@ -76,6 +78,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // comment-based or file-count-based defaults (see isFileExpanded below).
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedCommit, setSelectedCommit] = useQueryState('commit');
+  // 'autosquash' while previewing the branch as `rebase -i --autosquash`
+  // would leave it - see the autosquash field on PRData.
+  const [view, setView] = useQueryState('view');
+  const autosquashOn = view === 'autosquash';
   const [commentingAt, setCommentingAt] = useState<CommentingAt | null>(null);
   const [commentingOnCommitMessage, setCommentingOnCommitMessage] = useState(false);
   const [lastClickedLine, setLastClickedLine] = useState<LastClickedLine | null>(null);
@@ -119,7 +125,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // keeps the sidebar/diff pane mounted with the previous commit's data
   // (isFetching: true) instead of unmounting while the new one loads - this
   // is what the old manual latestRequestRef race-guard used to do by hand.
-  const prQuery = usePRQuery(id, selectedCommit);
+  const prQuery = usePRQuery(id, selectedCommit, view);
   // Deliberately a separate, always-polled query - see queries.ts for why.
   const commentsQuery = usePRCommentsPollQuery(id);
   const { data: authorsData } = useAuthorsQuery();
@@ -152,6 +158,15 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     pr: { ...prQuery.data.pr, status: commentsQuery.data?.pr.status ?? prQuery.data.pr.status },
   };
 
+  // What the commit selector steps through: the PR's own commits, or the
+  // squashed ones while the autosquash preview is on. `data.commits` itself
+  // stays the PR's own either way - it's what comments and reviewed marks
+  // (and the tags naming their commit) are keyed to.
+  const autosquash = autosquashOn ? (prQuery.data?.autosquash ?? null) : null;
+  const squashed = autosquash?.error === null ? autosquash : null;
+  const displayCommits = squashed ? squashed.commits : (data?.commits ?? []);
+  const hasFixupCommits = !!data?.commits.some((c) => isFixupishSubject(c.message));
+
   // A PR with exactly one commit has no real "cumulative diff (all commits)"
   // view distinct from that commit's own diff - getLatestDiff(base..head) and
   // getCommitDiff(commit) return identical content in that case. So the Files
@@ -161,8 +176,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   // the same value (see normalizeCommitSha below) - which also keeps any
   // comment added before this PR happened to be the only commit (commit_sha
   // null) visible inline instead of orphaned.
-  const soleCommit = data && data.commits.length === 1 ? data.commits[0] : null;
+  const soleCommit = displayCommits.length === 1 ? displayCommits[0] : null;
   const displayedCommitSha = selectedCommit ?? soleCommit?.sha ?? null;
+  // A commit only the preview has - nothing can be stored against its sha.
+  const displayedSquashed = squashed?.commits.find((c) => c.sha === displayedCommitSha);
+  const readOnly = !!displayedSquashed?.rewritten;
   const normalizeCommitSha = (sha: string | null) =>
     soleCommit && sha === null ? soleCommit.sha : sha;
 
@@ -186,13 +204,29 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     if (unknownCommitError?.relocatedTo) {
       setSelectedCommit(unknownCommitError.relocatedTo);
     } else {
-      setCommitNotice('This commit is no longer part of the PR - showing the latest diff instead.');
+      setCommitNotice(
+        autosquashOn
+          ? "This commit isn't in the autosquash preview - showing all commits instead."
+          : 'This commit is no longer part of the PR - showing the latest diff instead.',
+      );
       setSelectedCommit(null);
     }
     // Only re-run when a new failed fetch produces a new error object, not
     // on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prQuery.error]);
+
+  // The preview is built from the commits the branch had when it was
+  // fetched; once polling sees the branch move on, rebuild it rather than
+  // keep showing a squash of commits that are gone.
+  const squashedSourceShas = squashed?.sourceShas.join(',');
+  const polledShas = commentsQuery.data?.commits.map((c) => c.sha).join(',');
+  useEffect(() => {
+    if (squashedSourceShas && polledShas && squashedSourceShas !== polledShas) {
+      prQuery.refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [squashedSourceShas, polledShas]);
 
   // Ends a gutter drag-select regardless of where the pointer is released -
   // over a diff line, off the edge of the page, wherever - so isSelectingComment
@@ -279,6 +313,20 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
 
   const selectCommit = (sha: string | null) => {
     setSelectedCommit(sha);
+  };
+
+  // Keeps the same change on screen either way: turning the preview on
+  // lets the API redirect a folded commit to the squashed one built from it
+  // (see relocatedTo in the GET route); turning it off goes back to the PR
+  // commit a squashed one was built from.
+  const toggleAutosquash = () => {
+    if (autosquashOn) {
+      const squashedCommit = squashed?.commits.find((c) => c.sha === selectedCommit);
+      if (squashedCommit) setSelectedCommit(squashedCommit.originalSha);
+      setView(null);
+    } else {
+      setView('autosquash');
+    }
   };
 
   const toggleFile = (path: string) => {
@@ -690,7 +738,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
 
   // Preserved across tab links so switching tabs and back doesn't lose the
   // commit selection, even though the Conversation tab itself ignores it.
-  const commitQuery = selectedCommit ? `?commit=${encodeURIComponent(selectedCommit)}` : '';
+  const commitQuery = buildQuery({ commit: selectedCommit, view });
   const filesHref = `/prs/${id}${commitQuery}`;
   const conversationHref = `/prs/${id}/conversation${commitQuery}`;
 
@@ -747,7 +795,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
           {activeTab === 'files' && (
             <>
               <CommitSelector
-                commits={data.commits}
+                commits={displayCommits}
                 selectedCommit={selectedCommit}
                 selectCommit={selectCommit}
                 reviewedCommits={data.reviewedCommits}
@@ -757,7 +805,22 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 onCollapseAll={collapseAll}
                 canExpand={effectiveExpandedFiles.size < files.length}
               />
-              {displayedCommitSha && (
+              {data.repoAvailable && (hasFixupCommits || autosquashOn) && (
+                <button
+                  type="button"
+                  className={`reviewed-toggle ${autosquashOn ? 'active' : ''}`}
+                  onClick={toggleAutosquash}
+                  title={
+                    autosquashOn
+                      ? 'Back to the branch as it is'
+                      : 'Preview the branch with its fixup!/amend!/squash! commits folded in, as rebase -i --autosquash would leave it'
+                  }
+                >
+                  <Combine size={14} />
+                  Autosquash preview
+                </button>
+              )}
+              {displayedCommitSha && !readOnly && (
                 <button
                   type="button"
                   className={`reviewed-toggle ${isDisplayedCommitReviewed() ? 'active' : ''}`}
@@ -802,6 +865,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
           <TargetedCommentContext value={targetedCommentUuid}>
             {activeTab === 'files' ? (
               <>
+                {autosquash && (
+                  <AutosquashNotice view={autosquash} originalCount={data.commits.length} />
+                )}
                 {prQuery.isFetching && (
                   <div
                     style={{
@@ -821,10 +887,13 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 )}
                 {displayedCommitSha &&
                   (() => {
-                    const commit = data.commits.find((c) => c.sha === displayedCommitSha);
+                    const commit = displayCommits.find((c) => c.sha === displayedCommitSha);
                     return commit ? (
                       <CommitMessagePanel
                         commit={commit}
+                        absorbed={displayedSquashed?.absorbed}
+                        messageNeedsEdit={displayedSquashed?.messageNeedsEdit}
+                        readOnly={readOnly}
                         comments={getCommitMessageComments(displayedCommitSha)}
                         isMessageReviewed={isDisplayedMessageReviewed()}
                         toggleMessageReviewed={toggleDisplayedMessageReviewed}
@@ -865,6 +934,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     repoPath={data.repoAvailable ? pr.repo_path : null}
                     isReviewed={isFileReviewed(file.path)}
                     toggleReviewed={() => toggleFileReviewed(file.path)}
+                    readOnly={readOnly}
                     prId={id}
                     onJumpToComment={jumpToComment}
                     isExpanded={effectiveExpandedFiles.has(file.path)}

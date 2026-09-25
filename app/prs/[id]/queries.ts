@@ -6,7 +6,8 @@ import { apiClient, buildQuery } from '@/lib/api-client';
 import { AuthorKind, CommentResolutionMode, CommentTargetType, ReviewAction } from '@/lib/enum';
 import type { LineType, PullRequestStatus } from '@/lib/enum';
 
-export const prQueryKey = (id: string, commit: string | null) => ['pr', id, { commit }] as const;
+export const prQueryKey = (id: string, commit: string | null, view: string | null) =>
+  ['pr', id, { commit, view }] as const;
 export const prCommentsQueryKey = (id: string) => ['pr-comments', id] as const;
 
 // The main PR data (diff/files/commits/pr metadata) for a given commit filter.
@@ -16,10 +17,13 @@ export const prCommentsQueryKey = (id: string) => ['pr-comments', id] as const;
 // than one shared "latest request wins" ref, and keeps showing the previous
 // commit's data (with `isFetching: true`) while the new one loads instead of
 // unmounting the sidebar/diff pane.
-export function usePRQuery(id: string, commit: string | null) {
+//
+// `view` is 'autosquash' for the squashed-history preview (see the
+// autosquash field on PRData), null for the branch as it is.
+export function usePRQuery(id: string, commit: string | null, view: string | null) {
   return useQuery({
-    queryKey: prQueryKey(id, commit),
-    queryFn: () => apiClient.get<PRData>(`/api/prs/${id}${buildQuery({ commit })}`),
+    queryKey: prQueryKey(id, commit, view),
+    queryFn: () => apiClient.get<PRData>(`/api/prs/${id}${buildQuery({ commit, view })}`),
     placeholderData: keepPreviousData,
   });
 }
@@ -336,8 +340,7 @@ interface ReviewedFileParams {
 export function useMarkFileReviewedMutation(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: ReviewedFileParams) =>
-      apiClient.post(`/api/prs/${id}/reviewed`, params),
+    mutationFn: (params: ReviewedFileParams) => apiClient.post(`/api/prs/${id}/reviewed`, params),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: prCommentsQueryKey(id) }),
     onError: () => alert('Error marking file reviewed'),
   });

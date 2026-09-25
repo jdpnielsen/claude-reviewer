@@ -14,11 +14,13 @@ import {
 import { parseDiffFiles } from '@/lib/diff';
 import { PullRequestStatus } from '@/lib/enum';
 import {
+  autosquashCommits,
   listCommits,
   getCommitDiff,
   getBlobHash,
   getCommitMessageHash,
   isRepoAvailable,
+  type AutosquashResult,
 } from '@/lib/git';
 
 interface RouteParams {
@@ -49,15 +51,46 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // the only thing left to show is the cumulative stored diff.
     const commitParam = repoAvailable ? url.searchParams.get('commit') : null;
 
+    // `?view=autosquash` previews the branch as `rebase -i --autosquash`
+    // would leave it (see autosquashCommits). `commits` stays the PR's own
+    // list either way - comments and reviewed marks are keyed to those - and
+    // the squashed commits come alongside, as the ones `?commit=` may name.
+    // A failure (merge commits, a git too old for merge-tree --merge-base) is
+    // reported rather than 500ing, so the page can fall back to the normal
+    // view with the reason.
+    let autosquash: ({ error: null } & AutosquashResult) | { error: string } | null = null;
+    if (repoAvailable && url.searchParams.get('view') === 'autosquash') {
+      try {
+        autosquash = {
+          error: null,
+          ...autosquashCommits(pr.repo_path, pr.base_commit, pr.head_commit),
+        };
+      } catch (error: unknown) {
+        autosquash = { error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    }
+    const viewableCommits = autosquash && autosquash.error === null ? autosquash.commits : commits;
+
     let diff: string | null;
     if (commitParam) {
-      if (!commits.some((c) => c.sha === commitParam)) {
+      if (!viewableCommits.some((c) => c.sha === commitParam)) {
         // The commit may have been rewritten (rebase/amend/force-push) since
         // this link was generated - relocatedTo tells the client where it
         // ended up, if relocateComments() has ever recorded that mapping for
         // this PR. Null means either it's genuinely unknown or was never
         // part of this PR - the client can't tell those apart from this.
-        const relocatedTo = lookupCommitRelocation(id, commitParam);
+        //
+        // In the autosquash preview, a PR commit that was folded or rebased
+        // lives on as the squashed commit built from it - relocatedTo points
+        // there, so turning the preview on keeps the same change on screen.
+        const squashedFrom =
+          autosquash && autosquash.error === null
+            ? autosquash.commits.find(
+                (c) =>
+                  c.originalSha === commitParam || c.absorbed.some((a) => a.sha === commitParam),
+              )
+            : undefined;
+        const relocatedTo = squashedFrom?.sha ?? lookupCommitRelocation(id, commitParam);
         return NextResponse.json(
           { error: 'Unknown commit for this PR', relocatedTo },
           { status: 400 },
@@ -129,6 +162,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       reviewedMessages,
       reviewedCommits,
       repoAvailable,
+      autosquash,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

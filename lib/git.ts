@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { simpleGit, SimpleGit } from 'simple-git';
 
+import { planAutosquash, squashMessages, type AutosquashKind } from './autosquash';
+
 const FIELD_SEP = '\x1f';
 
 export interface CommitInfo {
@@ -410,6 +412,294 @@ export function computeCommitCorrespondence(
   }
 
   return { matched, unmatched };
+}
+
+export interface AbsorbedCommit {
+  sha: string;
+  shortSha: string;
+  message: string;
+  kind: AutosquashKind;
+}
+
+/** One commit of the branch as `rebase -i --autosquash` would leave it. */
+export interface SquashedCommit extends CommitInfo {
+  /** The PR commit this one was built from - the fixups' target. */
+  originalSha: string;
+  /** The fixup!/amend!/squash! commits folded into it, in the order applied. */
+  absorbed: AbsorbedCommit[];
+  /** False when the commit came through untouched and `sha` is still the
+   * PR's own commit; true once folding, or rebasing onto a folded commit,
+   * gave it a new one that exists only for this preview. */
+  rewritten: boolean;
+  /** See SquashedMessage.needsEdit. */
+  messageNeedsEdit: boolean;
+  /** See AutosquashGroup.unmatchedMarker. */
+  unmatchedMarker: boolean;
+}
+
+export interface AutosquashConflict {
+  /** The commit that didn't apply cleanly... */
+  sha: string;
+  shortSha: string;
+  message: string;
+  /** ...and the commit it was being folded into (itself, for a plain commit
+   * being rebased after an earlier fold). */
+  targetSha: string;
+  files: string[];
+}
+
+export interface AutosquashResult {
+  /** Stops short of the commit that conflicted, when one did. */
+  commits: SquashedCommit[];
+  conflict: AutosquashConflict | null;
+  /** Whether the last squashed commit has the same tree as the PR's head -
+   * i.e. squashing changed only how the history is split up, not the end
+   * result. Always false when replay stopped on a conflict. */
+  matchesHead: boolean;
+  /** The PR commit shas this was computed from, so a client can tell once
+   * the branch has moved on without it. */
+  sourceShas: string[];
+}
+
+class CherryPickConflict extends Error {
+  constructor(readonly files: string[]) {
+    super('cherry-pick conflict');
+  }
+}
+
+/**
+ * The tree `commit` leaves when cherry-picked onto `onto`, via
+ * `git merge-tree --write-tree` (git 2.40+ for --merge-base): a real
+ * three-way merge that never touches the index or working tree, so the
+ * preview can't disturb a checkout someone is working in. It only writes the
+ * resulting tree/blob objects into the object store, unreferenced.
+ */
+function cherryPickTree(cwd: string, onto: string, commit: string): string {
+  try {
+    const output = execFileSync(
+      'git',
+      [
+        'merge-tree',
+        '--write-tree',
+        '--name-only',
+        '--no-messages',
+        `--merge-base=${commit}^`,
+        onto,
+        commit,
+      ],
+      { cwd, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
+    );
+    return output.split('\n')[0].trim();
+  } catch (error: unknown) {
+    // Exit status 1 is merge-tree's "merged, with conflicts": the tree oid
+    // on the first line, then one conflicted path per line up to a blank one.
+    const failed = error as { status?: number; stdout?: string };
+    if (failed.status === 1 && typeof failed.stdout === 'string') {
+      const lines = failed.stdout.split('\n');
+      const end = lines.indexOf('', 1);
+      const files = lines.slice(1, end < 0 ? undefined : end).filter(Boolean);
+      throw new CherryPickConflict([...new Set(files)]);
+    }
+    throw error;
+  }
+}
+
+interface CommitIdentity {
+  authorName: string;
+  authorEmail: string;
+  authorDate: string;
+  committerName: string;
+  committerEmail: string;
+  committerDate: string;
+}
+
+function getCommitIdentity(cwd: string, sha: string): CommitIdentity {
+  const output = execFileSync(
+    'git',
+    [
+      'show',
+      '-s',
+      '--date=raw',
+      `--format=%an${FIELD_SEP}%ae${FIELD_SEP}%ad${FIELD_SEP}%cn${FIELD_SEP}%ce${FIELD_SEP}%cd`,
+      sha,
+    ],
+    { cwd, encoding: 'utf-8' },
+  );
+  const [authorName, authorEmail, authorDate, committerName, committerEmail, committerDate] = output
+    .trimEnd()
+    .split(FIELD_SEP);
+  return { authorName, authorEmail, authorDate, committerName, committerEmail, committerDate };
+}
+
+/**
+ * `git commit-tree` with every identity field pinned to `identity`, so the
+ * same inputs always produce the same sha: a preview commit's URL survives a
+ * server restart, and building one needs no user.name/user.email configured.
+ * --no-gpg-sign because commit-tree honours commit.gpgSign, and a signing
+ * prompt (or a missing key) has no business in a read-only preview.
+ */
+function commitTree(
+  cwd: string,
+  tree: string,
+  parent: string,
+  message: string,
+  identity: CommitIdentity,
+): string {
+  return execFileSync('git', ['commit-tree', '--no-gpg-sign', '-p', parent, '-F', '-', tree], {
+    cwd,
+    encoding: 'utf-8',
+    input: `${message}\n`,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: identity.authorName,
+      GIT_AUTHOR_EMAIL: identity.authorEmail,
+      GIT_AUTHOR_DATE: identity.authorDate,
+      GIT_COMMITTER_NAME: identity.committerName,
+      GIT_COMMITTER_EMAIL: identity.committerEmail,
+      GIT_COMMITTER_DATE: identity.committerDate,
+    },
+  }).trim();
+}
+
+function tryResolveCommit(cwd: string, name: string): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', '--verify', '--quiet', `${name}^{commit}`], {
+      cwd,
+      encoding: 'utf-8',
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The PR's commits as `git rebase -i --autosquash --keep-base` would leave
+ * them, without running a rebase: planAutosquash decides the grouping, then
+ * each group is replayed with cherryPickTree/commitTree on top of the
+ * previous one, starting from the branch's merge base (`--keep-base`, so the
+ * preview shows the effect of squashing alone, not of catching up with the
+ * base branch too).
+ *
+ * Commits are reused as-is until the first one that actually changes, just
+ * as a real rebase fast-forwards over them - so those keep their real shas,
+ * and everything keyed to them (comments, reviewed marks) still applies.
+ * Everything from there on is a new, unreferenced commit that exists only in
+ * the object store until git gc prunes it; being deterministic, it's simply
+ * rebuilt with the same sha on the next request if that has happened.
+ *
+ * Throws for a range containing merge commits (autosquash would linearize
+ * them, which is its own change to review) and for a git too old for
+ * merge-tree --merge-base.
+ */
+export function autosquashCommits(
+  repoPath: string,
+  baseCommit: string,
+  headCommit: string,
+): AutosquashResult {
+  const cwd = resolveRepoPath(repoPath);
+  const git = (args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
+
+  const merges = git(['rev-list', '--min-parents=2', '--count', `${baseCommit}..${headCommit}`]);
+  if (parseInt(merges, 10) > 0) {
+    throw new Error("Can't preview autosquash for a branch containing merge commits");
+  }
+
+  const commits = listCommits(repoPath, baseCommit, headCommit);
+  const groups = planAutosquash(commits, (name) => tryResolveCommit(cwd, name));
+  const sourceShas = commits.map((c) => c.sha);
+
+  let tip = git(['merge-base', baseCommit, headCommit]);
+  const squashed: SquashedCommit[] = [];
+
+  for (const { target, steps, unmatchedMarker } of groups) {
+    const absorbed = steps.map(({ commit, kind }) => ({
+      sha: commit.sha,
+      shortSha: commit.shortSha,
+      message: commit.message,
+      kind,
+    }));
+
+    if (steps.length === 0 && git(['rev-parse', `${target.sha}^`]) === tip) {
+      squashed.push({
+        ...target,
+        originalSha: target.sha,
+        absorbed,
+        rewritten: false,
+        messageNeedsEdit: false,
+        unmatchedMarker,
+      });
+      tip = target.sha;
+      continue;
+    }
+
+    const identity = getCommitIdentity(cwd, target.sha);
+    const targetMessage = getCommitMessage(repoPath, target.sha) ?? target.message;
+    let applying: CommitInfo = target;
+    try {
+      // Each step is cherry-picked onto the fold so far, which has to be a
+      // commit for merge-tree - these intermediates are never shown.
+      let working = commitTree(
+        cwd,
+        cherryPickTree(cwd, tip, target.sha),
+        tip,
+        targetMessage,
+        identity,
+      );
+      for (const step of steps) {
+        applying = step.commit;
+        working = commitTree(
+          cwd,
+          cherryPickTree(cwd, working, step.commit.sha),
+          tip,
+          targetMessage,
+          identity,
+        );
+      }
+
+      const { message, needsEdit } = squashMessages(
+        targetMessage,
+        steps.map(({ commit, kind }) => ({
+          kind,
+          message: getCommitMessage(repoPath, commit.sha) ?? commit.message,
+        })),
+      );
+      const sha = commitTree(cwd, git(['rev-parse', `${working}^{tree}`]), tip, message, identity);
+      const [subject, ...bodyParagraphs] = message.split('\n\n');
+      squashed.push({
+        sha,
+        shortSha: git(['rev-parse', '--short', sha]),
+        // %s folds a multi-line first paragraph onto one line; match it.
+        message: subject.split('\n').join(' '),
+        body: bodyParagraphs.join('\n\n'),
+        author: target.author,
+        date: target.date,
+        originalSha: target.sha,
+        absorbed,
+        rewritten: true,
+        messageNeedsEdit: needsEdit,
+        unmatchedMarker,
+      });
+      tip = sha;
+    } catch (error: unknown) {
+      if (!(error instanceof CherryPickConflict)) throw error;
+      return {
+        commits: squashed,
+        conflict: {
+          sha: applying.sha,
+          shortSha: applying.shortSha,
+          message: applying.message,
+          targetSha: target.sha,
+          files: error.files,
+        },
+        matchesHead: false,
+        sourceShas,
+      };
+    }
+  }
+
+  const matchesHead =
+    git(['rev-parse', `${tip}^{tree}`]) === git(['rev-parse', `${headCommit}^{tree}`]);
+  return { commits: squashed, conflict: null, matchesHead, sourceShas };
 }
 
 export function getGitUserIdentity(): { name: string | null; email: string | null } {
