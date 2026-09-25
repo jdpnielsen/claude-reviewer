@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { CommentReply, CommentWithReplies, PRData } from './types';
-import { apiClient, buildQuery } from '@/lib/api-client';
+import { ApiError, apiClient, buildQuery } from '@/lib/api-client';
 import { AuthorKind, CommentResolutionMode, CommentTargetType, ReviewAction } from '@/lib/enum';
 import type { LineType, PullRequestStatus } from '@/lib/enum';
 
@@ -20,13 +20,30 @@ export const prCommentsQueryKey = (id: string) => ['pr-comments', id] as const;
 //
 // `view` is 'autosquash' for the squashed-history preview (see the
 // autosquash field on PRData), null for the branch as it is.
+//
+// A `commit` the PR doesn't have (see isUnknownCommitError) is an expected
+// failure the page handles itself, so it's neither retried nor logged.
 export function usePRQuery(id: string, commit: string | null, view: string | null) {
   return useQuery({
     queryKey: prQueryKey(id, commit, view),
     queryFn: () => apiClient.get<PRData>(`/api/prs/${id}${buildQuery({ commit, view })}`),
     placeholderData: keepPreviousData,
+    retry: (failureCount, error) => !isUnknownCommitError(error) && failureCount < 1,
+    meta: { isExpectedError: isUnknownCommitError },
   });
 }
+
+// GET /api/prs/[id]'s 400 for a `?commit=` that isn't one of the PR's (or
+// its autosquash preview's) commits. Its body says where to go instead -
+// relocatedTo, inAutosquashPreview - and the page follows that, so this is
+// routine: a rebased commit's stale link, or turning the preview on or off
+// with a commit selected that the other view doesn't have.
+export const isUnknownCommitError = (error: unknown): boolean =>
+  error instanceof ApiError &&
+  error.status === 400 &&
+  typeof error.data === 'object' &&
+  error.data !== null &&
+  'relocatedTo' in error.data;
 
 // Deliberately separate from usePRQuery and polled every 5s on its own: only
 // comments/status/commits are refreshed in the background, so a large diff
