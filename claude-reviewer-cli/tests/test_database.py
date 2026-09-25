@@ -253,6 +253,22 @@ class TestPullRequests:
         assert pr is not None
         assert (pr.title, pr.description, pr.base_ref, pr.head_ref) == ("T", "D", "develop", "f2")
 
+    def test_update_pr_metadata_moves_the_repo_path_on_its_own(self, temp_db: Path) -> None:
+        uuid = db.create_pr(
+            repo_path="/old/checkout",
+            title="T",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+
+        assert db.update_pr_metadata(uuid, repo_path="/new/checkout") is True
+        pr = db.get_pr_by_uuid(uuid)
+        assert pr is not None
+        assert (pr.repo_path, pr.title, pr.base_ref) == ("/new/checkout", "T", "main")
+
     def test_update_pr_metadata_with_nothing_to_change_is_a_noop(self, temp_db: Path) -> None:
         """Test that an all-None call touches no row rather than blanking fields."""
         uuid = db.create_pr(

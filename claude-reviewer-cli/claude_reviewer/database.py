@@ -658,15 +658,16 @@ def update_pr_metadata(
     description: str | None = None,
     base_ref: str | None = None,
     head_ref: str | None = None,
+    repo_path: str | None = None,
 ) -> bool:
     """Update a PR's editable metadata, leaving any field passed as None alone.
 
     None means "leave alone" rather than "clear", so an empty string is a real
     value: passing description="" blanks the description.
 
-    Only touches the pull_requests row: retargeting base_ref or head_ref does
-    not by itself re-diff the PR, so callers are expected to follow up with
-    update_pr_diff().
+    Only touches the pull_requests row: retargeting base_ref, head_ref or
+    repo_path does not by itself re-diff the PR, so callers are expected to
+    follow up with update_pr_diff().
     """
     fields: list[str] = []
     values: list[str] = []
@@ -682,6 +683,9 @@ def update_pr_metadata(
     if head_ref is not None:
         fields.append("head_ref = ?")
         values.append(head_ref)
+    if repo_path is not None:
+        fields.append("repo_path = ?")
+        values.append(repo_path)
 
     if not fields:
         return False

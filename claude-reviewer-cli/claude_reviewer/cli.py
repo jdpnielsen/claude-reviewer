@@ -450,7 +450,11 @@ def delete(pr_id: str, force: bool) -> None:
 @main.command()
 @click.argument("pr_id")
 @click.option(
-    "--repo", "-r", default=None, help="Path to git repository (uses PR's repo by default)"
+    "--repo",
+    "-r",
+    default=None,
+    help="Move the PR to another checkout of its repo, e.g. after its worktree was removed "
+    "(keeps the current one by default)",
 )
 @click.option("--title", "-t", default=None, help="New PR title (keeps the current one by default)")
 @click.option(
@@ -479,23 +483,36 @@ def update(
         console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
         sys.exit(1)
 
-    repo_path = repo or pr.repo_path
-    git = GitOps(repo_path)
+    repo_path = str(Path(repo).resolve()) if repo else pr.repo_path
+    # Only a real move is persisted - pointing --repo at the checkout the PR
+    # already lives in is just the old one-off override, and stays a no-op.
+    new_repo_path = repo_path if repo_path != pr.repo_path else None
+    try:
+        git = GitOps(repo_path)
+    except ValueError:
+        console.print(f"[red]Error: Not a git repository: {repo_path}[/red]")
+        if not repo:
+            console.print(
+                "[dim]If the PR's checkout moved or its worktree was removed, point it at "
+                "another checkout with --repo[/dim]"
+            )
+        sys.exit(1)
 
     base_ref = base or pr.base_ref
     head_ref = head or pr.head_ref
 
     # Everything is validated before anything mutates, so a bad ref leaves the
-    # PR (and its comments) exactly as they were.
+    # PR (and its comments) exactly as they were. A new checkout needs both
+    # refs checked, even unchanged ones - nothing says it has them.
     if (base or head) and base_ref == head_ref:
         console.print(
             f"[red]Error: Base branch '{base_ref}' is the same as head branch '{head_ref}'[/red]"
         )
         sys.exit(1)
-    if base and git.resolve_ref(base_ref) is None:
+    if (base or new_repo_path) and git.resolve_ref(base_ref) is None:
         console.print(f"[red]Error: Base branch '{base_ref}' not found in {repo_path}[/red]")
         sys.exit(1)
-    if head and git.resolve_ref(head_ref) is None:
+    if (head or new_repo_path) and git.resolve_ref(head_ref) is None:
         console.print(f"[red]Error: Head branch '{head_ref}' not found in {repo_path}[/red]")
         sys.exit(1)
 
@@ -505,7 +522,14 @@ def update(
     base_commit = git.get_commit_sha(base_ref)
 
     # Update in database
-    db.update_pr_metadata(pr_id, title=title, description=description, base_ref=base, head_ref=head)
+    db.update_pr_metadata(
+        pr_id,
+        title=title,
+        description=description,
+        base_ref=base,
+        head_ref=head,
+        repo_path=new_repo_path,
+    )
     result = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
     relocate_comments(
         pr_id, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
@@ -523,6 +547,8 @@ def update(
         changes += f"Base: {pr.base_ref} -> {base_ref}\n"
     if head:
         changes += f"Head: {pr.head_ref} -> {head_ref}\n"
+    if new_repo_path:
+        changes += f"Repository: {pr.repo_path} -> {new_repo_path}\n"
     if changes:
         changes += "\n"
 
