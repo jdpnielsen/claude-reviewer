@@ -76,6 +76,21 @@ Reply to *every* unresolved comment before calling `update`, even ones you disag
 with — say why instead of silently ignoring them. A reviewer who gets ignored stops
 leaving comments.
 
+### Threads `update` couldn't re-anchor
+
+`update` follows each comment to wherever its line went, but when the code under it
+changed too much (rewritten, moved to another file, deleted), it can't. It then lists
+those open threads after the "PR Updated" panel, and `comments` tags them
+`[orphaned]` (`"status": "orphaned"` with `-f json`). Left alone they sit on a stale
+line, so deal with each one before handing the PR back:
+
+- **The code moved or was rewritten**: find where it lives now and
+  `claude-reviewer move <id> <comment-uuid> -l file:line[-end]` (plus `--old` / `-c sha`
+  if it belongs on the deleted side or one commit's diff). The thread keeps its
+  replies and gets a fresh anchor for later updates.
+- **The code is gone**: `reply` saying what happened to it (e.g. "deleted - this
+  path is handled by X now") so the reviewer isn't left guessing.
+
 ### Suggested changes
 
 A reviewer can propose exact replacement code for the lines a comment is anchored to,
@@ -158,11 +173,12 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `list [-s status] [--all]` | List PRs (current repo only unless `--all`). |
 | `status <id>` | `pending` / `approved` / `changes_requested` / `merged` / `closed`. |
 | `show <id>` | Full PR detail + diff preview. |
-| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`) and agent-written comments (`[by claude]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
+| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`) agent-written comments (`[by claude]`) and ones `update` couldn't re-anchor (`[orphaned]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
 | `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha) [--mode m] [-a author]` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review. Anchored like a web UI comment, so `update` relocates it. `--mode` is `fix` (default), `discuss` or `fix-if-agreed`; `-a` defaults to `claude`. |
+| `move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a line comment where its code is now, for a thread `update` reported it couldn't follow. Validated like `comment`'s `-l`. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
-| `update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them. `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. `-r` moves the PR to another checkout of its repo (saved as its `repo_path`), e.g. after its worktree was removed. Refs are validated first (both of them, in the new checkout, when `-r` moves it), and base can't equal head. |
+| `update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them, and lists any open thread it couldn't re-anchor (see below). `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. `-r` moves the PR to another checkout of its repo (saved as its `repo_path`), e.g. after its worktree was removed. Refs are validated first (both of them, in the new checkout, when `-r` moves it), and base can't equal head. |
 | `watch <id> [--until ...]` | Block until feedback arrives. Default `--until feedback_given`. |
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
 | `merge <id> [--delete-branch] [--no-push]` | Merge once approved. |

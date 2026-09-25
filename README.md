@@ -150,12 +150,13 @@ claude-reviewer merge a1b2c3d4
 | `claude-reviewer create -t "Title"` | Create a new PR for the current branch |
 | `claude-reviewer list` | List all PRs |
 | `claude-reviewer status <id>` | Check PR status (pending/approved/changes_requested) |
-| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes; a review summary appears here too, as an "approved" or "changes requested" comment |
+| `claude-reviewer comments <id>` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes and orphaned threads; a review summary appears here too, as an "approved" or "changes requested" comment |
 | `claude-reviewer show <id>` | Show detailed PR information |
 | `claude-reviewer comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha)` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review |
+| `claude-reviewer move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a comment `update` couldn't follow to where its code is now |
 | `claude-reviewer reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment; `-a` defaults to `claude`, or use `-a me`/`-a <name>` |
 | `claude-reviewer authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities used for reply attribution |
-| `claude-reviewer update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
+| `claude-reviewer update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes, listing threads it couldn't re-anchor; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
 | `claude-reviewer merge <id>` | Merge an approved PR |
 | `claude-reviewer serve` | Start the web UI (Docker) |
 | `claude-reviewer serve --local` | Start the web UI locally (pnpm) |

@@ -964,6 +964,46 @@ def apply_comment_relocations(relocations: list[CommentRelocationUpdate]) -> Non
             )
 
 
+def move_comment(
+    comment_uuid: str,
+    file_path: str,
+    line_number: int,
+    end_line_number: int,
+    line_type: str,
+    commit_sha: str | None,
+    anchor: CommentAnchor,
+) -> None:
+    """Re-anchor a line comment by hand, for one relocate_comments() couldn't
+    follow. Takes a fresh anchor so later syncs track the new spot, and
+    marks the comment active again. Any old-side pairing from the web UI is
+    dropped, since it described the old location."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE comments
+            SET file_path = ?, line_number = ?, end_line_number = ?, line_type = ?,
+                commit_sha = ?, anchor_content = ?, anchor_context_before = ?,
+                anchor_context_after = ?, status = ?, paired_line_number = NULL,
+                paired_end_line_number = NULL
+            WHERE uuid = ?
+            """,
+            (
+                file_path,
+                line_number,
+                end_line_number,
+                line_type,
+                commit_sha,
+                anchor.content,
+                anchor.context_before,
+                anchor.context_after,
+                CommentRelocationStatus.ACTIVE.value,
+                comment_uuid,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Comment {comment_uuid} not found")
+
+
 def upsert_commit_relocation(pr_uuid: str, old_sha: str, new_sha: str) -> None:
     """Upsert an old-SHA -> new-SHA mapping for a PR, collapsing chains
     eagerly: any existing row whose new_sha *was* old_sha (from an earlier

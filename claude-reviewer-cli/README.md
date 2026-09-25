@@ -72,12 +72,13 @@ claude-reviewer merge a1b2c3d4 --push
 | `create` | Create a new PR from current branch |
 | `list` | List all PRs |
 | `status` | Check PR status |
-| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes; a review summary appears here too, as an "approved" or "changes requested" comment |
+| `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes and orphaned threads; a review summary appears here too, as an "approved" or "changes requested" comment |
 | `show` | Show detailed PR information |
 | `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha)` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review |
+| `move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a comment `update` couldn't follow to where its code is now |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
-| `update [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
+| `update [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes, listing threads it couldn't re-anchor; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
 | `serve --check` | Report whether the web UI is reachable; starts nothing |
@@ -185,6 +186,14 @@ and later commands use it too; since a different checkout may not have the PR's
 branches, both are checked there even when they aren't changing. Changing either re-runs comment relocation, so the
 review thread follows the new diff where the old anchors can still be matched;
 comments whose lines no longer exist are marked as such rather than dropped.
+
+Any open thread an `update` couldn't re-anchor is listed after it runs, and
+`comments` tags it `[orphaned]`. Once you've found where its code went, move it
+there (validated like `comment -l`, and re-anchored for later updates):
+
+```bash
+claude-reviewer move a1b2c3d4 <comment-uuid> -l src/client.py:88
+```
 
 Every `update` also carries the web UI's "reviewed" marks - on files and on
 commit messages alike - across a rebase or amend. Marks are stored against a

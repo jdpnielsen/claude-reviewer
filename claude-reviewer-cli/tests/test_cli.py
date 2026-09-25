@@ -22,7 +22,7 @@ from claude_reviewer.cli import (
     print_comment,
     stop_local_server,
 )
-from claude_reviewer.models import Comment, CommentResolutionMode
+from claude_reviewer.models import Comment, CommentRelocationStatus, CommentResolutionMode
 
 
 @pytest.fixture
@@ -1010,3 +1010,133 @@ class TestCommentCommand:
         unanswered = db.get_unanswered_pr_comments(str(repo))
 
         assert [c.uuid for _, c, _ in unanswered] == [human_uuid]
+
+
+class TestOrphanedThreads:
+    """`update` reporting threads it couldn't re-anchor, and `move` re-homing them."""
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        """main, plus a feature branch that shouts line two of app.py."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        _run_git(repo_path, ["init", "-b", "main"])
+        _run_git(repo_path, ["config", "user.email", "test@example.com"])
+        _run_git(repo_path, ["config", "user.name", "Test User"])
+
+        (repo_path / "app.py").write_text("one\ntwo\nthree\n")
+        _run_git(repo_path, ["add", "app.py"])
+        _run_git(repo_path, ["commit", "-m", "base commit"])
+
+        _run_git(repo_path, ["checkout", "-b", "feature"])
+        (repo_path / "app.py").write_text("one\nTWO\nthree\n")
+        _run_git(repo_path, ["commit", "-am", "shout two"])
+        return repo_path
+
+    def _create_pr(self, repo: Path) -> str:
+        return db.create_pr(
+            repo_path=str(repo),
+            title="PR",
+            base_ref="main",
+            head_ref="feature",
+            base_commit=_run_git(repo, ["rev-parse", "main"]),
+            head_commit=_run_git(repo, ["rev-parse", "feature"]),
+            diff="d",
+        )
+
+    def _comment(self, pr_uuid: str, text: str, location: str) -> str:
+        CliRunner().invoke(main, ["comment", pr_uuid, text, "-l", location])
+        return next(c.uuid for c in db.get_comments(pr_uuid) if c.content == text)
+
+    def _rewrite_away_line_two(self, repo: Path) -> None:
+        (repo / "app.py").write_text("one\nthree\nfour\n")
+        _run_git(repo, ["commit", "-q", "--amend", "-am", "drop two, add four"])
+
+    def test_update_lists_open_threads_it_orphaned(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        open_uuid = self._comment(pr_uuid, "Why shout?", "app.py:2")
+        resolved_uuid = self._comment(pr_uuid, "Settled already", "app.py:2")
+        db.resolve_comment(resolved_uuid)
+        self._rewrite_away_line_two(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid])
+
+        assert result.exit_code == 0, result.output
+        assert "1 open comment thread(s) couldn't be re-anchored" in result.output
+        assert open_uuid in result.output
+        assert resolved_uuid not in result.output
+        assert f"claude-reviewer move {pr_uuid}" in result.output
+
+    def test_update_does_not_repeat_threads_orphaned_earlier(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+        self._comment(pr_uuid, "Why shout?", "app.py:2")
+        self._rewrite_away_line_two(repo)
+        CliRunner().invoke(main, ["update", pr_uuid])
+        _run_git(repo, ["commit", "-q", "--amend", "-m", "reworded"])
+
+        result = CliRunner().invoke(main, ["update", pr_uuid])
+
+        assert result.exit_code == 0, result.output
+        assert "couldn't be re-anchored" not in result.output
+
+    def test_comments_tags_an_orphaned_thread(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        self._comment(pr_uuid, "Why shout?", "app.py:2")
+        self._rewrite_away_line_two(repo)
+        CliRunner().invoke(main, ["update", pr_uuid])
+
+        text = CliRunner().invoke(main, ["comments", pr_uuid]).output
+        [as_json] = json.loads(
+            CliRunner().invoke(main, ["comments", pr_uuid, "-f", "json"]).output
+        )["comments"]
+
+        assert "[orphaned]" in text
+        assert as_json["status"] == "orphaned"
+
+    def test_move_reanchors_an_orphaned_thread(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        comment_uuid = self._comment(pr_uuid, "Why shout?", "app.py:2")
+        self._rewrite_away_line_two(repo)
+        CliRunner().invoke(main, ["update", pr_uuid])
+
+        result = CliRunner().invoke(main, ["move", pr_uuid, comment_uuid, "-l", "app.py:3"])
+
+        assert result.exit_code == 0, result.output
+        c = db.get_comment_by_uuid(comment_uuid)
+        assert c is not None
+        assert (c.file_path, c.line_number, c.end_line_number) == ("app.py", 3, 3)
+        assert c.status == CommentRelocationStatus.ACTIVE
+        assert (c.anchor_content, c.anchor_context_before) == ("four", "one\nthree")
+
+    def test_move_rejects_a_commit_message_comment(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        CliRunner().invoke(main, ["comment", pr_uuid, "reword", "--commit-message", "feature"])
+        [c] = db.get_comments(pr_uuid)
+
+        result = CliRunner().invoke(main, ["move", pr_uuid, c.uuid, "-l", "app.py:2"])
+
+        assert result.exit_code != 0
+        assert "Only line comments" in result.output
+
+    def test_move_rejects_another_prs_comment(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        other_uuid = self._create_pr(repo)
+        comment_uuid = self._comment(other_uuid, "Why shout?", "app.py:2")
+
+        result = CliRunner().invoke(main, ["move", pr_uuid, comment_uuid, "-l", "app.py:1"])
+
+        assert result.exit_code != 0
+        assert "not found on PR" in result.output
+
+    def test_move_validates_the_new_location(self, temp_db: Path, repo: Path) -> None:
+        pr_uuid = self._create_pr(repo)
+        comment_uuid = self._comment(pr_uuid, "Why shout?", "app.py:2")
+
+        result = CliRunner().invoke(main, ["move", pr_uuid, comment_uuid, "-l", "app.py:9"])
+
+        assert result.exit_code != 0
+        assert "no line 9" in result.output
+        c = db.get_comment_by_uuid(comment_uuid)
+        assert c is not None and c.line_number == 2
