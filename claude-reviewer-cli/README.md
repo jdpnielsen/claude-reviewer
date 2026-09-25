@@ -76,7 +76,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `show` | Show detailed PR information |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
-| `update [-t title] [-d description] [-b base] [-h head]` | Update PR diff after making changes; optionally retitle, rewrite the description, retarget the base branch, or repoint at a new head branch |
+| `update [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
 | `merge` | Merge an approved PR |
 | `serve` | Start the web UI |
 | `serve --check` | Report whether the web UI is reachable; starts nothing |
@@ -130,7 +130,8 @@ every comment.
 ### Update a PR
 
 `update` re-diffs `base_ref..head_ref` and resets the PR to `pending`. It can also
-edit the PR's title, description, base branch and head branch in the same call:
+edit the PR's title, description, base branch, head branch and repository in the
+same call:
 
 ```bash
 # Just pick up new commits
@@ -147,6 +148,9 @@ claude-reviewer update a1b2c3d4 --base develop
 
 # Repoint at a different head branch (re-diffs from it)
 claude-reviewer update a1b2c3d4 --head feature-v2
+
+# Move the PR to another checkout, e.g. after its worktree was removed
+claude-reviewer update a1b2c3d4 --repo ~/code/my-project
 ```
 
 `--description` replaces the body outright; omit it to keep the current one, or
@@ -154,7 +158,9 @@ pass `--description ""` to clear it. The web UI renders it as markdown, so
 headings, lists and fenced code blocks all come through.
 
 Both `--base` and `--head` are validated before anything is written, and the two
-can't name the same branch. Changing either re-runs comment relocation, so the
+can't name the same branch. `--repo` is saved as the PR's repository, so the web UI
+and later commands use it too; since a different checkout may not have the PR's
+branches, both are checked there even when they aren't changing. Changing either re-runs comment relocation, so the
 review thread follows the new diff where the old anchors can still be matched;
 comments whose lines no longer exist are marked as such rather than dropped.
 

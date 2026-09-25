@@ -647,8 +647,9 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
           <span>
             This PR&apos;s repository is no longer at <code>{pr.repo_path}</code> - most likely a
             worktree that has since been removed. Showing the last stored diff; syncing, per-commit
-            views and AI review need the checkout back. Use <strong>Delete</strong> to clear the PR
-            out.
+            views and AI review need the checkout back. If the branch is still in another checkout,{' '}
+            <code>claude-reviewer update {pr.uuid} --repo &lt;path&gt;</code> moves the PR there;
+            otherwise use <strong>Delete</strong> to clear it out.
           </span>
         </div>
       )}

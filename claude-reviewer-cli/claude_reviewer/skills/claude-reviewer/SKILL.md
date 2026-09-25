@@ -142,7 +142,7 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
-| `update <id> [-t title] [-d description] [-b base] [-h head]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them. `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. Refs are validated first, and base can't equal head. |
+| `update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them. `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. `-r` moves the PR to another checkout of its repo (saved as its `repo_path`), e.g. after its worktree was removed. Refs are validated first (both of them, in the new checkout, when `-r` moves it), and base can't equal head. |
 | `watch <id> [--until ...]` | Block until feedback arrives. Default `--until feedback_given`. |
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
 | `merge <id> [--delete-branch] [--no-push]` | Merge once approved. |
@@ -185,11 +185,11 @@ Full flag list: `claude-reviewer <command> --help`.
 - **PR's repository/worktree was deleted under it**: a PR created inside a throwaway
   worktree keeps pointing at that path, so once it's removed nothing git-backed works
   — no `update`, no `merge`, and the web UI shows the PR read-only with a banner
-  saying so. A PR's `repo_path` is fixed at `create` time and no flag rewrites it
-  (`update -r` only redirects that one invocation's git calls), so the fix is
-  `delete <id>` and, if the work still needs review, `create` again from a live
-  checkout. There's a Delete button on the PR page too, which works in this state.
-  Best avoided: clean the PR up when you tear its worktree down.
+  saying so. If the branch still exists in another checkout (the main clone, or a
+  fresh worktree), `update <id> -r <that checkout>` moves the PR there and keeps its
+  whole review thread. Only if the work is gone for good is the fix `delete <id>`
+  (there's a Delete button on the PR page too, which works in this state). Best
+  avoided: move or clean the PR up when you tear its worktree down.
 
 ## Multiple PRs / multiple agents at once
 

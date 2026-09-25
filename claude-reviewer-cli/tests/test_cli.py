@@ -801,3 +801,73 @@ class TestUpdateCommand:
         assert pr.base_ref == "main"
         assert pr.head_ref == "feature"
         assert db.get_latest_diff(pr_uuid) == "original diff"
+
+    def test_repo_moves_the_pr_to_another_checkout(
+        self, temp_db: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+        worktree = tmp_path / "worktree"
+        _run_git(repo, ["worktree", "add", "--detach", str(worktree), "main"])
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--repo", str(worktree)])
+
+        assert result.exit_code == 0, result.output
+        assert "Repository:" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.repo_path == str(worktree.resolve())
+        assert "feature.txt" in (db.get_latest_diff(pr_uuid) or "")
+
+    def test_repo_pointing_at_the_current_checkout_changes_nothing(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        pr_uuid = self._create_pr(repo)
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--repo", str(repo)])
+
+        assert result.exit_code == 0, result.output
+        assert "Repository:" not in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.repo_path == str(repo)
+
+    def test_repo_missing_the_prs_branches_is_rejected_without_moving_it(
+        self, temp_db: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        # Base and head are unchanged here, but a different checkout still has
+        # to have them - this one only has main.
+        pr_uuid = self._create_pr(repo)
+        other = tmp_path / "other"
+        other.mkdir()
+        _run_git(other, ["init", "-b", "main"])
+        _run_git(other, ["config", "user.email", "test@example.com"])
+        _run_git(other, ["config", "user.name", "Test User"])
+        _run_git(other, ["commit", "--allow-empty", "-m", "unrelated"])
+
+        result = CliRunner().invoke(main, ["update", pr_uuid, "--repo", str(other)])
+
+        assert result.exit_code != 0
+        assert "Head branch 'feature' not found" in result.output
+        pr = db.get_pr_by_uuid(pr_uuid)
+        assert pr is not None
+        assert pr.repo_path == str(repo)
+        assert db.get_latest_diff(pr_uuid) == "original diff"
+
+    def test_gone_checkout_suggests_repo_instead_of_a_traceback(
+        self, temp_db: Path, repo: Path, tmp_path: Path
+    ) -> None:
+        pr_uuid = db.create_pr(
+            repo_path=str(tmp_path / "removed-worktree"),
+            title="Orphaned",
+            base_ref="main",
+            head_ref="feature",
+            base_commit="a",
+            head_commit="b",
+            diff="original diff",
+        )
+
+        result = CliRunner().invoke(main, ["update", pr_uuid])
+
+        assert result.exit_code == 1
+        assert "Not a git repository" in result.output
+        assert "--repo" in result.output
