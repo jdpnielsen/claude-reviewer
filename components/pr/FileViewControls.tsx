@@ -13,50 +13,34 @@ interface FileViewControlsProps {
 
 // Expand/Collapse all files in the diff view. Scoped to the Files Changed tab,
 // so it lives in the tab bar next to the commit selector rather than the header.
+// The first of the tab bar's buttons to drop to icons as the viewport narrows -
+// see .toolbar-compact-1 in globals.css.
 export default function FileViewControls({
   onExpandAll,
   onCollapseAll,
   canExpand,
 }: FileViewControlsProps) {
   return (
-    <div style={{ display: 'flex', gap: '0.5rem' }}>
+    <div className="file-view-controls">
       <button
+        type="button"
+        className={`file-view-btn toolbar-compact-1 ${canExpand ? 'can-expand' : ''}`}
         onClick={onExpandAll}
         title="Expand All"
-        style={{
-          padding: '0.25rem 0.5rem',
-          background: '#21262d',
-          color: canExpand ? '#58a6ff' : '#8b949e',
-          fontSize: '0.75rem',
-          border: '1px solid #30363d',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.25rem',
-        }}
+        aria-label="Expand All"
       >
         <Maximize2 size={12} />
-        Expand All
+        <span className="toolbar-label">Expand All</span>
       </button>
       <button
+        type="button"
+        className="file-view-btn toolbar-compact-1"
         onClick={onCollapseAll}
         title="Collapse All"
-        style={{
-          padding: '0.25rem 0.5rem',
-          background: '#21262d',
-          color: '#8b949e',
-          fontSize: '0.75rem',
-          border: '1px solid #30363d',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.25rem',
-        }}
+        aria-label="Collapse All"
       >
         <Minimize2 size={12} />
-        Collapse All
+        <span className="toolbar-label">Collapse All</span>
       </button>
     </div>
   );

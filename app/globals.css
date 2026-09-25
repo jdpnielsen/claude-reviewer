@@ -1009,6 +1009,63 @@ textarea {
   color: #3fb950;
 }
 
+/* Expand/Collapse All, in the tab bar */
+.file-view-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.file-view-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: #21262d;
+  color: #8b949e;
+  font-size: 0.75rem;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-view-btn.can-expand {
+  color: #58a6ff;
+}
+
+/* The Files Changed tab bar stays on one line as the viewport narrows by
+   dropping button labels in stages - Expand/Collapse All first
+   (.toolbar-compact-1), then Autosquash preview and Mark commit reviewed
+   (.toolbar-compact-2) - leaving the icon, with the label still in the
+   button's title and aria-label. Past that it wraps. */
+@media (max-width: 1500px) {
+  .pr-tabbar-left {
+    gap: 0.5rem;
+  }
+
+  .toolbar-compact-1 .toolbar-label {
+    display: none;
+  }
+
+  .file-view-btn.toolbar-compact-1 {
+    padding: 0.375rem;
+  }
+}
+
+@media (max-width: 1320px) {
+  .toolbar-compact-2 .toolbar-label {
+    display: none;
+  }
+
+  .reviewed-toggle.toolbar-compact-2 {
+    padding: 0.375rem 0.5rem;
+  }
+
+  .commit-selector-trigger {
+    max-width: 220px;
+  }
+}
+
 /* Context Expansion Styles */
 .expand-context-divider {
   display: flex;

@@ -834,27 +834,33 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
               {data.repoAvailable && (hasFixupCommits || autosquashOn) && (
                 <button
                   type="button"
-                  className={`reviewed-toggle ${autosquashOn ? 'active' : ''}`}
+                  className={`reviewed-toggle toolbar-compact-2 ${autosquashOn ? 'active' : ''}`}
                   onClick={toggleAutosquash}
                   title={autosquashTooltip(autosquash, data.commits.length)}
+                  aria-label="Autosquash preview"
                 >
                   <Combine size={14} />
-                  Autosquash preview
+                  <span className="toolbar-label">Autosquash preview</span>
                 </button>
               )}
               {displayedCommitSha && (
                 <button
                   type="button"
-                  className={`reviewed-toggle ${isDisplayedCommitReviewed() ? 'active' : ''}`}
+                  className={`reviewed-toggle toolbar-compact-2 ${isDisplayedCommitReviewed() ? 'active' : ''}`}
                   onClick={toggleDisplayedCommitReviewed}
                   title={
                     isDisplayedCommitReviewed()
                       ? 'Marked reviewed - this commit message and every file it touches'
                       : "Mark this commit's message and every file it touches as reviewed"
                   }
+                  aria-label={
+                    isDisplayedCommitReviewed() ? 'Commit reviewed' : 'Mark commit reviewed'
+                  }
                 >
                   <CheckCheck size={14} />
-                  {isDisplayedCommitReviewed() ? 'Commit reviewed' : 'Mark commit reviewed'}
+                  <span className="toolbar-label">
+                    {isDisplayedCommitReviewed() ? 'Commit reviewed' : 'Mark commit reviewed'}
+                  </span>
                 </button>
               )}
             </>
