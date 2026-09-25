@@ -2736,3 +2736,19 @@ div.resolution-mode-badge {
 .add-author-form input {
   flex: 1;
 }
+
+/* The thread a "View in Files" link landed on - flashes so the eye finds it
+   among the diff, then settles back. */
+.inline-comment-collapsed.targeted {
+  animation: comment-targeted 2s ease-out;
+  border-radius: 6px;
+}
+
+@keyframes comment-targeted {
+  from {
+    box-shadow: 0 0 0 2px #1f6feb;
+  }
+  to {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}

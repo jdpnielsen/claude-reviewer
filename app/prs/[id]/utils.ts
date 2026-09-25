@@ -558,3 +558,28 @@ export const vscodeFileUrl = (repoPath: string, filePath: string, line: number):
   const path = `${repoPath.replace(/\/+$/, '')}/${filePath}`;
   return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}:${line}`;
 };
+
+// The DOM id a comment thread on the Files tab carries, so a link can name it
+// in its fragment.
+export const commentAnchorId = (commentUuid: string): string => `comment-${commentUuid}`;
+
+// Where a comment lives on the Files tab: the commit it was made against (so
+// the diff matches what the commenter saw), plus a fragment naming the
+// thread. A real URL rather than a click handler, so it can be opened in a
+// new tab or shared; the page reads the fragment back with
+// commentUuidFromHash when it loads.
+export const commentHref = (
+  prId: string,
+  commentUuid: string,
+  commitSha: string | null,
+): string => {
+  const query = commitSha ? `?commit=${encodeURIComponent(commitSha)}` : '';
+  return `/prs/${prId}${query}#${commentAnchorId(commentUuid)}`;
+};
+
+export const commentUuidFromHash = (hash: string): string | null => {
+  const prefix = `#${commentAnchorId('')}`;
+  return hash.startsWith(prefix) && hash.length > prefix.length
+    ? decodeURIComponent(hash.slice(prefix.length))
+    : null;
+};

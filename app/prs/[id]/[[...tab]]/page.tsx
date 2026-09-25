@@ -4,7 +4,7 @@ import { CheckCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryState } from 'nuqs';
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useRef, use } from 'react';
 
 import {
   useAddCommentMutation,
@@ -26,9 +26,17 @@ import {
   useUnmarkCommitReviewedMutation,
   useUnmarkFileReviewedMutation,
 } from '@/app/prs/[id]/queries';
-import type { CommentingAt, EditingComment, LastClickedLine, PRData } from '@/app/prs/[id]/types';
+import type {
+  Comment,
+  CommentingAt,
+  EditingComment,
+  LastClickedLine,
+  PRData,
+} from '@/app/prs/[id]/types';
 import {
   buildContextUrl,
+  commentAnchorId,
+  commentUuidFromHash,
   contextFileKey,
   findReviewedMark,
   findReviewedMessageMark,
@@ -45,6 +53,7 @@ import PRHeader from '@/components/pr/PRHeader';
 import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
+import { TargetedCommentContext } from '@/components/pr/TargetedCommentContext';
 import { apiClient, ApiError } from '@/lib/api-client';
 import {
   ChangeType,
@@ -93,9 +102,12 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const [showAllLines, setShowAllLines] = useState<Set<string>>(new Set());
   // Track collapsed folders in sidebar
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  // Set by jumpToFile (from the Conversation tab) so the scroll can happen
-  // once the Files tab has actually mounted - see the effect below.
-  const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null);
+  // Set by jumpToComment so the scroll can happen once the Files tab has
+  // actually mounted - see the effect below.
+  const [pendingScrollTarget, setPendingScrollTarget] = useState<Comment | null>(null);
+  // The thread the last "View in Files" link pointed at - highlighted and
+  // opened wherever it renders (see TargetedCommentContext).
+  const [targetedCommentUuid, setTargetedCommentUuid] = useState<string | null>(null);
   // Set when a `?commit=` link turned out to be stale (rebase/amend/force-push
   // rewrote it) and couldn't be redirected to where it ended up - see the
   // effect below.
@@ -297,11 +309,10 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     setCollapsedFiles(new Set(data.files.map((f) => f.path)));
   };
 
-  const scrollToDiff = (path: string) => {
-    const element = document.getElementById(`file-${path.replace(/[^a-zA-Z0-9]/g, '-')}`);
+  // Scroll within the main container, not the whole page
+  const scrollIntoMain = (element: Element | null) => {
     const mainContainer = document.querySelector('.pr-main');
     if (element && mainContainer) {
-      // Scroll within the main container, not the whole page
       const containerRect = mainContainer.getBoundingClientRect();
       const elementRect = element.getBoundingClientRect();
       const scrollTop = mainContainer.scrollTop + (elementRect.top - containerRect.top) - 20;
@@ -309,37 +320,57 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     }
   };
 
-  // Used by the Conversation tab's "View in Files" action - selects the
-  // commit the comment was made against (so the diff matches what the
-  // commenter actually saw), force-expands the target file (explicit
-  // override, same as toggleFile's expand branch), and defers the scroll
-  // until that commit's diff has finished loading.
-  //
-  // This is the one place that builds a URL and navigates directly instead
-  // of going through the per-field abstractions (nuqs setter, tab Links)
-  // used everywhere else: it needs to change both the path (back to Files)
-  // and the commit query in one shot, and nuqs's setter alone would only
-  // touch the query while leaving us on the Conversation path.
-  const jumpToFile = (filePath: string, commitSha: string | null) => {
-    setExpandedFiles((prev) => new Set(prev).add(filePath));
-    setCollapsedFiles((prev) => {
-      const next = new Set(prev);
-      next.delete(filePath);
-      return next;
-    });
-    setPendingScrollTarget(filePath);
-    router.replace(`/prs/${id}${commitSha ? `?commit=${encodeURIComponent(commitSha)}` : ''}`);
+  const scrollToDiff = (path: string) => {
+    scrollIntoMain(document.getElementById(`file-${path.replace(/[^a-zA-Z0-9]/g, '-')}`));
   };
 
+  // Run when a "View in Files" link (see CommentLink) is followed in this
+  // tab; the link itself does the navigating, to the commit the comment was
+  // made against. Force-expands the comment's file (explicit override, same
+  // as toggleFile's expand branch) and defers the scroll until that commit's
+  // diff has finished loading.
+  const jumpToComment = (comment: Comment) => {
+    if (comment.target_type === CommentTargetType.Line) {
+      const filePath = comment.file_path;
+      setExpandedFiles((prev) => new Set(prev).add(filePath));
+      setCollapsedFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(filePath);
+        return next;
+      });
+    }
+    setTargetedCommentUuid(comment.uuid);
+    setPendingScrollTarget(comment);
+  };
+
+  // The same jump for a link that loaded this page fresh - a new tab, a
+  // reload, a pasted URL - once the comment it names has loaded.
+  const handledCommentHash = useRef(false);
   useEffect(() => {
-    // Wait for a commit switch triggered by jumpToFile to actually land -
+    if (!data || handledCommentHash.current) return;
+    handledCommentHash.current = true;
+    const uuid = commentUuidFromHash(window.location.hash);
+    const item = uuid ? data.comments.find((c) => c.comment.uuid === uuid) : undefined;
+    if (item) jumpToComment(item.comment);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  useEffect(() => {
+    // Wait for a commit switch triggered by the link to actually land -
     // otherwise this can fire while the previous commit's files are still
     // rendered (keepPreviousData) and scroll to nothing, or the wrong file.
     if (activeTab !== 'files' || !pendingScrollTarget || prQuery.isFetching) return;
-    scrollToDiff(pendingScrollTarget);
+    // Falls back to the file when the thread isn't on screen, e.g. a large
+    // file whose comment sits past the lines shown by default.
+    const thread = document.getElementById(commentAnchorId(pendingScrollTarget.uuid));
+    if (thread) {
+      scrollIntoMain(thread);
+    } else {
+      scrollToDiff(pendingScrollTarget.file_path);
+    }
     setPendingScrollTarget(null);
     // Only re-run when the tab, pending target, or fetch state changes -
-    // scrollToDiff reads the DOM directly and isn't itself reactive state.
+    // the scroll reads the DOM directly and isn't itself reactive state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, pendingScrollTarget, prQuery.isFetching]);
 
@@ -732,126 +763,130 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
 
         {/* Main Diff View */}
         <div className="pr-main">
-          {activeTab === 'files' ? (
-            <>
-              {prQuery.isFetching && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    padding: '0.75rem 1rem',
-                    background: '#161b22',
-                    borderBottom: '1px solid #30363d',
-                    color: '#8b949e',
-                    fontSize: '0.8rem',
-                  }}
-                >
-                  <Loader2 size={14} className="animate-spin" />
-                  Loading commit diff...
-                </div>
-              )}
-              {displayedCommitSha &&
-                (() => {
-                  const commit = data.commits.find((c) => c.sha === displayedCommitSha);
-                  return commit ? (
-                    <CommitMessagePanel
-                      commit={commit}
-                      comments={getCommitMessageComments(displayedCommitSha)}
-                      isMessageReviewed={isDisplayedMessageReviewed()}
-                      toggleMessageReviewed={toggleDisplayedMessageReviewed}
-                      isCommenting={commentingOnCommitMessage}
-                      setIsCommenting={setCommentingOnCommitMessage}
-                      openCommitMessageComment={openCommitMessageComment}
-                      newComment={newComment}
-                      setNewComment={setNewComment}
-                      resolutionMode={resolutionMode}
-                      setResolutionMode={setResolutionMode}
-                      addComment={addCommitMessageComment}
-                      editingComment={editingComment}
-                      setEditingComment={setEditingComment}
-                      editComment={editComment}
-                      replyingTo={replyingTo}
-                      setReplyingTo={setReplyingTo}
-                      replyContent={replyContent}
-                      setReplyContent={setReplyContent}
-                      addReply={addReply}
-                      resolveComment={resolveComment}
-                      deleteComment={deleteComment}
-                    />
-                  ) : null;
-                })()}
-              {files.map((file) => (
-                <FileDiffCard
-                  key={file.path}
-                  file={file}
-                  diff={diff}
-                  fileComments={getFileComments(file.path)}
-                  commitSpecificComments={getCommitSpecificFileComments(file.path)}
-                  commits={data.commits}
-                  displayedCommitSha={displayedCommitSha}
-                  fileLineCount={
-                    fileLineCounts.get(contextFileKey(displayedCommitSha, file.path)) ?? null
-                  }
-                  repoPath={data.repoAvailable ? pr.repo_path : null}
-                  isReviewed={isFileReviewed(file.path)}
-                  toggleReviewed={() => toggleFileReviewed(file.path)}
-                  onJumpToFile={jumpToFile}
-                  isExpanded={effectiveExpandedFiles.has(file.path)}
-                  toggleFile={toggleFile}
-                  isPreview={previewMode.has(file.path)}
-                  togglePreview={togglePreview}
-                  showAllLines={showAllLines}
-                  setShowAllLines={setShowAllLines}
-                  expandedContext={expandedContext}
-                  loadingContext={loadingContext}
-                  fetchContext={fetchContext}
-                  commentingAt={commentingAt}
-                  setCommentingAt={setCommentingAt}
-                  openLineComment={openLineComment}
-                  lastClickedLine={lastClickedLine}
-                  setLastClickedLine={setLastClickedLine}
-                  isSelectingComment={isSelectingComment}
-                  setIsSelectingComment={setIsSelectingComment}
-                  newComment={newComment}
-                  setNewComment={setNewComment}
-                  resolutionMode={resolutionMode}
-                  setResolutionMode={setResolutionMode}
-                  addComment={addComment}
-                  editingComment={editingComment}
-                  setEditingComment={setEditingComment}
-                  editComment={editComment}
-                  replyingTo={replyingTo}
-                  setReplyingTo={setReplyingTo}
-                  replyContent={replyContent}
-                  setReplyContent={setReplyContent}
-                  addReply={addReply}
-                  resolveComment={resolveComment}
-                  deleteComment={deleteComment}
-                />
-              ))}
-            </>
-          ) : (
-            // PR-wide, deliberately not filtered by selectedCommit - the
-            // Conversation tab always shows every thread regardless of which
-            // commit is selected in the sidebar (see getFileComments above,
-            // which the Files tab uses instead).
-            <ConversationTab
-              comments={comments}
-              commits={data.commits}
-              onJumpToFile={jumpToFile}
-              editingComment={editingComment}
-              setEditingComment={setEditingComment}
-              editComment={editComment}
-              replyingTo={replyingTo}
-              setReplyingTo={setReplyingTo}
-              replyContent={replyContent}
-              setReplyContent={setReplyContent}
-              addReply={addReply}
-              resolveComment={resolveComment}
-              deleteComment={deleteComment}
-            />
-          )}
+          <TargetedCommentContext value={targetedCommentUuid}>
+            {activeTab === 'files' ? (
+              <>
+                {prQuery.isFetching && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.75rem 1rem',
+                      background: '#161b22',
+                      borderBottom: '1px solid #30363d',
+                      color: '#8b949e',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    <Loader2 size={14} className="animate-spin" />
+                    Loading commit diff...
+                  </div>
+                )}
+                {displayedCommitSha &&
+                  (() => {
+                    const commit = data.commits.find((c) => c.sha === displayedCommitSha);
+                    return commit ? (
+                      <CommitMessagePanel
+                        commit={commit}
+                        comments={getCommitMessageComments(displayedCommitSha)}
+                        isMessageReviewed={isDisplayedMessageReviewed()}
+                        toggleMessageReviewed={toggleDisplayedMessageReviewed}
+                        isCommenting={commentingOnCommitMessage}
+                        setIsCommenting={setCommentingOnCommitMessage}
+                        openCommitMessageComment={openCommitMessageComment}
+                        newComment={newComment}
+                        setNewComment={setNewComment}
+                        resolutionMode={resolutionMode}
+                        setResolutionMode={setResolutionMode}
+                        addComment={addCommitMessageComment}
+                        editingComment={editingComment}
+                        setEditingComment={setEditingComment}
+                        editComment={editComment}
+                        replyingTo={replyingTo}
+                        setReplyingTo={setReplyingTo}
+                        replyContent={replyContent}
+                        setReplyContent={setReplyContent}
+                        addReply={addReply}
+                        resolveComment={resolveComment}
+                        deleteComment={deleteComment}
+                      />
+                    ) : null;
+                  })()}
+                {files.map((file) => (
+                  <FileDiffCard
+                    key={file.path}
+                    file={file}
+                    diff={diff}
+                    fileComments={getFileComments(file.path)}
+                    commitSpecificComments={getCommitSpecificFileComments(file.path)}
+                    commits={data.commits}
+                    displayedCommitSha={displayedCommitSha}
+                    fileLineCount={
+                      fileLineCounts.get(contextFileKey(displayedCommitSha, file.path)) ?? null
+                    }
+                    repoPath={data.repoAvailable ? pr.repo_path : null}
+                    isReviewed={isFileReviewed(file.path)}
+                    toggleReviewed={() => toggleFileReviewed(file.path)}
+                    prId={id}
+                    onJumpToComment={jumpToComment}
+                    isExpanded={effectiveExpandedFiles.has(file.path)}
+                    toggleFile={toggleFile}
+                    isPreview={previewMode.has(file.path)}
+                    togglePreview={togglePreview}
+                    showAllLines={showAllLines}
+                    setShowAllLines={setShowAllLines}
+                    expandedContext={expandedContext}
+                    loadingContext={loadingContext}
+                    fetchContext={fetchContext}
+                    commentingAt={commentingAt}
+                    setCommentingAt={setCommentingAt}
+                    openLineComment={openLineComment}
+                    lastClickedLine={lastClickedLine}
+                    setLastClickedLine={setLastClickedLine}
+                    isSelectingComment={isSelectingComment}
+                    setIsSelectingComment={setIsSelectingComment}
+                    newComment={newComment}
+                    setNewComment={setNewComment}
+                    resolutionMode={resolutionMode}
+                    setResolutionMode={setResolutionMode}
+                    addComment={addComment}
+                    editingComment={editingComment}
+                    setEditingComment={setEditingComment}
+                    editComment={editComment}
+                    replyingTo={replyingTo}
+                    setReplyingTo={setReplyingTo}
+                    replyContent={replyContent}
+                    setReplyContent={setReplyContent}
+                    addReply={addReply}
+                    resolveComment={resolveComment}
+                    deleteComment={deleteComment}
+                  />
+                ))}
+              </>
+            ) : (
+              // PR-wide, deliberately not filtered by selectedCommit - the
+              // Conversation tab always shows every thread regardless of which
+              // commit is selected in the sidebar (see getFileComments above,
+              // which the Files tab uses instead).
+              <ConversationTab
+                comments={comments}
+                commits={data.commits}
+                prId={id}
+                onJumpToComment={jumpToComment}
+                editingComment={editingComment}
+                setEditingComment={setEditingComment}
+                editComment={editComment}
+                replyingTo={replyingTo}
+                setReplyingTo={setReplyingTo}
+                replyContent={replyContent}
+                setReplyContent={setReplyContent}
+                addReply={addReply}
+                resolveComment={resolveComment}
+                deleteComment={deleteComment}
+              />
+            )}
+          </TargetedCommentContext>
         </div>
       </div>
     </main>
