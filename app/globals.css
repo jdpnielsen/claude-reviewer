@@ -1840,26 +1840,16 @@ div.resolution-mode-badge {
   word-break: break-all;
 }
 
-/* Blue for the autosquash preview's standing "what am I looking at" note;
-   .warning switches it to .commit-notice's amber for the cases where the
-   preview can't be taken at face value. */
+/* The autosquash preview's warnings, for the cases where it can't be taken
+   at face value - in .commit-notice's amber. */
 .autosquash-notice {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
   padding: 0.75rem 1rem;
   margin: 0.75rem 1rem;
-  border: 1px solid #1f6feb;
+  border: 1px solid #d29922;
   border-radius: 6px;
-  background: rgba(31, 111, 235, 0.1);
-  color: #79c0ff;
-  font-size: 0.8125rem;
-}
-
-.autosquash-notice.warning {
-  border-color: #d29922;
   background: rgba(210, 153, 34, 0.1);
   color: #d29922;
+  font-size: 0.8125rem;
 }
 
 .autosquash-notice code,

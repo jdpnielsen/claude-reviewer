@@ -45,7 +45,7 @@ import {
   statusConfig,
 } from '@/app/prs/[id]/utils';
 import { useConfirm } from '@/components/ConfirmDialog';
-import AutosquashNotice from '@/components/pr/AutosquashNotice';
+import AutosquashNotice, { autosquashTooltip } from '@/components/pr/AutosquashNotice';
 import CommitMessagePanel from '@/components/pr/CommitMessagePanel';
 import CommitSelector from '@/components/pr/CommitSelector';
 import ConversationTab from '@/components/pr/ConversationTab';
@@ -836,11 +836,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   type="button"
                   className={`reviewed-toggle ${autosquashOn ? 'active' : ''}`}
                   onClick={toggleAutosquash}
-                  title={
-                    autosquashOn
-                      ? 'Back to the branch as it is'
-                      : 'Preview the branch with its fixup!/amend!/squash! commits folded in, as rebase -i --autosquash would leave it'
-                  }
+                  title={autosquashTooltip(autosquash, data.commits.length)}
                 >
                   <Combine size={14} />
                   Autosquash preview
@@ -891,9 +887,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
           <TargetedCommentContext value={targetedCommentUuid}>
             {activeTab === 'files' ? (
               <>
-                {autosquash && (
-                  <AutosquashNotice view={autosquash} originalCount={data.commits.length} />
-                )}
+                {autosquash && <AutosquashNotice view={autosquash} />}
                 {prQuery.isFetching && (
                   <div
                     style={{
