@@ -37,6 +37,7 @@ import {
   buildContextUrl,
   commentAnchorId,
   commentUuidFromHash,
+  commitFullMessage,
   contextFileKey,
   findReviewedMark,
   findReviewedMessageMark,
@@ -63,6 +64,7 @@ import {
   ReviewAction,
 } from '@/lib/enum';
 import { useAuthorsQuery } from '@/lib/queries/authors';
+import { insertSuggestion } from '@/lib/suggestions';
 
 export default function PRPage({ params }: { params: Promise<{ id: string; tab?: string[] }> }) {
   const { id, tab } = use(params);
@@ -456,6 +458,40 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
     setReplyingTo(null);
   };
 
+  // "Insert suggestion" in a reply form, seeded - like a new comment's - with
+  // the lines a suggestion there would replace: the comment's range as it
+  // reads at the commit it was made against (head for the cumulative view),
+  // or the whole commit message. Fetched rather than read from the diff on
+  // screen, since the Conversation tab has no diff and the Files tab may be
+  // showing a different commit than the comment's.
+  const insertReplySuggestion = async (comment: Comment) => {
+    let seedLines: string[];
+    if (comment.target_type === CommentTargetType.CommitMessage) {
+      const commit = data?.commits.find((c) => c.sha === comment.commit_sha);
+      if (!commit) return;
+      seedLines = commitFullMessage(commit).split('\n');
+    } else {
+      try {
+        const context = await apiClient.get<{ lines: string[] }>(
+          buildContextUrl(
+            id,
+            comment.file_path,
+            comment.line_number,
+            comment.end_line_number,
+            comment.commit_sha,
+          ),
+        );
+        seedLines = context.lines;
+      } catch (e) {
+        // Nothing to seed with - an empty fence would read as "delete these
+        // lines", so insert nothing rather than that.
+        console.error('Failed to fetch suggestion lines:', e);
+        return;
+      }
+    }
+    setReplyContent((prev) => insertSuggestion(prev, seedLines));
+  };
+
   const resolveComment = (commentUuid: string, resolved: boolean) => {
     if (!data) return;
     resolveCommentMutation.mutate({ uuid: commentUuid, resolved });
@@ -808,6 +844,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                         replyContent={replyContent}
                         setReplyContent={setReplyContent}
                         addReply={addReply}
+                        insertReplySuggestion={insertReplySuggestion}
                         resolveComment={resolveComment}
                         deleteComment={deleteComment}
                       />
@@ -859,6 +896,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                     replyContent={replyContent}
                     setReplyContent={setReplyContent}
                     addReply={addReply}
+                    insertReplySuggestion={insertReplySuggestion}
                     resolveComment={resolveComment}
                     deleteComment={deleteComment}
                   />
@@ -882,6 +920,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                 replyContent={replyContent}
                 setReplyContent={setReplyContent}
                 addReply={addReply}
+                insertReplySuggestion={insertReplySuggestion}
                 resolveComment={resolveComment}
                 deleteComment={deleteComment}
               />

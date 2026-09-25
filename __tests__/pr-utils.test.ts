@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import type { FileInfo } from '../app/prs/[id]/types';
+import type { Comment, CommitInfo, FileInfo } from '../app/prs/[id]/types';
 import {
   buildContextUrl,
+  canSuggestOn,
   commentHref,
   commentUuidFromHash,
+  commitFullMessage,
   contextCacheKey,
   findAnchorMatchInDiff,
   getCrossSideRange,
@@ -19,7 +21,7 @@ import {
   shouldCollapseByDefault,
   vscodeFileUrl,
 } from '../app/prs/[id]/utils';
-import { ChangeType, LineType } from '../lib/enum';
+import { ChangeType, CommentTargetType, LineType } from '../lib/enum';
 
 describe('getRangeTextFromDiff', () => {
   const diffLines = [
@@ -525,5 +527,39 @@ describe('commentUuidFromHash', () => {
     expect(commentUuidFromHash('')).toBeNull();
     expect(commentUuidFromHash('#comment-')).toBeNull();
     expect(commentUuidFromHash('#file-a-ts')).toBeNull();
+  });
+});
+
+describe('commitFullMessage', () => {
+  const commit = (message: string, body: string): CommitInfo => ({
+    sha: 'abc',
+    shortSha: 'abc',
+    message,
+    body,
+    author: 'a',
+    date: '',
+  });
+
+  it('joins subject and body with a blank line', () => {
+    expect(commitFullMessage(commit('feat: x', 'Why.\n'))).toBe('feat: x\n\nWhy.');
+  });
+
+  it('is just the subject when there is no body', () => {
+    expect(commitFullMessage(commit('feat: x', '  \n'))).toBe('feat: x');
+  });
+});
+
+describe('canSuggestOn', () => {
+  const at = (target_type: CommentTargetType, line_type: LineType) =>
+    ({ target_type, line_type }) as Comment;
+
+  it('allows a commit message or an added-side line', () => {
+    expect(canSuggestOn(at(CommentTargetType.CommitMessage, LineType.New))).toBe(true);
+    expect(canSuggestOn(at(CommentTargetType.Line, LineType.New))).toBe(true);
+  });
+
+  it('refuses a removed line or a review summary', () => {
+    expect(canSuggestOn(at(CommentTargetType.Line, LineType.Old))).toBe(false);
+    expect(canSuggestOn(at(CommentTargetType.ReviewSummary, LineType.New))).toBe(false);
   });
 });

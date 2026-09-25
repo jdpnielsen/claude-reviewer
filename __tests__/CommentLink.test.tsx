@@ -84,6 +84,7 @@ describe('CollapsibleCommentThread as a link target', () => {
           replyContent=""
           setReplyContent={noop}
           addReply={noop}
+          insertReplySuggestion={noop}
         />
       </TargetedCommentContext>,
     );

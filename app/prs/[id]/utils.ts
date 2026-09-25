@@ -1,8 +1,15 @@
 import { CheckCircle, Clock, GitMerge, XCircle } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 
-import type { FileInfo, FolderNode, ReviewedMark, ReviewedMessageMark } from './types';
-import { LineType } from '@/lib/enum';
+import type {
+  Comment,
+  CommitInfo,
+  FileInfo,
+  FolderNode,
+  ReviewedMark,
+  ReviewedMessageMark,
+} from './types';
+import { CommentTargetType, LineType } from '@/lib/enum';
 
 // Cmd+Enter (macOS) or Ctrl+Enter (elsewhere) submits a comment form from its
 // textarea, mirroring GitHub's convention, without swallowing a plain Enter
@@ -583,3 +590,16 @@ export const commentUuidFromHash = (hash: string): string | null => {
     ? decodeURIComponent(hash.slice(prefix.length))
     : null;
 };
+
+// A commit's whole message - subject, then body if it has one - as the
+// commit message panel shows it and a suggestion on it replaces it.
+export const commitFullMessage = (commit: CommitInfo): string =>
+  commit.body.trim() ? `${commit.message}\n\n${commit.body.trim()}` : commit.message;
+
+// Whether a suggested change has anything to replace: the lines of a
+// commit message, or the added side of a line comment. A removed line (an
+// old-side comment) no longer exists in the file, and a review summary
+// isn't anchored to anything.
+export const canSuggestOn = (comment: Comment): boolean =>
+  comment.target_type === CommentTargetType.CommitMessage ||
+  (comment.target_type === CommentTargetType.Line && comment.line_type !== LineType.Old);
