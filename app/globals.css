@@ -377,6 +377,7 @@ textarea {
 .commit-message-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   /* The reviewed-toggle plus the sha/author line don't always fit a narrow
      viewport - wrapping keeps the button reachable instead of pushing it
      off the edge. */
@@ -387,8 +388,48 @@ textarea {
   margin-bottom: 0.5rem;
 }
 
-.commit-message-author {
-  margin-left: auto;
+.commit-message-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* .commit-sha right-aligns itself for the file/thread rows it's used in;
+   here it sits in a left-aligned group. */
+.commit-message-meta .commit-sha {
+  margin-left: 0;
+}
+
+.copyable-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.copyable-text:hover {
+  color: #58a6ff;
+}
+
+.copyable-text-icon {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.copyable-text:hover .copyable-text-icon,
+.copyable-text:focus-visible .copyable-text-icon,
+.copyable-text.copied .copyable-text-icon {
+  opacity: 1;
+}
+
+.copyable-text.copied .copyable-text-icon {
+  color: #3fb950;
 }
 
 .commit-message-body {
