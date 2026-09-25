@@ -20,7 +20,7 @@ from .database import (
     upsert_commit_relocation,
 )
 from .git_ops import CommitCorrespondence, compute_commit_correspondence, get_file_at_commit
-from .models import Comment, CommentRelocationStatus, CommentRelocationUpdate
+from .models import Comment, CommentAnchor, CommentRelocationStatus, CommentRelocationUpdate
 
 _SEARCH_RADIUS = 50
 
@@ -84,6 +84,37 @@ def _blob_ref(commit_sha: str | None, base: str, head: str, line_type: str) -> s
     if commit_sha:
         return f"{commit_sha}^" if line_type == "old" else commit_sha
     return base if line_type == "old" else head
+
+
+def capture_anchor(
+    repo_path: str | Path,
+    commit_sha: str | None,
+    base: str,
+    head: str,
+    line_type: str,
+    file_path: str,
+    line_number: int,
+) -> CommentAnchor | None:
+    """The anchor for a new comment, read from the blob its line_number is
+    measured against - mirrors lib/comment-anchor.ts's captureAnchor. None if
+    the file or line doesn't exist there.
+    """
+    content = get_file_at_commit(repo_path, _blob_ref(commit_sha, base, head, line_type), file_path)
+    if content is None:
+        return None
+    lines = content.split("\n")
+    # The file's trailing newline isn't a line of its own; left in, a comment
+    # one past the last line would anchor to an empty string.
+    if lines and lines[-1] == "":
+        lines.pop()
+    idx = line_number - 1
+    if idx < 0 or idx >= len(lines):
+        return None
+    return CommentAnchor(
+        content=lines[idx],
+        context_before="\n".join(lines[max(0, idx - 3) : idx]),
+        context_after="\n".join(lines[idx + 1 : idx + 4]),
+    )
 
 
 def _resolve_renamed_path(

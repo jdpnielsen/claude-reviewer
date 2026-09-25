@@ -23,7 +23,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from . import database as db
-from .comment_relocation import relocate_comments
+from .comment_relocation import capture_anchor, relocate_comments
 from .git_ops import GitOps
 from .models import (
     Comment,
@@ -53,6 +53,9 @@ def print_comment(
     resolved_note = " [dim]\\[resolved][/dim]" if c.resolved else ""
     # Only flagged for the non-default modes, so the common "just fix it"
     # case stays uncluttered - see CommentResolutionMode.
+    author_note = (
+        f" [green]\\[by {c.author or 'agent'}][/green]" if c.author_kind == "agent" else ""
+    )
     mode_note = {
         CommentResolutionMode.DISCUSS: " [yellow]\\[discuss][/yellow]",
         CommentResolutionMode.FIX_IF_AGREED: " [yellow]\\[fix-if-agreed][/yellow]",
@@ -73,7 +76,7 @@ def print_comment(
         )
         location = f"[cyan]{c.file_path}:{line_ref}[/cyan]"
     console.print(
-        f"{indent}{location}{side_note}{commit_note}{mode_note}{resolved_note}  "
+        f"{indent}{location}{side_note}{commit_note}{author_note}{mode_note}{resolved_note}  "
         f"[dim]· {c.uuid}[/dim]",
         highlight=False,
     )
@@ -109,6 +112,8 @@ def _comment_json(c: Comment, replies: list[CommentReply]) -> dict[str, Any]:
         "resolved": c.resolved,
         "resolution_mode": c.resolution_mode.value,
         "review_action": c.review_action,
+        "author": c.author,
+        "author_kind": c.author_kind,
         "replies": [{"author": r.author, "text": r.content} for r in replies],
     }
 
@@ -1107,6 +1112,163 @@ def reply(pr_id: str, comment_uuid: str, message: str, author: str) -> None:
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+
+
+_LOCATION_RE = re.compile(r"^(?P<path>.+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
+_MODE_CHOICES = {
+    "fix": CommentResolutionMode.FIX,
+    "discuss": CommentResolutionMode.DISCUSS,
+    "fix-if-agreed": CommentResolutionMode.FIX_IF_AGREED,
+}
+
+
+@main.command()
+@click.argument("pr_id")
+@click.argument("message")
+@click.option(
+    "--line",
+    "-l",
+    "location",
+    help="Where to comment, as FILE:LINE or FILE:START-END (the format `comments` prints)",
+)
+@click.option("--old", is_flag=True, help="LINE is on the diff's old (deleted) side")
+@click.option(
+    "--commit",
+    "-c",
+    "commit_ref",
+    help="Comment on this commit's own diff instead of the whole PR's",
+)
+@click.option(
+    "--commit-message",
+    "message_ref",
+    help="Comment on this commit's message instead of a line",
+)
+@click.option(
+    "--mode",
+    type=click.Choice(list(_MODE_CHOICES)),
+    default="fix",
+    help="How the comment should be handled (default: fix)",
+)
+@click.option(
+    "--author",
+    "-a",
+    default="claude",
+    help="Author: 'claude' (default agent, default value), 'me' (default human), or a registered author name",
+)
+def comment(
+    pr_id: str,
+    message: str,
+    location: str | None,
+    old: bool,
+    commit_ref: str | None,
+    message_ref: str | None,
+    mode: str,
+    author: str,
+) -> None:
+    """Leave a review comment on a PR, shown as written by an agent.
+
+    Give either --line (a line in the diff) or --commit-message (a commit's
+    message).
+    """
+    pr = db.get_pr_by_uuid(pr_id)
+    if not pr:
+        console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
+        sys.exit(1)
+
+    if bool(location) == bool(message_ref):
+        console.print("[red]Error: Give exactly one of --line or --commit-message[/red]")
+        sys.exit(1)
+    if message_ref and (old or commit_ref):
+        console.print("[red]Error: --old and --commit only apply to a --line comment[/red]")
+        sys.exit(1)
+
+    try:
+        git = GitOps(pr.repo_path)
+    except ValueError:
+        console.print(f"[red]Error: Not a git repository: {pr.repo_path}[/red]")
+        sys.exit(1)
+
+    pr_commits = {c["sha"] for c in git.get_commits_between(pr.base_commit, pr.head_commit)}
+
+    def resolve_pr_commit(ref: str) -> str:
+        sha = git.resolve_ref(ref)
+        if sha not in pr_commits:
+            console.print(f"[red]Error: '{ref}' is not one of this PR's commits[/red]")
+            sys.exit(1)
+        return sha
+
+    try:
+        if message_ref:
+            comment_uuid = db.add_comment(
+                pr.uuid,
+                "",
+                0,
+                message,
+                end_line_number=0,
+                commit_sha=resolve_pr_commit(message_ref),
+                target_type="commit_message",
+                resolution_mode=_MODE_CHOICES[mode],
+                author=author,
+            )
+            where = f"commit message of {message_ref}"
+        else:
+            assert location is not None
+            match = _LOCATION_RE.match(location)
+            if not match:
+                console.print(
+                    f"[red]Error: --line must be FILE:LINE or FILE:START-END, got '{location}'[/red]"
+                )
+                sys.exit(1)
+            file_path = match["path"]
+            start = int(match["start"])
+            end = int(match["end"] or start)
+            if start < 1 or end < start:
+                console.print(f"[red]Error: Invalid line range in '{location}'[/red]")
+                sys.exit(1)
+
+            commit_sha = resolve_pr_commit(commit_ref) if commit_ref else None
+            line_type = "old" if old else "new"
+            diff_range = (
+                f"{commit_sha}^..{commit_sha}"
+                if commit_sha
+                else f"{pr.base_commit}...{pr.head_commit}"
+            )
+            # --no-renames lists a renamed file under both its old and new
+            # path, so either side's path is found.
+            changed = git.repo.git.diff("--no-renames", "--name-only", diff_range).splitlines()
+            if file_path not in changed:
+                console.print(f"[red]Error: {file_path} isn't changed in this diff[/red]")
+                sys.exit(1)
+
+            anchor_args = (pr.repo_path, commit_sha, pr.base_commit, pr.head_commit, line_type)
+            anchor = capture_anchor(*anchor_args, file_path, start)
+            if anchor is None or capture_anchor(*anchor_args, file_path, end) is None:
+                side = "old" if old else "new"
+                console.print(
+                    f"[red]Error: {file_path} has no line {end if anchor else start} "
+                    f"on the {side} side[/red]"
+                )
+                sys.exit(1)
+
+            comment_uuid = db.add_comment(
+                pr.uuid,
+                file_path,
+                start,
+                message,
+                line_type=line_type,
+                end_line_number=end,
+                commit_sha=commit_sha,
+                resolution_mode=_MODE_CHOICES[mode],
+                anchor=anchor,
+                author=author,
+            )
+            where = location
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+
+    console.print(f"[green]Comment added on {where}[/green]")
+    console.print(f"[dim]Comment ID: {comment_uuid}[/dim]")
 
 
 @main.group()

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 
+import AuthorBadge from './AuthorBadge';
 import CommentThread from './CommentThread';
 import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
 import type { CommentWithReplies, CommitInfo, EditingComment } from '@/app/prs/[id]/types';
@@ -112,6 +113,7 @@ export default function ThreadRow({
             )}
           </span>
         )}
+        <AuthorBadge comment={comment} />
         {comment.resolution_mode !== CommentResolutionMode.Fix && (
           <span className={`resolution-mode-badge resolution-mode-${comment.resolution_mode}`}>
             {RESOLUTION_MODE_LABELS[comment.resolution_mode]}

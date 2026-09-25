@@ -31,8 +31,7 @@ class CommentRelocationStatus(str, Enum):
 
 class CommentResolutionMode(str, Enum):
     """How the commenter expects their feedback to be handled - set once
-    when the comment is written (from the web UI; the CLI never creates
-    comments itself), and surfaced via `comments`/`comments -f json` so
+    when the comment is written, and surfaced via `comments`/`comments -f json` so
     Claude doesn't always treat a comment as a mandate to change code."""
 
     FIX = "fix"
@@ -85,6 +84,22 @@ class Comment:
     # every other comment. The CLI never creates one of these itself; reviews
     # are only submitted from the web UI.
     review_action: Optional[str] = None
+    # Who wrote the comment: "agent" for an AI review or `claude-reviewer
+    # comment`, otherwise "human". author is None for a comment written before
+    # comments had authors.
+    author: Optional[str] = None
+    author_kind: str = "human"
+
+
+@dataclass
+class CommentAnchor:
+    """A line's content plus up to 3 lines of context either side, captured
+    when a comment is written - what relocate_comments() searches for once a
+    rebase/amend moves the line."""
+
+    content: str
+    context_before: str
+    context_after: str
 
 
 @dataclass

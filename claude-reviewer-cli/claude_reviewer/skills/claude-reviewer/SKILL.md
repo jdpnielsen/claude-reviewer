@@ -1,6 +1,6 @@
 ---
 name: claude-reviewer
-description: Run a local, offline PR review cycle with the claude-reviewer CLI instead of pushing straight to a GitHub PR. Use this whenever the user asks to "open/create a claude-reviewer PR," "get this reviewed locally," "check the review status/comments," "address the review feedback," "update the PR," or "merge the PR" — or whenever you've just finished a feature branch and need a human review checkpoint before it goes further. Covers create/watch/comments/reply/update/merge plus the web UI (serve/stop) and multi-agent usage. Requires the `claude-reviewer` CLI (pip install claude-reviewer) and a git repo on a feature branch (not main).
+description: Run a local, offline PR review cycle with the claude-reviewer CLI instead of pushing straight to a GitHub PR. Use this whenever the user asks to "open/create a claude-reviewer PR," "get this reviewed locally," "check the review status/comments," "address the review feedback," "update the PR," or "merge the PR" — or whenever you've just finished a feature branch and need a human review checkpoint before it goes further. Covers create/watch/comments/comment/reply/update/merge plus the web UI (serve/stop) and multi-agent usage. Requires the `claude-reviewer` CLI (pip install claude-reviewer) and a git repo on a feature branch (not main).
 ---
 
 # claude-reviewer: local PR review cycle
@@ -105,6 +105,25 @@ tag at all) and as a `resolution_mode` field with `-f json`:
 Only `fix` should ever be treated as an unconditional mandate. Getting a `discuss` or
 `fix-if-agreed` comment right is worth more than getting to `update` faster.
 
+### Leaving your own review comments
+
+`comment` writes a review comment the web UI marks as an AI review, so it's never
+mistaken for the reviewer's own. Use it to point the reviewer at something specific -
+a trade-off you made, a spot you're unsure about - or, if you're the one reviewing
+someone else's PR, for the review itself:
+
+```bash
+claude-reviewer comment a1b2c3d4 "Kept the retry loop sync; async needs a wider change" -l src/client.py:40-52
+claude-reviewer comment a1b2c3d4 "Was this intentional?" -l src/client.py:12 --old --mode discuss
+claude-reviewer comment a1b2c3d4 "Say why, not what" --commit-message 3f2a1bc
+```
+
+`-l` takes `file:line` or `file:start-end` on the diff's new side (`--old` for the
+deleted side); add `-c <sha>` to comment on one commit's diff instead of the whole
+PR's. The file must be changed in that diff and the lines must exist. In `comments`
+output your comments are tagged `[by claude]` (`author_kind: "agent"` in JSON). Don't
+"address" one of those yourself: until someone replies, it's waiting on the reviewer.
+
 ### If asked to iterate without blocking
 
 `watch` parks the terminal until something changes, which is right when a human is
@@ -139,7 +158,8 @@ it uses `--dangerously-skip-permissions` under the hood.
 | `list [-s status] [--all]` | List PRs (current repo only unless `--all`). |
 | `status <id>` | `pending` / `approved` / `changes_requested` / `merged` / `closed`. |
 | `show <id>` | Full PR detail + diff preview. |
-| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
+| `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`) and agent-written comments (`[by claude]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
+| `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha) [--mode m] [-a author]` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review. Anchored like a web UI comment, so `update` relocates it. `--mode` is `fix` (default), `discuss` or `fix-if-agreed`; `-a` defaults to `claude`. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
 | `update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them. `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. `-r` moves the PR to another checkout of its repo (saved as its `repo_path`), e.g. after its worktree was removed. Refs are validated first (both of them, in the new checkout, when `-r` moves it), and base can't equal head. |

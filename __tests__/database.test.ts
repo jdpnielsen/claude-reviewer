@@ -50,6 +50,7 @@ import {
 import {
   AuthorKind,
   CommentRelocationStatus,
+  CommentResolutionMode,
   CommentTargetType,
   LineType,
   PullRequestStatus,
@@ -222,6 +223,43 @@ describe('Database Module', () => {
 
       expect(commentUuid).toBeDefined();
       expect(commentUuid.length).toBe(8);
+    });
+
+    test('a comment reads as the human unless an agent wrote it', () => {
+      const humanUuid = addComment(prUuid, 'authored.py', 1, 'by the reviewer');
+      const agentUuid = addComment(
+        prUuid,
+        'authored.py',
+        2,
+        'by claude',
+        LineType.New,
+        2,
+        null,
+        CommentTargetType.Line,
+        null,
+        null,
+        null,
+        CommentResolutionMode.Fix,
+        null,
+        AuthorKind.Agent,
+      );
+      // A row from before author_id existed, or from an older CLI.
+      const legacyUuid = addComment(prUuid, 'authored.py', 3, 'legacy');
+      getDatabase().prepare('UPDATE comments SET author_id = NULL WHERE uuid = ?').run(legacyUuid);
+
+      const byUuid = new Map(
+        getComments(prUuid, { filePath: 'authored.py' }).map((c) => [c.uuid, c]),
+      );
+      expect(byUuid.get(humanUuid)).toMatchObject({
+        author: getDefaultHumanAuthor().name,
+        author_kind: AuthorKind.Human,
+      });
+      expect(byUuid.get(agentUuid)).toMatchObject({
+        author: 'claude',
+        author_kind: AuthorKind.Agent,
+      });
+      expect(byUuid.get(legacyUuid)).toMatchObject({ author: null, author_kind: AuthorKind.Human });
+      for (const uuid of [humanUuid, agentUuid, legacyUuid]) deleteComment(uuid);
     });
 
     test('addComment throws for non-existent PR', () => {

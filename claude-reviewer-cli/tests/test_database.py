@@ -357,6 +357,46 @@ class TestComments:
         assert comment_uuid is not None
         assert len(comment_uuid) == 8
 
+    def test_comment_author_column_is_added_to_an_older_database(self, temp_db: Path) -> None:
+        """A comments table from before author_id gains it, and its rows read as the human."""
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        comment_uuid = db.add_comment(uuid, "src/app.py", 1, "old comment")
+        with db.get_connection() as conn:
+            conn.execute("ALTER TABLE comments DROP COLUMN author_id")
+
+        db.init_db(temp_db)
+
+        [comment] = db.get_comments(uuid)
+        assert comment.uuid == comment_uuid
+        assert comment.author is None
+        assert comment.author_kind == "human"
+
+    def test_add_comment_records_its_author(self, temp_db: Path) -> None:
+        uuid = db.create_pr(
+            repo_path="/repo",
+            title="PR",
+            base_ref="main",
+            head_ref="f",
+            base_commit="a",
+            head_commit="b",
+            diff="d",
+        )
+        db.add_comment(uuid, "src/app.py", 1, "mine")
+        db.add_comment(uuid, "src/app.py", 2, "claude's", author="claude")
+
+        kinds = {c.content: (c.author, c.author_kind) for c in db.get_comments(uuid)}
+
+        assert kinds["mine"] == (db.get_default_human_author().name, "human")
+        assert kinds["claude's"] == ("claude", "agent")
+
     def test_add_comment_stores_commit_sha(self, temp_db: Path) -> None:
         """Test that commit_sha defaults to None and can be set."""
         uuid = db.create_pr(

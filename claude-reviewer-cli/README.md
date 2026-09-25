@@ -74,6 +74,7 @@ claude-reviewer merge a1b2c3d4 --push
 | `status` | Check PR status |
 | `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes; a review summary appears here too, as an "approved" or "changes requested" comment |
 | `show` | Show detailed PR information |
+| `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha)` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
 | `update [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
@@ -125,7 +126,28 @@ Each comment carries a resolution mode set by the reviewer in the web UI: `fix` 
 default - no tag shown), `discuss` (tagged `[discuss]` - don't change code yet, reply
 first), or `fix_if_agreed` (tagged `[fix-if-agreed]` - implement it if you agree,
 otherwise reply with why not). The JSON format includes it as `resolution_mode` on
-every comment.
+every comment, plus `author`/`author_kind` (`"agent"` for a comment Claude wrote,
+tagged `[by claude]` in the text format).
+
+### Leave a Comment
+
+```bash
+# On a line or range of the PR's diff (new side)
+claude-reviewer comment a1b2c3d4 "Kept this sync on purpose" -l src/client.py:40-52
+
+# On the deleted side, as a question
+claude-reviewer comment a1b2c3d4 "Was this intentional?" -l src/client.py:12 --old --mode discuss
+
+# On one commit's own diff, or on its message
+claude-reviewer comment a1b2c3d4 "Split this out?" -l src/client.py:40 -c 3f2a1bc
+claude-reviewer comment a1b2c3d4 "Say why, not what" --commit-message 3f2a1bc
+```
+
+The web UI marks these as an AI review. The file must be changed in the diff being
+commented on, and the lines must exist on the chosen side. The comment's anchor is
+captured the same way the web UI's is, so `update` relocates it across a rebase.
+`--mode` takes `fix` (default), `discuss` or `fix-if-agreed`, and `-a` defaults to
+`claude` (`-a me` or `-a <name>` for another registered author).
 
 ### Update a PR
 

@@ -41,6 +41,7 @@ from .git_ops import get_global_git_user
 from .models import (
     Author,
     Comment,
+    CommentAnchor,
     CommentRelocationStatus,
     CommentRelocationUpdate,
     CommentReply,
@@ -122,6 +123,7 @@ CREATE TABLE IF NOT EXISTS comments (
     anchor_context_before TEXT,
     anchor_context_after TEXT,
     status TEXT NOT NULL DEFAULT 'active',
+    author_id INTEGER REFERENCES authors(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -306,6 +308,7 @@ def init_db(db_path: Path | None = None) -> None:
         _migrate_comments_paired_range(conn)
         _migrate_comments_resolution_mode(conn)
         _migrate_comments_review_action(conn)
+        _migrate_comments_author(conn)
 
 
 def _rebuild_reply_tables_if_pre_authors(conn: sqlite3.Connection) -> None:
@@ -490,6 +493,22 @@ def _migrate_comments_resolution_mode(conn: sqlite3.Connection) -> None:
                 raise
 
 
+def _migrate_comments_author(conn: sqlite3.Connection) -> None:
+    """Add author_id for databases created before a comment could be written
+    by an agent.
+
+    Left NULL on every pre-existing row rather than backfilled, which reads as
+    the human (see _COMMENT_SELECT) - true of nearly all of them.
+    """
+    columns = conn.execute("PRAGMA table_info(comments)").fetchall()
+    if not any(col["name"] == "author_id" for col in columns):
+        try:
+            conn.execute("ALTER TABLE comments ADD COLUMN author_id INTEGER REFERENCES authors(id)")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+
+
 def _row_to_pr(row: sqlite3.Row) -> PullRequest:
     """Convert a database row to a PullRequest object."""
     return PullRequest(
@@ -531,7 +550,20 @@ def _row_to_comment(row: sqlite3.Row) -> Comment:
         created_at=row["created_at"],
         paired_line_number=row["paired_line_number"],
         paired_end_line_number=row["paired_end_line_number"],
+        author=row["author"],
+        author_kind=row["author_kind"],
     )
+
+
+# Every comment read goes through this, so author/author_kind are always
+# filled in. LEFT JOIN, not JOIN: author_id is NULL on a comment written before
+# the column existed, or by a web UI that predates it, and those read as the
+# human.
+_COMMENT_SELECT = """
+    SELECT c.*, a.name AS author, COALESCE(a.kind, 'human') AS author_kind
+    FROM comments c
+    LEFT JOIN authors a ON a.id = c.author_id
+"""
 
 
 def _row_to_author(row: sqlite3.Row) -> Author:
@@ -806,10 +838,18 @@ def add_comment(
     target_type: str = "line",
     resolution_mode: CommentResolutionMode = CommentResolutionMode.FIX,
     review_action: str | None = None,
+    anchor: CommentAnchor | None = None,
+    author: str = "me",
 ) -> str:
-    """Add a comment to a PR and return its UUID."""
+    """Add a comment to a PR and return its UUID.
+
+    `author` takes the same values as add_reply's. `anchor` is what
+    relocate_comments() searches for after a rebase/amend - see
+    capture_anchor.
+    """
     comment_uuid = generate_uuid()
     resolved_end_line = end_line_number if end_line_number is not None else line_number
+    author_id = _resolve_author_id(author)
 
     with get_connection() as conn:
         pr = conn.execute(
@@ -822,8 +862,12 @@ def add_comment(
 
         conn.execute(
             """
-            INSERT INTO comments (uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type, line_type, content, resolution_mode, review_action)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO comments (
+                uuid, pr_id, file_path, line_number, end_line_number, commit_sha, target_type,
+                line_type, content, resolution_mode, review_action, anchor_content,
+                anchor_context_before, anchor_context_after, author_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 comment_uuid,
@@ -837,6 +881,10 @@ def add_comment(
                 content,
                 resolution_mode.value,
                 review_action,
+                anchor.content if anchor else None,
+                anchor.context_before if anchor else None,
+                anchor.context_after if anchor else None,
+                author_id,
             ),
         )
 
@@ -864,17 +912,17 @@ def get_comments(
         if not pr:
             return []
 
-        query = "SELECT * FROM comments WHERE pr_id = ?"
+        query = f"{_COMMENT_SELECT} WHERE c.pr_id = ?"
         params: list[Any] = [pr["id"]]
 
         if unresolved_only:
-            query += " AND resolved = FALSE"
+            query += " AND c.resolved = FALSE"
 
         if file_path:
-            query += " AND file_path = ?"
+            query += " AND c.file_path = ?"
             params.append(file_path)
 
-        query += " ORDER BY file_path, line_number"
+        query += " ORDER BY c.file_path, c.line_number"
 
         rows = conn.execute(query, params).fetchall()
         return [_row_to_comment(row) for row in rows]
@@ -1267,7 +1315,7 @@ def get_comment_by_uuid(comment_uuid: str) -> Comment | None:
     """Get a comment by its UUID."""
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM comments WHERE uuid = ?",
+            f"{_COMMENT_SELECT} WHERE c.uuid = ?",
             (comment_uuid,),
         ).fetchone()
 
@@ -1558,7 +1606,8 @@ def get_unanswered_conversations(
 def get_unanswered_pr_comments(
     repo_path: str | None = None,
 ) -> list[tuple[PullRequest, Comment, list[CommentReply]]]:
-    """Get PR comments where the last reply is not from Claude (or no replies yet).
+    """Get PR comments where the last word - the last reply, or the comment
+    itself if it has none - is not from an agent.
 
     Returns tuples of (PR, Comment, Replies) for comments needing a response.
     Watches ALL PRs including merged ones (users may still leave comments).
@@ -1571,10 +1620,10 @@ def get_unanswered_pr_comments(
     for pr in prs:
         comments_with_replies = get_comments_with_replies(pr.uuid)
         for comment, replies in comments_with_replies:
-            # Comment needs response if:
-            # 1. No replies at all, OR
-            # 2. Last reply is not from Claude
-            if not replies or replies[-1].author_kind != "agent":
+            # An agent's own comment with no replies yet is waiting on the
+            # reviewer, not on Claude.
+            last_word_kind = replies[-1].author_kind if replies else comment.author_kind
+            if last_word_kind != "agent":
                 unanswered.append((pr, comment, replies))
 
     return unanswered

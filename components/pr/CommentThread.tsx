@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from 'react';
 
+import AuthorBadge from './AuthorBadge';
 import { CodeHighlight } from './CodeBlock';
 import { RESOLUTION_MODE_LABELS } from './ResolutionModeSelect';
 import type { CommentWithReplies, EditingComment } from '@/app/prs/[id]/types';
@@ -63,6 +64,11 @@ export default function CommentThread({
         </div>
       ) : (
         <>
+          {c.author_kind === AuthorKind.Agent && (
+            <div className="comment-author">
+              <AuthorBadge comment={c} />
+            </div>
+          )}
           {c.resolution_mode !== CommentResolutionMode.Fix && (
             <div className={`resolution-mode-badge resolution-mode-${c.resolution_mode}`}>
               {RESOLUTION_MODE_LABELS[c.resolution_mode]}
