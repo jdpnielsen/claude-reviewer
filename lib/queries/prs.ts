@@ -13,6 +13,9 @@ export interface PullRequest {
   status: PullRequestStatus;
   created_at: string;
   updated_at: string;
+  // null when the PR's checkout is gone, so the count can't be read from git.
+  commit_count: number | null;
+  unresolved_count: number;
 }
 
 export const prsQueryKey = (status: string) => ['prs', { status }] as const;

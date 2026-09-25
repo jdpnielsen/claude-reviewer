@@ -65,6 +65,18 @@ export function isRepoAvailable(repoPath: string): boolean {
 }
 
 /**
+ * Count the commits in `baseCommit..headCommit` - the same range listCommits
+ * walks, without reading every commit's message just to take a length.
+ */
+export function countCommits(repoPath: string, baseCommit: string, headCommit: string): number {
+  const output = execFileSync('git', ['rev-list', '--count', `${baseCommit}..${headCommit}`], {
+    cwd: resolveRepoPath(repoPath),
+    encoding: 'utf-8',
+  });
+  return parseInt(output.trim(), 10);
+}
+
+/**
  * List the commits in `baseCommit..headCommit`, oldest-first (`--reverse`)
  * so callers can render/step through them in the order they were authored.
  */

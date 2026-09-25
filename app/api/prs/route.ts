@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { listPRs, createPR, getPRByUuid, toPublicPR } from '@/lib/database';
-import { GitManager } from '@/lib/git';
+import {
+  listPRs,
+  createPR,
+  getPRByUuid,
+  getUnresolvedCommentCounts,
+  toPublicPR,
+} from '@/lib/database';
+import type { PullRequest } from '@/lib/database';
+import { GitManager, countCommits, isRepoAvailable } from '@/lib/git';
+
+// null when it can't be answered - the checkout is gone, or a commit the PR
+// was stored against no longer exists in it - so the list shows nothing
+// rather than a wrong number, and one broken PR can't fail the whole listing.
+function commitCountOrNull(pr: PullRequest): number | null {
+  if (!isRepoAvailable(pr.repo_path)) return null;
+  try {
+    return countCommits(pr.repo_path, pr.base_commit, pr.head_commit);
+  } catch {
+    return null;
+  }
+}
 
 // GET /api/prs - List all PRs
 export async function GET(req: NextRequest) {
@@ -15,7 +34,15 @@ export async function GET(req: NextRequest) {
 
     const prs = listPRs({ repoPath, status, limit, excludeClosed });
 
-    return NextResponse.json({ prs: prs.map(toPublicPR) });
+    const unresolved = getUnresolvedCommentCounts(prs.map((pr) => pr.id));
+
+    return NextResponse.json({
+      prs: prs.map((pr) => ({
+        ...toPublicPR(pr),
+        commit_count: commitCountOrNull(pr),
+        unresolved_count: unresolved.get(pr.id) ?? 0,
+      })),
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

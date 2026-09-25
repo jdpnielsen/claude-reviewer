@@ -1,6 +1,15 @@
 'use client';
 
-import { GitPullRequest, Clock, CheckCircle, XCircle, GitMerge, Filter } from 'lucide-react';
+import {
+  GitPullRequest,
+  GitCommit,
+  MessageSquare,
+  Clock,
+  CheckCircle,
+  XCircle,
+  GitMerge,
+  Filter,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -91,6 +100,18 @@ export default function Home() {
                         {pr.base_ref} ← {pr.head_ref}
                       </span>
                       <span className="pr-repo">{getRepoName(pr.repo_path)}</span>
+                      {pr.commit_count !== null && (
+                        <span className="pr-count" title="Commits">
+                          <GitCommit size={14} />
+                          {pr.commit_count} {pr.commit_count === 1 ? 'commit' : 'commits'}
+                        </span>
+                      )}
+                      {pr.unresolved_count > 0 && (
+                        <span className="pr-count" title="Open conversation threads">
+                          <MessageSquare size={14} />
+                          {pr.unresolved_count} open
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -203,9 +224,17 @@ export default function Home() {
 
         .pr-meta {
           display: flex;
-          gap: 1rem;
+          flex-wrap: wrap;
+          align-items: baseline;
+          gap: 0.25rem 1rem;
           font-size: 0.875rem;
           color: #8b949e;
+        }
+
+        /* Wrap whole items onto the next line rather than breaking the text
+           inside them. */
+        .pr-meta > * {
+          white-space: nowrap;
         }
 
         .pr-id {

@@ -226,6 +226,12 @@ textarea {
   font-size: 0.875rem;
 }
 
+.pr-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .branch-info {
   font-family: monospace;
   background: #21262d;
