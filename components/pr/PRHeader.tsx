@@ -15,6 +15,7 @@ import Link from 'next/link';
 
 import CollapsibleDescription from './CollapsibleDescription';
 import type { PullRequest } from '@/app/prs/[id]/types';
+import CopyableText from '@/components/CopyableText';
 import { PullRequestStatus } from '@/lib/enum';
 
 interface PRHeaderProps {
@@ -205,8 +206,15 @@ export default function PRHeader({
 
       <div className="pr-meta">
         <span>#{pr.uuid}</span>
+        {/* Target first, as GitHub reads it: "merge into base from head". */}
         <span className="branch-info">
-          {pr.head_ref} → {pr.base_ref}
+          <CopyableText text={pr.base_ref} title="Copy branch name">
+            {pr.base_ref}
+          </CopyableText>{' '}
+          ←{' '}
+          <CopyableText text={pr.head_ref} title="Copy branch name">
+            {pr.head_ref}
+          </CopyableText>
         </span>
       </div>
 

@@ -88,7 +88,7 @@ export default function Home() {
                     <div className="pr-meta">
                       <span className="pr-id">#{pr.uuid}</span>
                       <span className="pr-branch">
-                        {pr.head_ref} → {pr.base_ref}
+                        {pr.base_ref} ← {pr.head_ref}
                       </span>
                       <span className="pr-repo">{getRepoName(pr.repo_path)}</span>
                     </div>

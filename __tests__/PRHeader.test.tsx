@@ -4,10 +4,12 @@
  * both shell out to git in the repo, so they have to be disabled; Close and
  * Delete are database-only and must stay usable, since Delete is the only way
  * such a PR can be cleared out at all - plus that the description renders as
- * markdown rather than as one flat paragraph.
+ * markdown rather than as one flat paragraph, and that the branch info reads
+ * target-first with both branches copyable.
  */
 import { render, screen, fireEvent } from '@testing-library/react';
 import { GitPullRequest } from 'lucide-react';
+import { vi } from 'vitest';
 
 import type { PullRequest } from '@/app/prs/[id]/types';
 import PRHeader from '@/components/pr/PRHeader';
@@ -116,5 +118,17 @@ describe('PRHeader', () => {
     const { container } = renderHeader(true);
 
     expect(container.querySelector('.pr-description')).toBeNull();
+  });
+
+  test('branch info reads target first, and clicking either branch copies it', () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const { container } = renderHeader(true);
+
+    expect(container.querySelector('.branch-info')?.textContent).toBe('main ← feature');
+    fireEvent.click(screen.getByRole('button', { name: 'feature' }));
+    expect(writeText).toHaveBeenCalledWith('feature');
+    fireEvent.click(screen.getByRole('button', { name: 'main' }));
+    expect(writeText).toHaveBeenCalledWith('main');
   });
 });
