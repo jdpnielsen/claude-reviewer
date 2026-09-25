@@ -548,3 +548,13 @@ export const buildContextUrl = (
   if (commitSha) params.set('commit', commitSha);
   return `/api/prs/${prId}/context?${params.toString()}`;
 };
+
+// A link VS Code's URL handler opens straight to a file on disk, so no
+// server-side launcher is needed. It points into the PR's checkout, i.e. the
+// working tree rather than any one commit, so `line` is only a starting point
+// when the diff on screen is older than head. Segments are encoded one by one
+// so a `#` or `?` in a file name can't end the path early.
+export const vscodeFileUrl = (repoPath: string, filePath: string, line: number): string => {
+  const path = `${repoPath.replace(/\/+$/, '')}/${filePath}`;
+  return `vscode://file${path.split('/').map(encodeURIComponent).join('/')}:${line}`;
+};

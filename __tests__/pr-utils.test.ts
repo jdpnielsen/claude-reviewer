@@ -15,6 +15,7 @@ import {
   parseFileDiffMeta,
   parseHunkRanges,
   shouldCollapseByDefault,
+  vscodeFileUrl,
 } from '../app/prs/[id]/utils';
 import { ChangeType, LineType } from '../lib/enum';
 
@@ -485,5 +486,19 @@ describe('parseFileDiffMeta', () => {
 
   it('flags a binary file', () => {
     expect(parseFileDiffMeta(extendedHeaderDiff, 'logo.png').binary).toBe(true);
+  });
+});
+
+describe('vscodeFileUrl', () => {
+  it('joins the checkout and file path, ending at the line', () => {
+    expect(vscodeFileUrl('/work/repo/', 'src/a.ts', 12)).toBe(
+      'vscode://file/work/repo/src/a.ts:12',
+    );
+  });
+
+  it('encodes each path segment, so # and ? stay part of the name', () => {
+    expect(vscodeFileUrl('/my repo', 'app/[id]/a#b?.ts', 1)).toBe(
+      'vscode://file/my%20repo/app/%5Bid%5D/a%23b%3F.ts:1',
+    );
   });
 });

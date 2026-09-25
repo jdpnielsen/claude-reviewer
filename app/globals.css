@@ -942,7 +942,8 @@ textarea {
   color: #8b949e;
 }
 
-.preview-toggle {
+.preview-toggle,
+.open-in-editor {
   display: flex;
   align-items: center;
   gap: 0.375rem;
@@ -956,9 +957,14 @@ textarea {
   transition: all 0.15s;
 }
 
-.preview-toggle:hover {
+.preview-toggle:hover,
+.open-in-editor:hover {
   background: #30363d;
   color: #c9d1d9;
+}
+
+.open-in-editor {
+  text-decoration: none;
 }
 
 .preview-toggle.active {

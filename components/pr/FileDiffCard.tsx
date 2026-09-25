@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Code,
+  ExternalLink,
   Eye,
   File,
   GitCommit,
@@ -39,6 +40,7 @@ import {
   parseFileDiff,
   parseFileDiffMeta,
   parseHunkRanges,
+  vscodeFileUrl,
 } from '@/app/prs/[id]/utils';
 import { ChangeType, CommentResolutionMode, LineType } from '@/lib/enum';
 
@@ -62,6 +64,9 @@ interface FileDiffCardProps {
   // can expand downwards - nothing else can tell the client where the file
   // ends, since a diff only describes the parts that changed.
   fileLineCount: number | null;
+  // The PR's checkout on disk, for the "open in editor" link; null when it's
+  // no longer there.
+  repoPath: string | null;
   isReviewed: boolean;
   toggleReviewed: () => void;
   onJumpToFile: (filePath: string, commitSha: string | null) => void;
@@ -106,6 +111,7 @@ export default function FileDiffCard({
   commits,
   displayedCommitSha,
   fileLineCount,
+  repoPath,
   isReviewed,
   toggleReviewed,
   onJumpToFile,
@@ -209,6 +215,16 @@ export default function FileDiffCard({
             {isPreview ? <Code size={14} /> : <Eye size={14} />}
             {isPreview ? 'Raw' : 'Preview'}
           </button>
+        )}
+        {repoPath && file.changeType !== ChangeType.Deleted && (
+          <a
+            className="open-in-editor"
+            href={vscodeFileUrl(repoPath, file.path, parseHunkRanges(diffLines)[0]?.newStart || 1)}
+            title="Open in VS Code, at the first change"
+          >
+            <ExternalLink size={14} />
+            Open
+          </a>
         )}
         <button
           type="button"
