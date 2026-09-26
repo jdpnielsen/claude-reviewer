@@ -413,6 +413,42 @@ class GitOps:
                 "message": str(e),
             }
 
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """Whether `ancestor` is reachable from `descendant` (a commit counts
+        as its own ancestor). False, too, when either ref doesn't resolve."""
+        try:
+            self.repo.git.merge_base("--is-ancestor", ancestor, descendant)
+            return True
+        except GitCommandError:
+            return False
+
+    def fork_point(self, upstream: str, branch: str) -> str | None:
+        """Where `branch` forked from `upstream`, consulting upstream's reflog
+        so it still finds the old tip after upstream was amended or rebased.
+        None when the reflog no longer has it (expired, or a fresh clone)."""
+        try:
+            return str(self.repo.git.merge_base("--fork-point", upstream, branch)).strip() or None
+        except GitCommandError:
+            return None
+
+    def rebase_onto(self, new_base: str, upstream: str, branch: str) -> GitResult:
+        """Replay the commits on `branch` after `upstream` onto `new_base`
+        (`git rebase --onto`), leaving `branch` checked out. Aborts on a
+        conflict, so a failure leaves the branch exactly where it was."""
+        try:
+            self.repo.git.rebase("--onto", new_base, upstream, branch)
+            return {
+                "success": True,
+                "message": f"Rebased {branch} onto {new_base}",
+            }
+        except GitCommandError as e:
+            with contextlib.suppress(GitCommandError):
+                self.repo.git.rebase("--abort")
+            return {
+                "success": False,
+                "message": str(e),
+            }
+
     def has_uncommitted_changes(self) -> bool:
         """Check if there are uncommitted changes."""
         return bool(self.repo.is_dirty(untracked_files=True))
