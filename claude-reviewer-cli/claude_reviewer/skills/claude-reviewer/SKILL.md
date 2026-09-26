@@ -183,19 +183,20 @@ it uses `--dangerously-skip-permissions` under the hood.
 
 | Command | What it does |
 |---|---|
-| `create -t "Title" [-d description] [-b base] [-h head]` | Open a PR from the current diff. Base/head auto-detect if omitted. `-d` takes markdown, which the web UI renders. |
-| `list [-s status] [--all]` | List PRs (current repo only unless `--all`). |
+| `create -t "Title" [-d description] [-b base] [-h head]` | Open a PR from the current diff. Base/head auto-detect if omitted: when the head branch was cut from another open PR's branch, the new PR stacks on it (see Stacked PRs below), otherwise it targets the default branch. `-d` takes markdown, which the web UI renders. |
+| `list [-s status] [--all]` | List PRs (current repo only unless `--all`), with stacked PRs nested under their parent. |
 | `status <id>` | `pending` / `approved` / `changes_requested` / `merged` / `closed`. |
-| `show <id>` | Full PR detail + diff preview. |
+| `show <id>` | Full PR detail + diff preview, plus the PR's stack if it's in one - flagging any PR that `needs restack`. |
 | `comments <id> [--unresolved] [-f json]` | Inline comments as `file:line` + text; renders/reports a suggested change if present; tags non-default resolution modes (`[discuss]`/`[fix-if-agreed]`) agent-written comments (`[by claude]`), ones `update` couldn't re-anchor (`[orphaned]`), and ones made in the web UI's autosquash preview (`[sha, autosquash preview]`). A review's summary appears here too, tagged "changes requested" or "approved" - `reply` to it like any other comment. |
 | `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha) [--mode m] [-a author]` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review. Anchored like a web UI comment, so `update` relocates it. `--mode` is `fix` (default), `discuss` or `fix-if-agreed`; `-a` defaults to `claude`. |
 | `move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a line comment where its code is now, for a thread `update` reported it couldn't follow. Validated like `comment`'s `-l`. |
 | `reply <id> <comment-uuid> "text" [-a author]` | Explain what you did about a comment. `-a` defaults to `claude`; use `-a me` to reply as the configured human reviewer instead, or `-a <name>` for any other registered author. |
 | `authors list` / `add <name> --kind human\|agent` / `edit <name>` / `remove <name>` / `set-default <name>` | Manage the roster of reviewer/agent identities replies get attributed to. |
-| `update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them, and lists any open thread it couldn't re-anchor (see below). `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. `-r` moves the PR to another checkout of its repo (saved as its `repo_path`), e.g. after its worktree was removed. Refs are validated first (both of them, in the new checkout, when `-r` moves it), and base can't equal head. |
+| `update <id> [-t title] [-d description] [-b base] [-h head] [-r repo]` | Re-diff after new commits; resets status to pending. Relocates comments and the web UI's "reviewed" marks onto rewritten SHAs, so a rebase/amend doesn't reset them, and lists any open thread it couldn't re-anchor (see below). `-t` retitles the PR and `-d` replaces its description (markdown, rendered in the web UI - omit to keep the current one, `-d ""` to clear it). `-b` retargets it at a new base branch, `-h` repoints it at a new head branch; either re-diffs and relocates. Warns when PRs stacked on this one are left on its old commits (run `restack`). `-r` moves the PR to another checkout of its repo (saved as its `repo_path`), e.g. after its worktree was removed. Refs are validated first (both of them, in the new checkout, when `-r` moves it), and base can't equal head. |
 | `watch <id> [--until ...]` | Block until feedback arrives. Default `--until feedback_given`. |
 | `watch-all [--fix] [--once]` | Auto-respond to every unanswered PR comment + Browse conversation. |
-| `merge <id> [--delete-branch] [--no-push]` | Merge once approved. |
+| `merge <id> [--delete-branch] [--no-push]` | Merge once approved. Refuses a PR stacked on another open PR (merge bottom-up), or one whose stacked PRs need restacking. PRs stacked directly on it are retargeted at its base branch and re-diffed, keeping their review status when the diff is unchanged. |
+| `restack <id> [-r repo]` | Rebase every PR stacked above `<id>` onto its parent's current branch (top-down, `git rebase --onto` from each PR's recorded fork point), re-diff them and relocate their comments. `<id>` itself doesn't move. Needs a clean working tree; stops and leaves the branch untouched on a conflict. A restacked PR keeps its review status if its diff is unchanged. |
 | `close <id>` / `delete <id>` | Abandon a PR without merging / wipe it entirely. |
 | `serve [--local\|--dev] [-p port]` | Start the web UI (default port 41729). Only ever suggest this to the human, don't run it yourself. |
 | `serve --check [-p port]` | Report whether the web UI is reachable; exits 0/1, starts nothing. Safe to run yourself. |
@@ -229,6 +230,8 @@ Full flag list: `claude-reviewer <command> --help`.
   fresh branch and you want the existing review to follow it.
 - **Merge refuses**: only `approved` PRs merge. If status is still `pending`, nobody
   has reviewed it yet; if `changes_requested`, address the comments and `update` first.
+  A stacked PR also can't merge before the PR it's stacked on, and a PR can't merge
+  while PRs stacked on it still need a `restack`.
 - **Comments reference a deleted line**: old-side comments anchor to the diff's
   "before" tree, which may no longer exist in the working tree — `comments` still
   shows the right `file:line`, trust that over grepping the current file.
@@ -262,3 +265,25 @@ git worktree per branch so `create`/`update` don't race on uncommitted changes i
 shared working tree. Remember that the PR outlives the worktree, and its recorded
 repo path can't be moved afterwards: merge or `delete` each PR before tearing its
 worktree down.
+
+## Stacked PRs
+
+When a change is big enough to split into reviewable steps that build on each other,
+stack them: each PR's base is the previous PR's branch. Nothing extra is recorded - a
+PR's parent is simply the open PR whose head branch is its base branch.
+
+```bash
+git checkout -b feat/schema main   # ...commit...
+claude-reviewer create -t "Schema"           # base: main
+git checkout -b feat/api           # ...commit...
+claude-reviewer create -t "API"              # auto-detected: stacks on feat/schema
+```
+
+- **Addressing feedback on a lower PR**: amend/fixup its branch, `update` it, then
+  `restack <that pr>` to rebase everything above it onto the new commits. `update`
+  and `show` both flag PRs that need it. Don't rebase the upper branches by hand onto
+  the new tip - `git rebase <parent>` replays the parent's old commits too.
+- **Merging**: bottom-up only. Merging the bottom PR retargets the next one at the
+  base branch automatically, so it's then mergeable in turn.
+- **Opting out**: pass `-b main` to `create` to target the default branch even though
+  your branch sits on another PR's.

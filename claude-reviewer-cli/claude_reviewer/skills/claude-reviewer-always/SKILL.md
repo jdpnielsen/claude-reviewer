@@ -49,7 +49,9 @@ a merged mistake isn't.
 3. **Is there already an open PR for this branch?** `claude-reviewer list -s pending`
    and `claude-reviewer list -s changes_requested` (both auto-scope to the current
    repo). If one exists, don't ask to create a new one — say so and offer to `update`
-   the existing PR instead.
+   the existing PR instead. If the new work is a *separate step built on top of* an
+   open PR's branch (you branched off it), offer a stacked PR instead: `create`
+   stacks it on that PR automatically, so each step gets reviewed on its own.
 4. **Is the change actually committed?** claude-reviewer diffs `base..head` from git,
    not the working tree. Commit first if you haven't.
 
