@@ -289,9 +289,10 @@ def relocate_comments(
     durable `commit_relocations` map, and the web UI's per-commit reviewed
     marks (files and commit messages alike) - after a sync (rebase/amend/force-push) changed those SHAs and/or
     shifted line content. Called from every place that rewrites
-    `pull_requests.head_commit`/`base_commit` in the CLI (the `update`
-    command and its two AI-auto-sync call sites in cli.py) with the OLD
-    commit range (captured just before the overwrite) and the NEW one.
+    `pull_requests.head_commit`/`base_commit` in the CLI - all of which go
+    through cli.py's `_rediff_pr` (`update`, `restack`, retargeting stacked
+    PRs on `merge`, and the AI auto-syncs) - with the OLD commit range
+    (captured just before the overwrite) and the NEW one.
 
     No-op sync (nothing actually changed) is skipped entirely - this runs on
     every auto-sync after an AI edit, most of which find no new commits.

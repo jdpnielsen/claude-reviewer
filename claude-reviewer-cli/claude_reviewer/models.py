@@ -55,6 +55,18 @@ class PullRequest:
     updated_at: Optional[datetime] = None
 
 
+OPEN_PR_STATUSES = (PRStatus.PENDING, PRStatus.APPROVED, PRStatus.CHANGES_REQUESTED)
+
+
+@dataclass
+class StackEntry:
+    """One PR's place in a stack, as get_stack() flattens it: depth-first from
+    the root, depth 0 being the PR whose base isn't another open PR's head."""
+
+    pr: PullRequest
+    depth: int
+
+
 @dataclass
 class Comment:
     id: int

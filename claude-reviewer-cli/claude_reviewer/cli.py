@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import webbrowser
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -27,6 +28,7 @@ from . import database as db
 from .comment_relocation import capture_anchor, relocate_comments
 from .git_ops import GitOps
 from .models import (
+    OPEN_PR_STATUSES,
     Comment,
     CommentAnchor,
     CommentRelocationStatus,
@@ -36,10 +38,21 @@ from .models import (
     PullRequest,
     RepoConversation,
     RepoConversationMessage,
+    StackEntry,
+    UpdatePRDiffResult,
 )
 from .suggestions import ProseSegment, parse_comment
 
 console = Console()
+
+# GitHub-style status colors
+STATUS_COLORS = {
+    PRStatus.PENDING: "#d29922",  # GitHub yellow
+    PRStatus.APPROVED: "#3fb950",  # GitHub green
+    PRStatus.CHANGES_REQUESTED: "#f85149",  # GitHub red
+    PRStatus.MERGED: "#a371f7",  # GitHub purple
+    PRStatus.CLOSED: "#8b949e",  # GitHub gray
+}
 
 
 def print_comment(
@@ -175,6 +188,132 @@ def get_review_url(pr_uuid: str | None = None, port: int = 41729) -> str:
     return f"{base}/prs/{pr_uuid}" if pr_uuid else base
 
 
+def _rediff_pr(
+    pr: PullRequest, git: GitOps, repo_path: str
+) -> tuple[UpdatePRDiffResult, list[Comment]]:
+    """Re-diff a PR's current base_ref/head_ref into a new revision and move its
+    comments along with it, returning the new revision plus the comments that
+    couldn't be re-anchored. Leaves status alone - whether a new revision
+    needs re-review is the caller's call."""
+    diff = git.get_diff(pr.base_ref, pr.head_ref)
+    head_commit = git.get_commit_sha(pr.head_ref)
+    base_commit = git.get_commit_sha(pr.base_ref)
+    result = db.update_pr_diff(pr.uuid, diff, head_commit, base_commit)
+    orphaned = relocate_comments(
+        pr.uuid, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
+    )
+    return result, orphaned
+
+
+def _rediff_keeping_review(pr: PullRequest, git: GitOps, repo_path: str) -> bool:
+    """Re-diff a PR that moved without its own changes changing - restacked
+    onto its parent, or retargeted after its parent merged. Keeps its review
+    status when the diff comes out identical (the reviewer has already seen
+    exactly this), otherwise resets it to pending. Returns whether it reset."""
+    previous_diff = db.get_latest_diff(pr.uuid)
+    _rediff_pr(pr, git, repo_path)
+    if db.get_latest_diff(pr.uuid) == previous_diff:
+        return False
+    db.update_pr_status(pr.uuid, PRStatus.PENDING)
+    return True
+
+
+def _detect_default_base(git: GitOps, repo_path: Path) -> str:
+    """The repo's default branch: origin's HEAD, else a conventionally named
+    local branch, else "main"."""
+    remote_info = subprocess.run(
+        ["git", "remote", "show", "origin"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,  # Don't raise on error, just continue to next method
+    ).stdout
+    for line in remote_info.split("\n"):
+        if "HEAD branch:" in line:
+            remote_default = line.split(":")[1].strip()
+            if remote_default:
+                return remote_default
+
+    local_branches = git.get_branches()
+    for name in ["main", "master", "trunk", "development"]:
+        if name in local_branches:
+            return name
+
+    return "main"
+
+
+def _detect_stack_parent(
+    git: GitOps, repo_path: str, head_ref: str, default_base: str
+) -> PullRequest | None:
+    """The open PR whose branch `head_ref` was cut from, so a new PR stacks on
+    it rather than on the default branch. Of several (a chain a <- b <- head),
+    the nearest one: the candidate every other candidate is an ancestor of.
+    A PR branch with nothing beyond the default branch doesn't count - every
+    branch descends from that, so it'd match anything."""
+    candidates = [
+        p
+        for p in db.list_open_prs(repo_path)
+        if p.head_ref not in (head_ref, default_base)
+        and git.resolve_ref(p.head_ref) is not None
+        and git.is_ancestor(p.head_ref, head_ref)
+        and not git.is_ancestor(p.head_ref, default_base)
+    ]
+    return next(
+        (c for c in candidates if all(git.is_ancestor(o.head_ref, c.head_ref) for o in candidates)),
+        None,
+    )
+
+
+def _is_stale(git: GitOps, parent: PullRequest, child: PullRequest) -> bool:
+    """Whether the parent's branch has moved (amended, rebased or extended)
+    since the child was cut from it, so the child needs restacking."""
+    return not git.is_ancestor(parent.head_ref, child.head_ref)
+
+
+def _order_by_stack(prs: list[PullRequest]) -> list[tuple[PullRequest, int]]:
+    """Reorder a PR listing so each stacked PR sits directly under its parent,
+    paired with its depth. Only parents in the listing count; everything else
+    keeps its place."""
+    open_prs = [p for p in prs if p.status in OPEN_PR_STATUSES]
+
+    def parent_of(pr: PullRequest) -> PullRequest | None:
+        if pr.status not in OPEN_PR_STATUSES:
+            return None
+        return next(
+            (
+                p
+                for p in open_prs
+                if p.uuid != pr.uuid and p.repo_path == pr.repo_path and p.head_ref == pr.base_ref
+            ),
+            None,
+        )
+
+    children: dict[str, list[PullRequest]] = {}
+    roots: list[PullRequest] = []
+    for pr in prs:
+        parent = parent_of(pr)
+        if parent:
+            children.setdefault(parent.uuid, []).append(pr)
+        else:
+            roots.append(pr)
+
+    ordered: list[tuple[PullRequest, int]] = []
+    seen: set[str] = set()
+
+    def emit(pr: PullRequest, depth: int) -> None:
+        if pr.uuid in seen:
+            return
+        seen.add(pr.uuid)
+        ordered.append((pr, depth))
+        for child in children.get(pr.uuid, []):
+            emit(child, depth + 1)
+
+    # The trailing pass picks up a branch cycle, which has no root to hang from.
+    for pr in roots + prs:
+        emit(pr, 0)
+    return ordered
+
+
 @click.group()
 @click.version_option()
 def main() -> None:
@@ -206,39 +345,19 @@ def create(
         # Get head branch (default to current)
         head_ref = head or git.get_current_branch()
 
-        # Auto-detect base branch if not provided
+        # Auto-detect base branch if not provided: the branch of an open PR
+        # this one was cut from (stacking on it), else the default branch.
         if not base:
-            # Try to find the default branch
-            possible_defaults = ["main", "master", "trunk", "development"]
-
-            # 1. Try to get semantic default from remote
-            remote_info = subprocess.run(
-                ["git", "remote", "show", "origin"],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                check=False,  # Don't raise on error, just continue to next method
-            ).stdout
-            for line in remote_info.split("\n"):
-                if "HEAD branch:" in line:
-                    remote_default = line.split(":")[1].strip()
-                    if remote_default:
-                        base = remote_default
-                        break
-
-            # 2. If remote detection failed, check local branches for common names
-            if not base:
-                local_branches = git.get_branches()
-                for name in possible_defaults:
-                    if name in local_branches:
-                        base = name
-                        break
-
-            # 3. Fallback
-            if not base:
-                base = "main"
-
-            console.print(f"[dim]Auto-detected base branch: {base}[/dim]")
+            base = _detect_default_base(git, repo_path)
+            parent = _detect_stack_parent(git, str(repo_path), head_ref, base)
+            if parent:
+                base = parent.head_ref
+                console.print(
+                    f"[dim]Stacking on PR #{parent.uuid} ({base}) - "
+                    "pass --base to target another branch[/dim]"
+                )
+            else:
+                console.print(f"[dim]Auto-detected base branch: {base}[/dim]")
 
         if head_ref == base:
             console.print(
@@ -302,16 +421,7 @@ def status(pr_id: str) -> None:
         console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
         sys.exit(1)
 
-    # GitHub-style status colors
-    status_colors = {
-        PRStatus.PENDING: "#d29922",  # GitHub yellow
-        PRStatus.APPROVED: "#3fb950",  # GitHub green
-        PRStatus.CHANGES_REQUESTED: "#f85149",  # GitHub red
-        PRStatus.MERGED: "#a371f7",  # GitHub purple
-        PRStatus.CLOSED: "#8b949e",  # GitHub gray
-    }
-
-    color = status_colors.get(pr.status, "white")
+    color = STATUS_COLORS.get(pr.status, "white")
     console.print(f"[{color}]{pr.status.value}[/{color}]")
 
 
@@ -441,20 +551,12 @@ def list_prs(repo: str | None, status: str | None, limit: int, show_all: bool) -
     table.add_column("Status", style="bold")
     table.add_column("Updated", style="dim")
 
-    # GitHub-style status colors
-    status_colors = {
-        PRStatus.PENDING: "#d29922",  # GitHub yellow
-        PRStatus.APPROVED: "#3fb950",  # GitHub green
-        PRStatus.CHANGES_REQUESTED: "#f85149",  # GitHub red
-        PRStatus.MERGED: "#a371f7",  # GitHub purple
-        PRStatus.CLOSED: "#8b949e",  # GitHub gray
-    }
-
-    for pr in prs:
-        color = status_colors.get(pr.status, "white")
+    for pr, depth in _order_by_stack(prs):
+        color = STATUS_COLORS.get(pr.status, "white")
+        stack_prefix = "  " * (depth - 1) + "└─ " if depth else ""
         table.add_row(
             pr.uuid,
-            pr.title[:40] + ("..." if len(pr.title) > 40 else ""),
+            stack_prefix + pr.title[:40] + ("..." if len(pr.title) > 40 else ""),
             pr.head_ref,
             f"[{color}]{pr.status.value}[/{color}]",
             str(pr.updated_at)[:16] if pr.updated_at else "-",
@@ -578,12 +680,9 @@ def update(
         console.print(f"[red]Error: Head branch '{head_ref}' not found in {repo_path}[/red]")
         sys.exit(1)
 
-    # Get new diff
-    diff = git.get_diff(base_ref, head_ref)
-    head_commit = git.get_commit_sha(head_ref)
-    base_commit = git.get_commit_sha(base_ref)
-
-    # Update in database
+    # Diffing comes first (it's the step that can still fail), so nothing is
+    # written until it has succeeded.
+    result, orphaned = _rediff_pr(replace(pr, base_ref=base_ref, head_ref=head_ref), git, repo_path)
     db.update_pr_metadata(
         pr_id,
         title=title,
@@ -591,10 +690,6 @@ def update(
         base_ref=base,
         head_ref=head,
         repo_path=new_repo_path,
-    )
-    result = db.update_pr_diff(pr_id, diff, head_commit, base_commit)
-    orphaned = relocate_comments(
-        pr_id, repo_path, result.old_base_commit, result.old_head_commit, base_commit, head_commit
     )
 
     # Reset status to pending for re-review
@@ -637,6 +732,61 @@ def update(
             " -l FILE:LINE`. Where it's gone, reply explaining why.[/dim]"
         )
 
+    updated_pr = db.get_pr_by_uuid(pr_id)
+    assert updated_pr is not None
+    _warn_stale_stack(git, updated_pr)
+
+
+def _print_stack(current: PullRequest, stack: list[StackEntry]) -> None:
+    """Print a stack as an indented tree on its root's base branch, marking
+    the current PR and any PR whose parent has moved on without it."""
+    try:
+        git: GitOps | None = GitOps(current.repo_path)
+    except ValueError:
+        git = None  # repo gone - still show the shape, just not staleness
+
+    console.print(f"\n[bold]Stack[/bold] [dim](on {stack[0].pr.base_ref})[/dim]")
+    # Depth-first order means an entry's parent is the latest one seen a level up.
+    ancestors: list[PullRequest] = []
+    for entry in stack:
+        del ancestors[entry.depth :]
+        parent = ancestors[-1] if ancestors else None
+        ancestors.append(entry.pr)
+
+        pr = entry.pr
+        color = STATUS_COLORS.get(pr.status, "white")
+        marker = "[bold cyan]→[/bold cyan]" if pr.uuid == current.uuid else " "
+        stale = (
+            " [yellow]needs restack[/yellow]"
+            if git and parent and _is_stale(git, parent, pr)
+            else ""
+        )
+        console.print(
+            f"{marker} {'  ' * entry.depth}#{pr.uuid} {pr.title} "
+            f"[dim]({pr.head_ref})[/dim] [{color}]{pr.status.value}[/{color}]{stale}"
+        )
+
+
+def _warn_stale_stack(git: GitOps, pr: PullRequest) -> None:
+    """After a PR's branch moved, point out any stack edge touching it that now
+    needs restacking - its children, which were cut from its old tip, and the
+    PR itself if its own parent moved on without it."""
+    parent = db.get_parent_pr(pr)
+    if parent and _is_stale(git, parent, pr):
+        console.print(
+            f"\n[yellow]This PR is stacked on PR #{parent.uuid} ({parent.head_ref}), which has"
+            f" moved since it was cut. Run `claude-reviewer restack {parent.uuid}`.[/yellow]"
+        )
+
+    stale = [c for c in db.get_child_prs(pr) if _is_stale(git, pr, c)]
+    if stale:
+        console.print(
+            f"\n[yellow]{len(stale)} PR(s) stacked on this one still sit on its old commits:[/yellow]"
+        )
+        for c in stale:
+            console.print(f"  PR #{c.uuid} ({c.head_ref}) {c.title}")
+        console.print(f"[dim]Run `claude-reviewer restack {pr.uuid}` to rebase them.[/dim]")
+
 
 @main.command()
 @click.argument("pr_id")
@@ -657,6 +807,17 @@ def merge(pr_id: str, push: bool, delete_branch: bool, repo: str | None) -> None
         console.print("[dim]Only approved PRs can be merged[/dim]")
         sys.exit(1)
 
+    # Stacks merge bottom-up: merging a child first would land it in its
+    # parent's branch rather than the base the stack is headed for.
+    parent = db.get_parent_pr(pr)
+    if parent:
+        console.print(
+            f"[red]Error: PR is stacked on PR #{parent.uuid} ({parent.head_ref}), "
+            "which isn't merged yet[/red]"
+        )
+        console.print(f"[dim]Merge PR #{parent.uuid} first[/dim]")
+        sys.exit(1)
+
     repo_path = repo or pr.repo_path
     git = GitOps(repo_path)
 
@@ -664,6 +825,19 @@ def merge(pr_id: str, push: bool, delete_branch: bool, repo: str | None) -> None
     if git.has_uncommitted_changes():
         console.print("[red]Error: Repository has uncommitted changes[/red]")
         console.print("[dim]Please commit or stash changes before merging[/dim]")
+        sys.exit(1)
+
+    # A child still on this PR's pre-amend commits would carry them into the
+    # base once retargeted, so it has to be restacked before this merges.
+    children = db.get_child_prs(pr)
+    stale = [c for c in children if _is_stale(git, pr, c)]
+    if stale:
+        console.print(
+            "[red]Error: PR(s) stacked on this one still sit on its old commits: "
+            + ", ".join(f"#{c.uuid} ({c.head_ref})" for c in stale)
+            + "[/red]"
+        )
+        console.print(f"[dim]Run `claude-reviewer restack {pr_id}` first[/dim]")
         sys.exit(1)
 
     # Perform merge
@@ -683,6 +857,18 @@ def merge(pr_id: str, push: bool, delete_branch: bool, repo: str | None) -> None
         else:
             console.print(f"[yellow]Warning: Push failed: {push_result['message']}[/yellow]")
 
+    # Retarget the PRs stacked on this one at the branch it merged into, before
+    # its branch can be deleted out from under them. The merge is --no-ff, so
+    # their merge base with the new base is this PR's tip and their diffs come
+    # out unchanged.
+    for child in children:
+        db.update_pr_metadata(child.uuid, base_ref=pr.base_ref)
+        reset = _rediff_keeping_review(replace(child, base_ref=pr.base_ref), git, repo_path)
+        note = " (diff changed - status reset to pending)" if reset else ""
+        console.print(
+            f"[dim]Retargeted PR #{child.uuid} ({child.head_ref}) at {pr.base_ref}{note}[/dim]"
+        )
+
     # Delete source branch if requested
     if delete_branch:
         delete_result = git.delete_branch(pr.head_ref)
@@ -700,6 +886,110 @@ def merge(pr_id: str, push: bool, delete_branch: bool, repo: str | None) -> None
     )
 
 
+def _restack_upstream(git: GitOps, parent: PullRequest, child: PullRequest) -> str | None:
+    """The commit to cut `child` at when rebasing it onto `parent`'s new tip -
+    the parent tip it was cut from, so only the child's own commits replay.
+
+    That's normally the child's recorded base_commit (its parent's tip at its
+    last diff). If the child was re-diffed after its parent moved, base_commit
+    is the new tip and not in the child's history, so fall back to git's
+    reflog-based fork point.
+    """
+    if child.base_commit and git.is_ancestor(child.base_commit, child.head_ref):
+        return child.base_commit
+    return git.fork_point(parent.head_ref, child.head_ref)
+
+
+@main.command()
+@click.argument("pr_id")
+@click.option("--repo", "-r", default=None, help="Path to git repository")
+def restack(pr_id: str, repo: str | None) -> None:
+    """Rebase every PR stacked above PR_ID onto its parent's current branch.
+
+    Run it after amending or rebasing a PR that others are stacked on. PR_ID
+    itself doesn't move - to restack a whole stack, pass its bottom PR.
+    """
+    pr = db.get_pr_by_uuid(pr_id)
+    if not pr:
+        console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
+        sys.exit(1)
+
+    repo_path = repo or pr.repo_path
+    git = GitOps(repo_path)
+
+    if git.has_uncommitted_changes():
+        console.print("[red]Error: Repository has uncommitted changes[/red]")
+        console.print("[dim]Please commit or stash changes before restacking[/dim]")
+        sys.exit(1)
+
+    try:
+        original_ref = git.get_current_branch()
+    except TypeError:
+        original_ref = git.get_current_commit()  # detached HEAD
+
+    restacked: list[PullRequest] = []
+    reset: list[PullRequest] = []
+    failed = False
+    # Top-down, so each child is rebased onto a parent that's already been
+    # restacked, and re-read from the db so it sees its parent's new tip.
+    queue = [pr]
+    while queue and not failed:
+        parent = queue.pop(0)
+        for child in db.get_child_prs(parent):
+            if not _is_stale(git, parent, child):
+                queue.append(child)
+                continue
+
+            upstream = _restack_upstream(git, parent, child)
+            if upstream is None:
+                console.print(
+                    f"[red]Couldn't tell where PR #{child.uuid} ({child.head_ref}) was cut from "
+                    f"{parent.head_ref}[/red]"
+                )
+                console.print(
+                    f"[dim]Rebase it by hand (`git rebase --onto {parent.head_ref} "
+                    f"<old {parent.head_ref} tip> {child.head_ref}`), then run "
+                    f"`claude-reviewer update {child.uuid}`[/dim]"
+                )
+                failed = True
+                break
+
+            result = git.rebase_onto(parent.head_ref, upstream, child.head_ref)
+            if not result["success"]:
+                console.print(
+                    f"[red]Rebasing PR #{child.uuid} ({child.head_ref}) onto {parent.head_ref} "
+                    f"failed - it's been left as it was:[/red]\n{result['message']}"
+                )
+                console.print(
+                    f"[dim]Resolve it by hand with `git rebase --onto {parent.head_ref} "
+                    f"{upstream[:12]} {child.head_ref}`, then run "
+                    f"`claude-reviewer restack {parent.uuid}` again[/dim]"
+                )
+                failed = True
+                break
+
+            if _rediff_keeping_review(child, git, repo_path):
+                reset.append(child)
+            restacked.append(child)
+            console.print(
+                f"[green]Restacked PR #{child.uuid} ({child.head_ref}) onto {parent.head_ref}[/green]"
+            )
+            refreshed = db.get_pr_by_uuid(child.uuid)
+            assert refreshed is not None
+            queue.append(refreshed)
+
+    git.checkout(original_ref)
+
+    if not restacked and not failed:
+        console.print("[dim]Nothing to restack - every PR above this one is up to date[/dim]")
+    for c in reset:
+        console.print(
+            f"[yellow]PR #{c.uuid}'s diff changed while restacking - status reset to pending[/yellow]"
+        )
+    if failed:
+        sys.exit(1)
+
+
 @main.command()
 @click.argument("pr_id")
 def show(pr_id: str) -> None:
@@ -709,15 +999,7 @@ def show(pr_id: str) -> None:
         console.print(f"[red]Error: PR '{pr_id}' not found[/red]")
         sys.exit(1)
 
-    # GitHub-style status colors
-    status_colors = {
-        PRStatus.PENDING: "#d29922",  # GitHub yellow
-        PRStatus.APPROVED: "#3fb950",  # GitHub green
-        PRStatus.CHANGES_REQUESTED: "#f85149",  # GitHub red
-        PRStatus.MERGED: "#a371f7",  # GitHub purple
-        PRStatus.CLOSED: "#8b949e",  # GitHub gray
-    }
-    color = status_colors.get(pr.status, "white")
+    color = STATUS_COLORS.get(pr.status, "white")
 
     info = f"""[bold]Title:[/bold] {pr.title}
 [bold]Status:[/bold] [{color}]{pr.status.value}[/{color}]
@@ -730,6 +1012,10 @@ def show(pr_id: str) -> None:
         info += f"\n\n[bold]Description:[/bold]\n{pr.description}"
 
     console.print(Panel(info, title=f"PR #{pr.uuid}"))
+
+    stack = db.get_stack(pr)
+    if len(stack) > 1:
+        _print_stack(pr, stack)
 
     # Show comments count
     comments_list = db.get_comments(pr_id)
@@ -2014,18 +2300,7 @@ Your response (just the message content, no prefixes):"""
                         None,
                     )
                     if matching_pr:
-                        diff = git.get_diff(matching_pr.base_ref, matching_pr.head_ref)
-                        head_commit = git.get_commit_sha(matching_pr.head_ref)
-                        base_commit = git.get_commit_sha(matching_pr.base_ref)
-                        result = db.update_pr_diff(matching_pr.uuid, diff, head_commit, base_commit)
-                        relocate_comments(
-                            matching_pr.uuid,
-                            repo_path,
-                            result.old_base_commit,
-                            result.old_head_commit,
-                            base_commit,
-                            head_commit,
-                        )
+                        result, _ = _rediff_pr(matching_pr, git, repo_path)
                         console.print(
                             f"[green]✓ Updated PR #{matching_pr.uuid} diff (revision {result.revision})[/green]"
                         )
@@ -2136,18 +2411,7 @@ Your response (just the message content, no prefixes):"""
                     console.print(f"[green]✓ {commit_result['message']}[/green]")
 
                     # Update the PR diff
-                    diff = git.get_diff(pr.base_ref, pr.head_ref)
-                    head_commit = git.get_commit_sha(pr.head_ref)
-                    base_commit = git.get_commit_sha(pr.base_ref)
-                    result = db.update_pr_diff(pr.uuid, diff, head_commit, base_commit)
-                    relocate_comments(
-                        pr.uuid,
-                        repo_path,
-                        result.old_base_commit,
-                        result.old_head_commit,
-                        base_commit,
-                        head_commit,
-                    )
+                    result, _ = _rediff_pr(pr, git, repo_path)
                     console.print(f"[green]✓ Updated PR diff (revision {result.revision})[/green]")
                 else:
                     console.print("[yellow]No changes to commit[/yellow]")

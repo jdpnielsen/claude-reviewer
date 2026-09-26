@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any
 
 from .git_ops import get_global_git_user
 from .models import (
+    OPEN_PR_STATUSES,
     Author,
     Comment,
     CommentAnchor,
@@ -52,6 +53,7 @@ from .models import (
     RepoConversationMessage,
     RepoConversationStatus,
     ReviewAction,
+    StackEntry,
     UpdatePRDiffResult,
 )
 
@@ -668,6 +670,81 @@ def list_prs(
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
         return [_row_to_pr(row) for row in rows]
+
+
+def list_open_prs(repo_path: str) -> list[PullRequest]:
+    """Every open (pending, approved or changes_requested) PR in a repo,
+    oldest first - the pool a stack is derived from."""
+    placeholders = ", ".join("?" for _ in OPEN_PR_STATUSES)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM pull_requests
+            WHERE repo_path = ? AND status IN ({placeholders})
+            ORDER BY created_at, id
+            """,
+            (repo_path, *(s.value for s in OPEN_PR_STATUSES)),
+        ).fetchall()
+        return [_row_to_pr(row) for row in rows]
+
+
+# Stacks aren't stored: a PR's parent is the open PR in the same repo whose
+# head branch is this PR's base branch, so a stack is whatever chain of
+# branches the open PRs happen to form. Closing or merging a PR takes it out
+# of the pool, which makes its children roots of their own until they're
+# retargeted.
+
+
+def _find_parent(pr: PullRequest, pool: list[PullRequest]) -> PullRequest | None:
+    return next((p for p in pool if p.head_ref == pr.base_ref and p.uuid != pr.uuid), None)
+
+
+def _find_children(pr: PullRequest, pool: list[PullRequest]) -> list[PullRequest]:
+    return [p for p in pool if p.base_ref == pr.head_ref and p.uuid != pr.uuid]
+
+
+def get_parent_pr(pr: PullRequest) -> PullRequest | None:
+    """The open PR this one is stacked on, if any."""
+    return _find_parent(pr, list_open_prs(pr.repo_path))
+
+
+def get_child_prs(pr: PullRequest) -> list[PullRequest]:
+    """The open PRs stacked directly on this one."""
+    return _find_children(pr, list_open_prs(pr.repo_path))
+
+
+def get_stack(pr: PullRequest) -> list[StackEntry]:
+    """The whole stack this PR belongs to, depth-first from its root.
+
+    A PR that isn't stacked comes back as a stack of one. A merged or closed
+    PR isn't in the open pool, so it's a stack of one too - its old children
+    no longer count it as their parent.
+    """
+    pool = list_open_prs(pr.repo_path)
+    if not any(p.uuid == pr.uuid for p in pool):
+        return [StackEntry(pr=pr, depth=0)]
+
+    root = pr
+    seen = {root.uuid}
+    while (parent := _find_parent(root, pool)) and parent.uuid not in seen:
+        root = parent
+        seen.add(root.uuid)
+
+    entries: list[StackEntry] = []
+    visited: set[str] = set()
+
+    def walk(node: PullRequest, depth: int) -> None:
+        # visited guards against a branch cycle (a -> b -> a), which git
+        # allows in PR metadata even though it can't describe real history.
+        if node.uuid in visited:
+            return
+        visited.add(node.uuid)
+        entries.append(StackEntry(pr=node, depth=depth))
+        for child in _find_children(node, pool):
+            walk(child, depth + 1)
+
+    walk(root, 0)
+    return entries
 
 
 def update_pr_status(pr_uuid: str, status: PRStatus) -> bool:
