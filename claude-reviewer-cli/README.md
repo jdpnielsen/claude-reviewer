@@ -69,17 +69,18 @@ claude-reviewer merge a1b2c3d4 --push
 
 | Command | Description |
 |---------|-------------|
-| `create` | Create a new PR from current branch |
-| `list` | List all PRs |
+| `create` | Create a new PR from current branch; stacks it on an open PR when the branch was cut from that PR's branch |
+| `list` | List all PRs, nesting stacked PRs under their parent |
 | `status` | Check PR status |
 | `comments` | Get inline comments with file:line references; renders/reports a suggested change if present; tags non-default resolution modes, orphaned threads, and comments made in the web UI's autosquash preview; a review summary appears here too, as an "approved" or "changes requested" comment |
-| `show` | Show detailed PR information |
+| `show` | Show detailed PR information, including its stack and any PR that needs restacking |
 | `comment <id> "text" (-l file:line[-end] [--old] [-c sha] \| --commit-message sha)` | Leave a review comment on a diff line/range or a commit message, marked in the web UI as an AI review |
 | `move <id> <comment-uuid> -l file:line[-end] [--old] [-c sha]` | Re-anchor a comment `update` couldn't follow to where its code is now |
 | `reply <id> <comment-uuid> "text" [-a author]` | Reply to a comment (defaults to `claude`; use `-a me` for the configured human reviewer) |
 | `authors list\|add\|edit\|remove\|set-default` | Manage reviewer/agent identities |
-| `update [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes, listing threads it couldn't re-anchor; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout |
-| `merge` | Merge an approved PR |
+| `update [-t title] [-d description] [-b base] [-h head] [-r repo]` | Update PR diff after making changes, listing threads it couldn't re-anchor; optionally retitle, rewrite the description, retarget the base branch, repoint at a new head branch, or move the PR to another checkout; warns when PRs stacked on it need restacking |
+| `merge` | Merge an approved PR (stacks merge bottom-up); PRs stacked on it are retargeted at its base branch |
+| `restack <id>` | Rebase every PR stacked above `<id>` onto its parent's current branch and re-diff them |
 | `serve` | Start the web UI |
 | `serve --check` | Report whether the web UI is reachable; starts nothing |
 | `stop` | Stop the web UI |
@@ -215,6 +216,43 @@ claude-reviewer merge a1b2c3d4 --push
 # Merge and delete source branch
 claude-reviewer merge a1b2c3d4 --delete-branch
 ```
+
+### Stacked PRs
+
+A PR whose base branch is another open PR's head branch is *stacked* on it. `create`
+sets this up for you: with no `--base`, if the current branch was cut from an open
+PR's branch it targets that branch (the nearest one, for a chain) instead of the
+default branch. Pass `--base main` to opt out.
+
+```bash
+git checkout -b feat/schema main && git commit ...
+claude-reviewer create -t "Schema"     # base: main
+git checkout -b feat/api && git commit ...
+claude-reviewer create -t "API"        # base: feat/schema
+```
+
+`list` nests stacked PRs under their parent and `show` prints the whole stack.
+
+**Restacking.** After amending or rebasing a PR that others are stacked on, the PRs
+above it still sit on its old commits - `update` and `show` flag them. `restack`
+rebases each of them onto its parent's new tip, top-down, cutting at the parent tip
+it was originally built on so only its own commits are replayed, then re-diffs it
+and relocates its comments:
+
+```bash
+claude-reviewer update <schema-pr>     # after amending feat/schema
+claude-reviewer restack <schema-pr>    # rebases feat/api (and anything above it)
+```
+
+It needs a clean working tree, puts you back on the branch you started on, and on
+a conflict aborts that rebase, leaving the branch untouched, and stops. A restacked
+PR keeps its review status when its diff comes out unchanged.
+
+**Merging.** Stacks merge bottom-up: `merge` refuses a PR whose parent is still
+open, and one whose stacked PRs still need restacking. After a merge, the PRs
+stacked directly on it are retargeted at its base branch (before `--delete-branch`
+removes the old one) and re-diffed; since merges are `--no-ff`, their diffs - and
+review status - normally carry over unchanged.
 
 ### Manage Authors
 
