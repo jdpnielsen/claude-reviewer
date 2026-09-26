@@ -42,9 +42,9 @@ export default function ReviewPanel({
   return (
     <div className="review-dropdown" ref={ref}>
       {status === PullRequestStatus.Approved && (
-        <span className="approved-notice">
+        <span className="approved-notice toolbar-compact-2" title="Approved">
           <CheckCircle size={14} />
-          Approved
+          <span className="toolbar-label">Approved</span>
         </span>
       )}
       <button className="review-dropdown-trigger" onClick={() => setOpen((o) => !o)}>
