@@ -293,6 +293,8 @@ textarea {
   gap: 1rem;
   margin-top: 1rem;
   margin-bottom: 1rem;
+  /* Queried by the .toolbar-compact-* stages below. */
+  container-type: inline-size;
 }
 
 .pr-tabbar-left {
@@ -1033,12 +1035,14 @@ textarea {
   color: #58a6ff;
 }
 
-/* The Files Changed tab bar stays on one line as the viewport narrows by
-   dropping button labels in stages - Expand/Collapse All first
-   (.toolbar-compact-1), then Autosquash preview and Mark commit reviewed
+/* The Files Changed tab bar stays on one line as it narrows by dropping
+   button labels in stages - Expand/Collapse All first (.toolbar-compact-1),
+   then Autosquash preview, Mark commit reviewed and the Approved badge
    (.toolbar-compact-2) - leaving the icon, with the label still in the
-   button's title and aria-label. Past that it wraps. */
-@media (max-width: 1500px) {
+   button's title and aria-label. Past that the left group wraps. These are
+   container queries on .pr-tabbar (95% of the viewport), so 1425px/1255px
+   match the viewport's 1500px/1320px. */
+@container (max-width: 1425px) {
   .pr-tabbar-left {
     gap: 0.5rem;
   }
@@ -1052,7 +1056,7 @@ textarea {
   }
 }
 
-@media (max-width: 1320px) {
+@container (max-width: 1255px) {
   .toolbar-compact-2 .toolbar-label {
     display: none;
   }
@@ -1061,8 +1065,23 @@ textarea {
     padding: 0.375rem 0.5rem;
   }
 
-  .commit-selector-trigger {
+  .pr-tabbar .commit-selector-trigger {
     max-width: 220px;
+  }
+}
+
+@container (max-width: 900px) {
+  .pr-tabbar-left {
+    flex-wrap: wrap;
+  }
+
+  .pr-tabbar .commit-selector-trigger {
+    max-width: 180px;
+  }
+
+  /* The dropdown's rows keep their sha - only the trigger drops it. */
+  .pr-tabbar .commit-selector-trigger .commit-sha {
+    display: none;
   }
 }
 
