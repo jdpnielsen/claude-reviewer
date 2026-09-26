@@ -210,9 +210,11 @@ def _rediff_keeping_review(pr: PullRequest, git: GitOps, repo_path: str) -> bool
     onto its parent, or retargeted after its parent merged. Keeps its review
     status when the diff comes out identical (the reviewer has already seen
     exactly this), otherwise resets it to pending. Returns whether it reset."""
-    previous_diff = db.get_latest_diff(pr.uuid)
+    previous_diff = db.get_latest_diff(pr.uuid) or ""
     _rediff_pr(pr, git, repo_path)
-    if db.get_latest_diff(pr.uuid) == previous_diff:
+    # Trailing whitespace is ignored: the web UI's diffs keep git's final
+    # newline and the CLI's don't, and either side may have taken the last one.
+    if (db.get_latest_diff(pr.uuid) or "").rstrip() == previous_diff.rstrip():
         return False
     db.update_pr_status(pr.uuid, PRStatus.PENDING)
     return True

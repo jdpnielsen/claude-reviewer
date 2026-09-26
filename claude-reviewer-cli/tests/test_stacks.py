@@ -321,3 +321,19 @@ class TestStackCommands:
         result = CliRunner().invoke(main, ["merge", b.uuid, "--no-push"])
         assert result.exit_code == 0, result.output
         assert self._pr(c.uuid).base_ref == "main"
+
+    def test_merge_retarget_keeps_review_across_a_web_ui_snapshot(
+        self, temp_db: Path, repo: Path
+    ) -> None:
+        # The web UI's diffs keep git's final newline; the CLI's don't. A child
+        # last synced from the web must still count as unchanged.
+        a, b, _ = self._create_stack(repo)
+        b_diff = db.get_latest_diff(b.uuid) or ""
+        db.update_pr_diff(b.uuid, b_diff + "\n", b.head_commit, b.base_commit)
+        self._approve(a)
+        self._approve(b)
+
+        result = CliRunner().invoke(main, ["merge", a.uuid, "--no-push"])
+
+        assert result.exit_code == 0, result.output
+        assert self._pr(b.uuid).status == PRStatus.APPROVED
