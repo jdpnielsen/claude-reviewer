@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { relocateComments } from '@/lib/comment-relocation';
-import { getPRByUuid, updatePRDiff, updatePRStatus } from '@/lib/database';
+import { getPRByUuid, updatePRStatus } from '@/lib/database';
 import { PullRequestStatus } from '@/lib/enum';
-import { getRefDiff, isRepoAvailable, resolveRefSha } from '@/lib/git';
+import { isRepoAvailable } from '@/lib/git';
+import { rediffPR } from '@/lib/pr-sync';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -39,17 +39,7 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const diff = getRefDiff(pr.repo_path, pr.base_ref, pr.head_ref);
-    const headCommit = resolveRefSha(pr.repo_path, pr.head_ref);
-    const baseCommit = resolveRefSha(pr.repo_path, pr.base_ref);
-
-    const { revision, oldBaseCommit, oldHeadCommit } = updatePRDiff(
-      id,
-      diff,
-      headCommit,
-      baseCommit,
-    );
-    relocateComments(id, pr.repo_path, oldBaseCommit, oldHeadCommit, baseCommit, headCommit);
+    const { revision, headCommit } = rediffPR(pr);
     updatePRStatus(id, PullRequestStatus.Pending);
 
     return NextResponse.json({

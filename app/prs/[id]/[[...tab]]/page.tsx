@@ -55,6 +55,7 @@ import PRHeader from '@/components/pr/PRHeader';
 import PRSidebar from '@/components/pr/PRSidebar';
 import PRTabs, { type PRViewTab } from '@/components/pr/PRTabs';
 import ReviewPanel from '@/components/pr/ReviewPanel';
+import StackNavigator from '@/components/pr/StackNavigator';
 import { TargetedCommentContext } from '@/components/pr/TargetedCommentContext';
 import { apiClient, ApiError, buildQuery } from '@/lib/api-client';
 import { isFixupishSubject } from '@/lib/autosquash';
@@ -807,6 +808,8 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
         onSync={syncPR}
         onDelete={deletePR}
       />
+
+      {data.stack && <StackNavigator stack={data.stack} currentUuid={pr.uuid} />}
 
       <div className="pr-tabbar">
         <div className="pr-tabbar-left">

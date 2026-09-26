@@ -2891,3 +2891,89 @@ div.resolution-mode-badge {
     box-shadow: 0 0 0 2px transparent;
   }
 }
+
+/* Stack navigator (components/pr/StackNavigator.tsx) */
+.stack-nav {
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: #0d1117;
+  font-size: 0.8125rem;
+}
+
+.stack-nav-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: #8b949e;
+  margin-bottom: 0.375rem;
+}
+
+.stack-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stack-nav-entry {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+
+.stack-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.stack-nav-branch {
+  color: #484f58;
+  flex-shrink: 0;
+}
+
+.stack-nav-title {
+  color: #58a6ff;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-nav-title:hover {
+  text-decoration: underline;
+}
+
+.stack-nav-entry.current .stack-nav-title {
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.stack-nav-ref {
+  color: #8b949e;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.stack-nav-status {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.stack-nav-stale {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  color: #d29922;
+  font-size: 0.75rem;
+  margin: 0.125rem 0 0.25rem 1.5rem;
+}
+
+@media (max-width: 640px) {
+  .stack-nav-ref {
+    display: none;
+  }
+}

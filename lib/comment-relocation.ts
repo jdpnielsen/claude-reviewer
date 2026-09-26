@@ -254,8 +254,8 @@ function planRelocation(
  * messages alike) - after a sync
  * (rebase/amend/force-push) changed those SHAs and/or shifted line content.
  * Called from every place that rewrites
- * `pull_requests.head_commit`/`base_commit` (the web sync route, the CLI's
- * `update` command, and its two AI-auto-sync call sites) with the OLD commit
+ * `pull_requests.head_commit`/`base_commit` (lib/pr-sync.ts's rediffPR, used
+ * by the web sync and merge-retarget paths, and the CLI's `_rediff_pr`) with the OLD commit
  * range (captured just before the overwrite) and the NEW one.
  *
  * No-op sync (nothing actually changed) is skipped entirely - this runs on

@@ -815,6 +815,36 @@ export function getUnresolvedCommentCounts(prIds: number[]): Map<number, number>
   return new Map(rows.map((r) => [r.pr_id, r.count]));
 }
 
+// Every open (pending, approved or changes_requested) PR in a repo, oldest
+// first - the input lib/stack.ts derives stacks from, mirroring the CLI's
+// db.list_open_prs().
+export function listOpenPRs(repoPath: string): PullRequest[] {
+  const db = getDatabase();
+  return db
+    .prepare(
+      `SELECT * FROM pull_requests
+       WHERE repo_path = ? AND status IN (?, ?, ?)
+       ORDER BY created_at, id`,
+    )
+    .all(
+      repoPath,
+      PullRequestStatus.Pending,
+      PullRequestStatus.Approved,
+      PullRequestStatus.ChangesRequested,
+    ) as PullRequest[];
+}
+
+// Point a PR at a new base branch - used when the PR it was stacked on is
+// merged. Doesn't touch the diff; re-diff it afterwards (lib/pr-sync.ts).
+export function updatePRBaseRef(uuid: string, baseRef: string): boolean {
+  const db = getDatabase();
+  const result = db
+    .prepare('UPDATE pull_requests SET base_ref = ?, updated_at = CURRENT_TIMESTAMP WHERE uuid = ?')
+    .run(baseRef, uuid);
+  checkpoint();
+  return result.changes > 0;
+}
+
 export function updatePRStatus(uuid: string, status: PullRequest['status']): boolean {
   const db = getDatabase();
   const result = db

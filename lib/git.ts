@@ -148,6 +148,21 @@ export function resolveRefSha(repoPath: string, ref: string): string {
   return execFileSync('git', ['rev-parse', `${ref}^{commit}`], { cwd, encoding: 'utf-8' }).trim();
 }
 
+// Whether `ancestor` is reachable from `descendant` (`git merge-base
+// --is-ancestor`). False for an unknown ref as well as a non-ancestor.
+export function isAncestor(repoPath: string, ancestor: string, descendant: string): boolean {
+  const cwd = resolveRepoPath(repoPath);
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+      cwd,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}/;
 
 export function blameCommit(

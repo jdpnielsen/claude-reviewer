@@ -19,6 +19,7 @@ process.env.DATABASE_PATH = path.join(testDbDir, 'test.db');
 
 import { POST as commentsRoute } from '../app/api/prs/[id]/comments/route';
 import { GET as contextRoute } from '../app/api/prs/[id]/context/route';
+import { POST as mergeRoute } from '../app/api/prs/[id]/merge/route';
 import { POST as reviewRoute } from '../app/api/prs/[id]/review/route';
 import {
   DELETE as reviewedCommitDeleteRoute,
@@ -43,11 +44,13 @@ import {
   resolveComment,
   setReviewedCommitMessage,
   submitReview,
+  updatePRDiff,
   updatePRStatus,
   upsertCommitRelocation,
   closeDatabase,
 } from '../lib/database';
 import { CommentTargetType, PullRequestStatus, ReviewAction } from '../lib/enum';
+import { getRefDiff, resolveRefSha } from '../lib/git';
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -1078,5 +1081,155 @@ describe('GET /api/prs counts', () => {
     const pr = await listed('/gone/for/counts', uuid);
     expect(pr.commit_count).toBeNull();
     expect(pr.unresolved_count).toBe(0);
+  });
+});
+
+describe('stacked PRs', () => {
+  // main <- a <- b, each branch adding <name>.txt; b and a second child c
+  // both sit on a when a test needs a branching stack.
+  let repoDir: string;
+
+  function commitFile(name: string, content = `${name}\n`) {
+    fs.writeFileSync(path.join(repoDir, `${name}.txt`), content);
+    runGit(repoDir, ['add', `${name}.txt`]);
+    runGit(repoDir, ['commit', '-m', `add ${name}`]);
+  }
+
+  function prFor(title: string, base: string, head: string): string {
+    return createPR(
+      repoDir,
+      title,
+      base,
+      head,
+      resolveRefSha(repoDir, base),
+      resolveRefSha(repoDir, head),
+      getRefDiff(repoDir, base, head),
+    );
+  }
+
+  beforeEach(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-reviewer-stack-repo-'));
+    runGit(repoDir, ['init']);
+    runGit(repoDir, ['config', 'user.email', 'test@example.com']);
+    runGit(repoDir, ['config', 'user.name', 'Test User']);
+    commitFile('base');
+    runGit(repoDir, ['branch', '-M', 'main']);
+    runGit(repoDir, ['checkout', '-q', '-b', 'a']);
+    commitFile('a');
+    runGit(repoDir, ['checkout', '-q', '-b', 'b']);
+    commitFile('b');
+    runGit(repoDir, ['checkout', '-q', 'main']);
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  async function getStack(id: string) {
+    const res = await prGetRoute(
+      new Request(`http://test/api/prs/${id}`) as never,
+      routeParams(id),
+    );
+    return (await res.json()).stack;
+  }
+
+  test('GET returns the stack, root first, for every member', async () => {
+    const a = prFor('A', 'main', 'a');
+    const b = prFor('B', 'a', 'b');
+
+    for (const id of [a, b]) {
+      const stack = await getStack(id);
+      expect(stack.map((e: { uuid: string; depth: number }) => [e.uuid, e.depth])).toEqual([
+        [a, 0],
+        [b, 1],
+      ]);
+      expect(stack[1]).toMatchObject({ head_ref: 'b', base_ref: 'a', stale: false });
+    }
+  });
+
+  test('a lone PR, and one on a closed parent, has no stack', async () => {
+    const a = prFor('A', 'main', 'a');
+    expect(await getStack(a)).toBeNull();
+
+    const b = prFor('B', 'a', 'b');
+    updatePRStatus(a, PullRequestStatus.Closed);
+    expect(await getStack(b)).toBeNull();
+  });
+
+  test('flags a PR whose parent moved on as stale', async () => {
+    const a = prFor('A', 'main', 'a');
+    const b = prFor('B', 'a', 'b');
+    runGit(repoDir, ['checkout', '-q', 'a']);
+    commitFile('a', 'a amended\n');
+    runGit(repoDir, ['checkout', '-q', 'main']);
+
+    const stack = await getStack(a);
+    expect(stack.find((e: { uuid: string }) => e.uuid === b).stale).toBe(true);
+    expect(stack.find((e: { uuid: string }) => e.uuid === a).stale).toBe(false);
+  });
+
+  test('merge refuses a PR whose parent is still open', async () => {
+    prFor('A', 'main', 'a');
+    const b = prFor('B', 'a', 'b');
+    updatePRStatus(b, PullRequestStatus.Approved);
+
+    const res = await mergeRoute(postReq(b, { push: false }) as never, routeParams(b));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/merge that first/);
+    expect(getPRByUuid(b)?.status).toBe(PullRequestStatus.Approved);
+  });
+
+  test('merge refuses while a stacked PR needs restacking', async () => {
+    const a = prFor('A', 'main', 'a');
+    prFor('B', 'a', 'b');
+    runGit(repoDir, ['checkout', '-q', 'a']);
+    commitFile('a', 'a amended\n');
+    runGit(repoDir, ['checkout', '-q', 'main']);
+    updatePRStatus(a, PullRequestStatus.Approved);
+
+    const res = await mergeRoute(postReq(a, { push: false }) as never, routeParams(a));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain(`claude-reviewer restack ${a}`);
+    expect(runGit(repoDir, ['log', '--format=%s', 'main'])).not.toContain('add a');
+  });
+
+  test('merge retargets stacked PRs onto its base, keeping their review', async () => {
+    const a = prFor('A', 'main', 'a');
+    const b = prFor('B', 'a', 'b');
+    updatePRStatus(a, PullRequestStatus.Approved);
+    updatePRStatus(b, PullRequestStatus.Approved);
+    const diffBefore = getLatestDiff(b);
+
+    const res = await mergeRoute(
+      postReq(a, { push: false, deleteBranch: true }) as never,
+      routeParams(a),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).message).toContain(`Retargeted PR #${b} onto main`);
+
+    const child = getPRByUuid(b);
+    expect(child?.base_ref).toBe('main');
+    expect(child?.status).toBe(PullRequestStatus.Approved);
+    expect(getLatestDiff(b)).toBe(diffBefore);
+    expect(child?.base_commit).toBe(resolveRefSha(repoDir, 'main'));
+    expect(getPRByUuid(a)?.status).toBe(PullRequestStatus.Merged);
+
+    // b is now a root and merges in turn.
+    const res2 = await mergeRoute(postReq(b, { push: false }) as never, routeParams(b));
+    expect(res2.status).toBe(200);
+  });
+
+  test("merge keeps a stacked PR's review when its last snapshot came from the CLI", async () => {
+    // The CLI's diffs drop git's final newline; these keep it.
+    const a = prFor('A', 'main', 'a');
+    const b = prFor('B', 'a', 'b');
+    const child = getPRByUuid(b)!;
+    updatePRDiff(b, getLatestDiff(b)!.trimEnd(), child.head_commit, child.base_commit);
+    updatePRStatus(a, PullRequestStatus.Approved);
+    updatePRStatus(b, PullRequestStatus.Approved);
+
+    const res = await mergeRoute(postReq(a, { push: false }) as never, routeParams(a));
+    expect(res.status).toBe(200);
+    expect(getPRByUuid(b)?.status).toBe(PullRequestStatus.Approved);
   });
 });

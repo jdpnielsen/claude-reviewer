@@ -30,6 +30,7 @@ import {
   type FileMark,
   type MessageMark,
 } from '@/lib/reviewed-cascade';
+import { getStack } from '@/lib/stack';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -202,6 +203,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         })
       : [];
 
+    // The stack this PR is part of, if any. Staleness needs git, so without
+    // the repo every entry reads as up to date.
+    const stack = getStack(pr, repoAvailable);
+
     return NextResponse.json({
       pr: toPublicPR(pr),
       diff,
@@ -214,6 +219,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       repoAvailable,
       autosquash,
       previewCommits,
+      stack,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
