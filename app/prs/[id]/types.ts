@@ -8,6 +8,7 @@ import {
   ReviewAction,
 } from '@/lib/enum';
 import type { AutosquashResult, SquashedCommit } from '@/lib/git';
+import type { StackEntry } from '@/lib/stack';
 
 export interface PullRequest {
   uuid: string;
@@ -143,6 +144,9 @@ export interface PRData {
   // reviewed mark is keyed to one (and always with `?view=autosquash`) - to
   // name the commit those were made on. Empty otherwise.
   previewCommits: SquashedCommit[];
+  // The stack of PRs this one belongs to (see lib/stack.ts), flattened
+  // depth-first from its root. Null when the PR isn't stacked.
+  stack: StackEntry[] | null;
 }
 
 export type AutosquashView = ({ error: null } & AutosquashResult) | { error: string };

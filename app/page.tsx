@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { usePRsQuery } from '@/lib/queries/prs';
+import { groupStacks } from '@/lib/stack-grouping';
 
 // GitHub-style status colors
 const statusConfig = {
@@ -82,13 +83,24 @@ export default function Home() {
         </div>
       ) : (
         <div className="pr-list">
-          {prs.map((pr) => {
+          {groupStacks(prs).map(({ pr, depth }) => {
             const config = statusConfig[pr.status];
             const StatusIcon = config.icon;
 
+            // A PR stacked on another in the list follows it, indented.
             return (
-              <Link href={`/prs/${pr.uuid}`} key={pr.uuid} className="pr-card">
+              <Link
+                href={`/prs/${pr.uuid}`}
+                key={pr.uuid}
+                className={`pr-card${depth > 0 ? ' stacked' : ''}`}
+                style={depth > 0 ? { paddingLeft: `${1.25 + depth * 1.5}rem` } : undefined}
+              >
                 <div className="pr-card-main">
+                  {depth > 0 && (
+                    <span className="pr-stack-marker" title="Stacked on the PR above">
+                      └─
+                    </span>
+                  )}
                   <div className="pr-icon">
                     <GitPullRequest size={20} />
                   </div>
@@ -208,6 +220,12 @@ export default function Home() {
           display: flex;
           align-items: flex-start;
           gap: 1rem;
+        }
+
+        .pr-stack-marker {
+          color: #484f58;
+          margin-top: 2px;
+          margin-right: -0.5rem;
         }
 
         .pr-icon {

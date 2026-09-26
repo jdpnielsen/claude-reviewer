@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getPRByUuid, updatePRStatus } from '@/lib/database';
+import { getPRByUuid, updatePRBaseRef, updatePRStatus } from '@/lib/database';
 import { PullRequestStatus } from '@/lib/enum';
 import { GitManager, isRepoAvailable } from '@/lib/git';
+import { rediffKeepingReview } from '@/lib/pr-sync';
+import { getChildren, getParent, isStale } from '@/lib/stack';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// POST /api/prs/[id]/merge - Merge an approved PR
+// POST /api/prs/[id]/merge - Merge an approved PR. Stacks merge bottom-up:
+// refused while the PR sits on another open PR or while a PR stacked on it
+// needs restacking. PRs stacked directly on it are retargeted at its base
+// branch after the merge (before any branch delete), as the CLI does.
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -32,6 +37,27 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!isRepoAvailable(pr.repo_path)) {
       return NextResponse.json(
         { error: `Repository is no longer available at ${pr.repo_path}` },
+        { status: 409 },
+      );
+    }
+
+    const parent = getParent(pr);
+    if (parent) {
+      return NextResponse.json(
+        { error: `PR is stacked on PR #${parent.uuid} (${parent.head_ref}) - merge that first` },
+        { status: 409 },
+      );
+    }
+
+    const children = getChildren(pr);
+    const stale = children.filter((c) => isStale(pr.repo_path, pr.head_ref, c.head_ref));
+    if (stale.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `PR${stale.length > 1 ? 's' : ''} ${stale.map((c) => `#${c.uuid}`).join(', ')} ` +
+            `stacked on this one need restacking. Run \`claude-reviewer restack ${id}\` first`,
+        },
         { status: 409 },
       );
     }
@@ -63,6 +89,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       } else {
         results.push(`Warning: Push failed: ${pushResult.message}`);
       }
+    }
+
+    // Retarget stacked PRs before their old base branch can be deleted.
+    for (const child of children) {
+      updatePRBaseRef(child.uuid, pr.base_ref);
+      const reset = rediffKeepingReview({ ...child, base_ref: pr.base_ref });
+      results.push(
+        `Retargeted PR #${child.uuid} onto ${pr.base_ref}` +
+          (reset ? ' (diff changed - reset to pending)' : ''),
+      );
     }
 
     // Delete source branch if requested
