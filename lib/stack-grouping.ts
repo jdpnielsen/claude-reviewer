@@ -36,10 +36,41 @@ export function findChildren<T extends StackablePR>(pr: T, openPRs: T[]): T[] {
   );
 }
 
+// How to draw one row of a depth-first flattened tree (see StackRail).
+export interface TreeGuides {
+  // guides[l - 1]: whether the line at level l (running down from the
+  // level-(l - 1) ancestor) carries on past this row - for l < depth a
+  // pass-through line, for l === depth whether this row has a later sibling
+  // (├ rather than └).
+  guides: boolean[];
+  // Whether the next row is this one's child, so a line runs down from it.
+  hasChildren: boolean;
+}
+
+export function treeGuides(depths: number[]): TreeGuides[] {
+  return depths.map((depth, i) => {
+    const guides: boolean[] = [];
+    for (let level = 1; level <= depth; level++) {
+      let continues = false;
+      for (let j = i + 1; j < depths.length && depths[j] >= level; j++) {
+        if (depths[j] === level) {
+          continues = true;
+          break;
+        }
+      }
+      guides.push(continues);
+    }
+    return { guides, hasChildren: depths[i + 1] === depth + 1 };
+  });
+}
+
 // Order a list so each open PR's children follow it directly, with a depth
-// (0 for anything not under another PR in the list). Roots and everything
-// else keep their original relative order. Mirrors the CLI's `_order_by_stack`.
-export function groupStacks<T extends StackablePR>(prs: T[]): { pr: T; depth: number }[] {
+// (0 for anything not under another PR in the list) and the guides to draw
+// it with. Roots and everything else keep their original relative order.
+// Mirrors the CLI's `_order_by_stack`.
+export function groupStacks<T extends StackablePR>(
+  prs: T[],
+): ({ pr: T; depth: number } & TreeGuides)[] {
   const open = prs.filter((p) => isOpenStatus(p.status));
   const hasParent = (p: T) => isOpenStatus(p.status) && findParent(p, open) !== null;
 
@@ -58,5 +89,7 @@ export function groupStacks<T extends StackablePR>(prs: T[]): { pr: T; depth: nu
   }
   // A branch cycle has no root; don't drop its members.
   for (const pr of prs) visit(pr, 0);
-  return ordered;
+
+  const guides = treeGuides(ordered.map((o) => o.depth));
+  return ordered.map((o, i) => ({ ...o, ...guides[i] }));
 }

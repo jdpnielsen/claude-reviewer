@@ -1,11 +1,13 @@
 'use client';
 
-import { AlertTriangle, Layers } from 'lucide-react';
+import { AlertTriangle, GitPullRequest, Layers } from 'lucide-react';
 import Link from 'next/link';
 
 import type { PRData } from '@/app/prs/[id]/types';
 import { statusConfig } from '@/app/prs/[id]/utils';
 import CopyableText from '@/components/CopyableText';
+import StackRail from '@/components/StackRail';
+import { treeGuides } from '@/lib/stack-grouping';
 
 type StackEntry = NonNullable<PRData['stack']>[number];
 
@@ -24,19 +26,20 @@ function parentOf(stack: StackEntry[], index: number): StackEntry | null {
   return null;
 }
 
-// The stack of PRs the current one belongs to, root first, each linking to
-// its PR. A PR whose parent has moved on since it was cut is flagged with the
-// CLI command that restacks it - the web UI doesn't rewrite branches itself.
+// The Stack tab: every PR in the current one's stack, root first, as a tree
+// linking to each. A PR whose parent has moved on since it was cut is flagged
+// with the CLI command that restacks it - the web UI doesn't rewrite branches
+// itself.
 export default function StackNavigator({ stack, currentUuid }: StackNavigatorProps) {
-  const root = stack[0];
+  const guides = treeGuides(stack.map((e) => e.depth));
 
   return (
-    <nav className="stack-nav" aria-label="PR stack">
-      <div className="stack-nav-heading">
-        <Layers size={14} />
-        Stack on <code>{root.base_ref}</code>
+    <section aria-label="PR stack">
+      <div className="stack-panel-heading">
+        <Layers size={16} />
+        {stack.length} PRs stacked on <code>{stack[0].base_ref}</code>
       </div>
-      <ol className="stack-nav-list">
+      <ol className="stack-list">
         {stack.map((entry, index) => {
           const current = entry.uuid === currentUuid;
           const status = statusConfig[entry.status];
@@ -44,41 +47,57 @@ export default function StackNavigator({ stack, currentUuid }: StackNavigatorPro
           return (
             <li
               key={entry.uuid}
-              className={`stack-nav-entry${current ? ' current' : ''}`}
-              style={{ paddingLeft: `${entry.depth * 1.25}rem` }}
+              className={`stack-row${current ? ' current' : ''}`}
+              style={{ paddingLeft: `calc(1rem + ${entry.depth} * var(--rail-step))` }}
             >
-              <div className="stack-nav-row">
-                {entry.depth > 0 && <span className="stack-nav-branch">└─</span>}
-                {current ? (
-                  <span className="stack-nav-title" aria-current="page">
-                    {entry.title}
-                  </span>
-                ) : (
-                  <Link href={`/prs/${entry.uuid}`} className="stack-nav-title">
-                    {entry.title}
-                  </Link>
-                )}
-                <code className="stack-nav-ref">{entry.head_ref}</code>
-                <span className="stack-nav-status" style={{ color: status.color }}>
-                  {status.label}
-                </span>
-              </div>
-              {parent && (
-                <div className="stack-nav-stale">
-                  <AlertTriangle size={12} />
-                  Needs restack onto <code>{parent.head_ref}</code> -{' '}
-                  <CopyableText
-                    text={`claude-reviewer restack ${parent.uuid}`}
-                    title="Copy the restack command"
-                  >
-                    <code>claude-reviewer restack {parent.uuid}</code>
-                  </CopyableText>
+              <StackRail depth={entry.depth} {...guides[index]} />
+              <GitPullRequest
+                size={16}
+                className="stack-row-icon"
+                style={{ color: status.color }}
+              />
+              <div className="stack-row-body">
+                <div className="stack-row-title">
+                  {current ? (
+                    <>
+                      <span className="title" aria-current="page">
+                        {entry.title}
+                      </span>
+                      <span className="stack-row-you">This PR</span>
+                    </>
+                  ) : (
+                    <Link href={`/prs/${entry.uuid}/stack`}>{entry.title}</Link>
+                  )}
                 </div>
-              )}
+                <div className="stack-row-meta">
+                  <span>#{entry.uuid}</span>
+                  <span>
+                    {entry.base_ref} ← {entry.head_ref}
+                  </span>
+                </div>
+                {parent && (
+                  <div className="stack-row-stale">
+                    <AlertTriangle size={13} />
+                    {parent.head_ref} has moved on - restack with
+                    <CopyableText
+                      text={`claude-reviewer restack ${parent.uuid}`}
+                      title="Copy the restack command"
+                    >
+                      <code>claude-reviewer restack {parent.uuid}</code>
+                    </CopyableText>
+                  </div>
+                )}
+              </div>
+              <span className="stack-row-status" style={{ color: status.color }}>
+                {status.label}
+              </span>
             </li>
           );
         })}
       </ol>
-    </nav>
+      <p className="stack-panel-hint">
+        Stacks merge bottom-up. Merging a PR points the ones stacked on it at its base branch.
+      </p>
+    </section>
   );
 }

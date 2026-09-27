@@ -1,4 +1,4 @@
-import { groupStacks, type StackablePR } from '../lib/stack-grouping';
+import { groupStacks, treeGuides, type StackablePR } from '../lib/stack-grouping';
 
 function pr(
   uuid: string,
@@ -59,5 +59,33 @@ describe('groupStacks', () => {
         .map(([uuid]) => uuid)
         .sort(),
     ).toEqual(['a', 'b']);
+  });
+});
+
+describe('treeGuides', () => {
+  test('marks pass-through lines, last siblings and rows with children', () => {
+    // a
+    // ├ b
+    // │ └ d
+    // └ c
+    expect(treeGuides([0, 1, 2, 1])).toEqual([
+      { guides: [], hasChildren: true },
+      { guides: [true], hasChildren: true },
+      { guides: [true, false], hasChildren: false },
+      { guides: [false], hasChildren: false },
+    ]);
+  });
+
+  test('a chain ends every line at its last row', () => {
+    expect(treeGuides([0, 1, 2]).map((g) => g.guides)).toEqual([[], [false], [false, false]]);
+  });
+
+  test('groupStacks returns the guides with each row', () => {
+    const rows = groupStacks([pr('a', 'main', 'a'), pr('b', 'a', 'b'), pr('x', 'main', 'x')]);
+    expect(rows.map(({ pr, guides, hasChildren }) => [pr.uuid, guides, hasChildren])).toEqual([
+      ['a', [], true],
+      ['b', [false], false],
+      ['x', [], false],
+    ]);
   });
 });

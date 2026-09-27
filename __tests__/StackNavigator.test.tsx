@@ -46,7 +46,7 @@ describe('StackNavigator', () => {
 
     expect(screen.getByRole('link', { name: 'PR aaaa1111' })).toHaveAttribute(
       'href',
-      '/prs/aaaa1111',
+      '/prs/aaaa1111/stack',
     );
     expect(screen.queryByRole('link', { name: 'PR bbbb2222' })).toBeNull();
     expect(screen.getByText('PR bbbb2222')).toHaveAttribute('aria-current', 'page');
