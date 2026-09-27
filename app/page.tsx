@@ -13,6 +13,7 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 
+import StackRail from '@/components/StackRail';
 import { usePRsQuery } from '@/lib/queries/prs';
 import { groupStacks } from '@/lib/stack-grouping';
 
@@ -83,24 +84,27 @@ export default function Home() {
         </div>
       ) : (
         <div className="pr-list">
-          {groupStacks(prs).map(({ pr, depth }) => {
+          {groupStacks(prs).map(({ pr, depth, guides, hasChildren }) => {
             const config = statusConfig[pr.status];
             const StatusIcon = config.icon;
 
-            // A PR stacked on another in the list follows it, indented.
+            // A PR stacked on another in the list follows it, indented, with
+            // tree lines back to its parent.
             return (
               <Link
                 href={`/prs/${pr.uuid}`}
                 key={pr.uuid}
-                className={`pr-card${depth > 0 ? ' stacked' : ''}`}
-                style={depth > 0 ? { paddingLeft: `${1.25 + depth * 1.5}rem` } : undefined}
+                className="pr-card"
+                style={
+                  depth > 0
+                    ? { paddingLeft: `calc(1.25rem + ${depth} * var(--rail-step))` }
+                    : undefined
+                }
               >
+                {(depth > 0 || hasChildren) && (
+                  <StackRail depth={depth} guides={guides} hasChildren={hasChildren} />
+                )}
                 <div className="pr-card-main">
-                  {depth > 0 && (
-                    <span className="pr-stack-marker" title="Stacked on the PR above">
-                      └─
-                    </span>
-                  )}
                   <div className="pr-icon">
                     <GitPullRequest size={20} />
                   </div>
@@ -202,9 +206,14 @@ export default function Home() {
         }
 
         :global(.pr-card) {
+          --rail-x0: calc(1.25rem + 10px);
+          --rail-step: 2.25rem;
+          --rail-y: calc(1rem + 12px);
+          --rail-icon: 20px;
+          position: relative;
           display: flex;
           justify-content: space-between;
-          align-items: center;
+          align-items: flex-start;
           padding: 1rem 1.25rem;
           background: var(--bg-secondary, #161b22);
           text-decoration: none;
@@ -220,12 +229,7 @@ export default function Home() {
           display: flex;
           align-items: flex-start;
           gap: 1rem;
-        }
-
-        .pr-stack-marker {
-          color: #484f58;
-          margin-top: 2px;
-          margin-right: -0.5rem;
+          min-width: 0;
         }
 
         .pr-icon {
@@ -233,11 +237,16 @@ export default function Home() {
           margin-top: 2px;
         }
 
+        .pr-info {
+          min-width: 0;
+        }
+
         .pr-info h3 {
           font-size: 1rem;
           font-weight: 600;
           margin: 0 0 0.375rem;
           color: #58a6ff;
+          overflow-wrap: anywhere;
         }
 
         .pr-meta {
@@ -260,6 +269,9 @@ export default function Home() {
         }
 
         .pr-branch {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
           font-family: monospace;
           background: #21262d;
           padding: 0.125rem 0.5rem;
@@ -268,9 +280,11 @@ export default function Home() {
 
         .pr-card-status {
           display: flex;
+          flex-shrink: 0;
           flex-direction: column;
           align-items: flex-end;
           gap: 0.5rem;
+          margin-left: 0.75rem;
         }
 
         .status-badge {
@@ -282,11 +296,31 @@ export default function Home() {
           font-size: 0.75rem;
           font-weight: 500;
           color: white;
+          white-space: nowrap;
         }
 
         .pr-time {
           font-size: 0.75rem;
           color: #8b949e;
+        }
+
+        /* On a phone, drop the status under the details so the title keeps
+           the card's width, and keep a deep stack from eating it. */
+        @media (max-width: 600px) {
+          :global(.pr-card) {
+            --rail-step: 1.5rem;
+            flex-wrap: wrap;
+          }
+
+          .pr-card-main {
+            flex-basis: 100%;
+          }
+
+          .pr-card-status {
+            flex-direction: row;
+            align-items: center;
+            margin: 0.5rem 0 0 calc(20px + 1rem);
+          }
         }
       `}</style>
     </main>

@@ -71,7 +71,8 @@ import { insertSuggestion } from '@/lib/suggestions';
 
 export default function PRPage({ params }: { params: Promise<{ id: string; tab?: string[] }> }) {
   const { id, tab } = use(params);
-  const activeTab: PRViewTab = tab?.[0] === 'conversation' ? 'conversation' : 'files';
+  const activeTab: PRViewTab =
+    tab?.[0] === 'conversation' ? 'conversation' : tab?.[0] === 'stack' ? 'stack' : 'files';
   const router = useRouter();
   const confirm = useConfirm();
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
@@ -767,6 +768,11 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
   const commitQuery = buildQuery({ commit: selectedCommit, view });
   const filesHref = `/prs/${id}${commitQuery}`;
   const conversationHref = `/prs/${id}/conversation${commitQuery}`;
+  const stackTab = data.stack && {
+    href: `/prs/${id}/stack${commitQuery}`,
+    size: data.stack.length,
+    stale: data.stack.some((e) => e.stale),
+  };
 
   return (
     <main className="container pr-detail">
@@ -809,8 +815,6 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
         onDelete={deletePR}
       />
 
-      {data.stack && <StackNavigator stack={data.stack} currentUuid={pr.uuid} />}
-
       <div className="pr-tabbar">
         <div className="pr-tabbar-left">
           <PRTabs
@@ -819,6 +823,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
             conversationHref={conversationHref}
             filesCount={files.length}
             unresolvedCount={unresolvedCount}
+            stackTab={stackTab}
           />
           {activeTab === 'files' && (
             <>
@@ -879,7 +884,7 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
       </div>
 
       {/* Layout: Sidebar + Main */}
-      <div className={`pr-layout ${activeTab === 'conversation' ? 'single-column' : ''}`}>
+      <div className={`pr-layout ${activeTab !== 'files' ? 'single-column' : ''}`}>
         {activeTab === 'files' && (
           <PRSidebar
             files={files}
@@ -1005,6 +1010,14 @@ export default function PRPage({ params }: { params: Promise<{ id: string; tab?:
                   />
                 ))}
               </>
+            ) : activeTab === 'stack' ? (
+              // A /stack link can outlive the stack (its parent merged or
+              // closed), so say so rather than showing an empty tab.
+              data.stack ? (
+                <StackNavigator stack={data.stack} currentUuid={pr.uuid} />
+              ) : (
+                <p className="stack-panel-hint">This PR isn&apos;t part of a stack.</p>
+              )
             ) : (
               // PR-wide, deliberately not filtered by selectedCommit - the
               // Conversation tab always shows every thread regardless of which
